@@ -17,9 +17,7 @@ use super::sync_panel::SyncView;
 use super::updates::{Notice, Updates};
 use super::user_scripts::UserScriptsRunner;
 use super::{APP_NAME, bookmarks_bar, tab_strip, toolbar};
-use application::ports::PageSource;
-use domain::{ExtensionId, Extensions, TabId};
-use infrastructure::extension_hub::{Hub, HubHost, TabState};
+use infrastructure::extension_hub::{BrowserHub, Hub};
 
 /// What `main` runs once the window is gone (apply an update).
 pub type ExitSlot = Arc<Mutex<Option<ExitAction>>>;
@@ -47,71 +45,6 @@ pub struct AddOns {
     pub user_scripts: UserScriptsRunner,
     /// The browser side of the extension APIs (storage, messages, tabs...).
     pub hub: Hub,
-}
-
-/// What the hub sees of the browser.
-struct HubBridge<'a> {
-    browser: &'a mut Browser<WryEngine>,
-    extensions: &'a Extensions,
-}
-
-impl HubHost for HubBridge<'_> {
-    fn tabs(&self) -> Vec<TabState> {
-        let session = self.browser.session();
-        let active = session.active_id();
-        session
-            .tabs()
-            .iter()
-            .map(|t| TabState {
-                id: t.id(),
-                url: t
-                    .address()
-                    .map_or_else(|| "about:blank".to_owned(), |a| a.to_string()),
-                title: t.title().to_owned(),
-                active: Some(t.id()) == active,
-                loading: t.is_loading(),
-            })
-            .collect()
-    }
-
-    fn create_tab(&mut self, url: Option<&str>, active: bool) -> Option<TabId> {
-        let previous = self.browser.session().active_id();
-        let address = url.and_then(|u| domain::WebAddress::parse(u).ok());
-        let tab = self.browser.open_tab(address).ok()?;
-        if !active && let Some(previous) = previous {
-            self.browser.activate(previous);
-        }
-        Some(tab)
-    }
-
-    fn update_tab(&mut self, tab: TabId, url: Option<&str>, active: bool) {
-        if let Some(address) = url.and_then(|u| domain::WebAddress::parse(u).ok()) {
-            let _ = self.browser.engine_mut().navigate(tab, &address);
-        }
-        if active {
-            self.browser.activate(tab);
-        }
-    }
-
-    fn remove_tab(&mut self, tab: TabId) {
-        self.browser.close_tab(tab);
-    }
-
-    fn reload_tab(&mut self, tab: TabId) {
-        self.browser.engine_mut().reload(tab);
-    }
-
-    fn deliver(&mut self, to: &PageSource, message: &str) {
-        self.browser.engine_mut().reply_to_page(to, message);
-    }
-
-    fn run_in_tab(&mut self, tab: TabId, script: &str) {
-        self.browser.engine_mut().run_in_tab(tab, script);
-    }
-
-    fn extension_changed(&mut self, _id: &ExtensionId) {
-        self.browser.engine_mut().set_extensions(self.extensions);
-    }
 }
 
 /// History and session are written at most this often (and on exit).
@@ -331,7 +264,7 @@ impl BrowserApp {
     fn drain_engine_events(&mut self) {
         while let Ok(event) = self.events.try_recv() {
             if let EngineEvent::PageMessage { from, body } = &event {
-                let mut host = HubBridge {
+                let mut host = BrowserHub {
                     browser: &mut self.browser,
                     extensions: self.extensions.extensions(),
                 };
@@ -383,7 +316,7 @@ impl eframe::App for BrowserApp {
         self.drive_sync(ctx);
         self.extensions.poll(self.browser.engine_mut());
         self.user_scripts.poll(self.browser.engine_mut());
-        let mut host = HubBridge {
+        let mut host = BrowserHub {
             browser: &mut self.browser,
             extensions: self.extensions.extensions(),
         };

@@ -8,8 +8,9 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use application::ports::PageSource;
-use domain::{ExtensionId, TabId, UrlPattern};
+use application::Browser;
+use application::ports::{PageSource, WebEngine};
+use domain::{ExtensionId, Extensions, TabId, UrlPattern, WebAddress};
 use serde_json::{Map, Value, json};
 
 use crate::extensions::state::ExtensionState;
@@ -39,6 +40,72 @@ pub trait HubHost {
     fn run_in_tab(&mut self, tab: TabId, script: &str);
     /// Extension `id` changed its rules or registered scripts.
     fn extension_changed(&mut self, id: &ExtensionId);
+}
+
+/// [`HubHost`] on a [`Browser`]: what the desktop and Android use.
+pub struct BrowserHub<'a, E: WebEngine> {
+    pub browser: &'a mut Browser<E>,
+    /// The installed extensions (to rebuild their rules and scripts).
+    pub extensions: &'a Extensions,
+}
+
+impl<E: WebEngine> HubHost for BrowserHub<'_, E> {
+    fn tabs(&self) -> Vec<TabState> {
+        let session = self.browser.session();
+        let active = session.active_id();
+        session
+            .tabs()
+            .iter()
+            .map(|t| TabState {
+                id: t.id(),
+                url: t
+                    .address()
+                    .map_or_else(|| "about:blank".to_owned(), |a| a.to_string()),
+                title: t.title().to_owned(),
+                active: Some(t.id()) == active,
+                loading: t.is_loading(),
+            })
+            .collect()
+    }
+
+    fn create_tab(&mut self, url: Option<&str>, active: bool) -> Option<TabId> {
+        let previous = self.browser.session().active_id();
+        let address = url.and_then(|u| WebAddress::parse(u).ok());
+        let tab = self.browser.open_tab(address).ok()?;
+        if !active && let Some(previous) = previous {
+            self.browser.activate(previous);
+        }
+        Some(tab)
+    }
+
+    fn update_tab(&mut self, tab: TabId, url: Option<&str>, active: bool) {
+        if let Some(address) = url.and_then(|u| WebAddress::parse(u).ok()) {
+            let _ = self.browser.engine_mut().navigate(tab, &address);
+        }
+        if active {
+            self.browser.activate(tab);
+        }
+    }
+
+    fn remove_tab(&mut self, tab: TabId) {
+        self.browser.close_tab(tab);
+    }
+
+    fn reload_tab(&mut self, tab: TabId) {
+        self.browser.engine_mut().reload(tab);
+    }
+
+    fn deliver(&mut self, to: &PageSource, message: &str) {
+        self.browser.engine_mut().reply_to_page(to, message);
+    }
+
+    fn run_in_tab(&mut self, tab: TabId, script: &str) {
+        self.browser.engine_mut().run_in_tab(tab, script);
+    }
+
+    fn extension_changed(&mut self, _id: &ExtensionId) {
+        self.browser.engine_mut().set_extensions(self.extensions);
+    }
 }
 
 /// A request waiting for answers (messages) or a result (scripts).

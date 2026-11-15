@@ -35,8 +35,12 @@ binaire reste petit et le moteur profite des mises à jour de sécurité de l'OS
   - Android, macOS, Linux : le navigateur applique leurs règles de blocage
     (`declarativeNetRequest`) : bloqueurs de pub et de pistage. Sur WebKit
     elles sont converties au format des *content blockers* de Safari.
-  - Android, macOS, Linux : leurs scripts de page (`content_scripts`) tournent
-    aussi, avec `chrome.storage`, `chrome.i18n` et `chrome.runtime`.
+  - Android, macOS, Linux : leurs scripts de page, leur page de fond et leur
+    popup tournent aussi ; le navigateur fournit une grande partie des API
+    `chrome.*` (`storage`, `runtime`, `tabs`, `scripting`,
+    `declarativeNetRequest`, `alarms`, `i18n`…). Le popup s'ouvre dans le
+    panneau latéral et voit l'onglet actif. `BU_EXTENSIONS=builtin` fait de
+    même sous Windows à la place de WebView2.
   - La suite (un moteur d'extensions complet pour toutes les plateformes) est
     décrite dans [`docs/extensions.md`](docs/extensions.md)
 - 📜 Scripts utilisateur (Greasemonkey / Tampermonkey) partout : adresse d'un

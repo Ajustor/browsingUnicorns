@@ -5,9 +5,15 @@ use data_encoding::BASE64;
 
 use super::*;
 
-/// Records what Rust asks of the WebViews; the page scripts apart.
+/// Records what Rust asks of the WebViews; the page scripts, the messages
+/// to pages and the background pages apart.
 #[derive(Default)]
-struct FakeHost(Mutex<Vec<String>>, Mutex<Vec<String>>);
+struct FakeHost(
+    Mutex<Vec<String>>,
+    Mutex<Vec<String>>,
+    Mutex<Vec<(PageTarget, String)>>,
+    Mutex<Vec<BackgroundPage>>,
+);
 
 impl WebViewHost for FakeHost {
     fn open_view(&self, tab: u64, url: String) {
@@ -33,6 +39,26 @@ impl WebViewHost for FakeHost {
     }
     fn set_page_scripts(&self, scripts: Vec<String>) {
         *self.1.lock().unwrap() = scripts;
+    }
+    fn post_to_page(&self, target: PageTarget, script: String) {
+        self.2.lock().unwrap().push((target, script));
+    }
+    fn set_backgrounds(&self, pages: Vec<BackgroundPage>) {
+        *self.3.lock().unwrap() = pages;
+    }
+    fn show_panel(&self, url: Option<String>) {
+        self.0.lock().unwrap().push(format!("panel {url:?}"));
+    }
+}
+
+impl FakeHost {
+    /// The last message posted to a page, without the hook call around it.
+    fn last_reply(&self) -> String {
+        let (_, script) = self.2.lock().unwrap().last().cloned().unwrap();
+        script
+            .trim_start_matches("window.__buReply && window.__buReply(")
+            .trim_end_matches(')')
+            .to_owned()
     }
 }
 
@@ -275,6 +301,13 @@ fn extensions_block_requests() {
         ))
         .unwrap();
     assert_eq!(name, "Blocker 1");
+    // Its files, for the WebViews.
+    let file = b
+        .extension_resource(format!("https://{id}.bu-ext.invalid/war/noop.js"))
+        .unwrap();
+    assert_eq!(file.mime_type, "text/javascript");
+    assert_eq!(file.data, b"(function(){})();");
+    assert!(b.extension_resource("https://example.com/".into()).is_none());
     assert_eq!(b.extensions().len(), 1);
     assert_eq!(
         intercept("https://cdn.ads.test/x.png", None),
@@ -368,13 +401,22 @@ fn user_scripts_run_in_pages_with_their_storage() {
         .unwrap()
         .to_owned();
     let id = b.user_scripts()[0].id.clone();
+    let tab = PageTarget::Tab { tab: 1 };
     let set = format!(r#"{{"t":"{token}","id":1,"owner":"us:{id}","op":"set","items":{{"n":1}}}}"#);
-    assert_eq!(b.page_message(set), r#"{"id":1,"result":null}"#);
+    b.page_message(tab.clone(), set);
+    assert_eq!(host.last_reply(), r#"{"id":1,"result":null}"#);
     let get = format!(r#"{{"t":"{token}","id":2,"owner":"us:{id}","op":"get"}}"#);
-    assert_eq!(b.page_message(get), r#"{"id":2,"result":{"n":1}}"#);
+    b.page_message(tab.clone(), get);
+    assert_eq!(host.last_reply(), r#"{"id":2,"result":{"n":1}}"#);
+    let posted = host.2.lock().unwrap().len();
+    b.page_message(
+        tab,
+        r#"{"t":"guess","id":3,"owner":"us:x","op":"get"}"#.into(),
+    );
     assert_eq!(
-        b.page_message(r#"{"t":"guess","id":3,"owner":"us:x","op":"get"}"#.into()),
-        ""
+        host.2.lock().unwrap().len(),
+        posted,
+        "no answer to a stranger"
     );
 
     b.set_user_script_enabled(id.clone(), false).unwrap();

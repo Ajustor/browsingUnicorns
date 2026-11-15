@@ -4,6 +4,23 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [Unreleased]
+
+### Ajouté
+
+- Pages de fond des extensions (service worker MV3 ou scripts MV2) sur
+  Android, macOS et Linux, avec les messages entre scripts de page, page de
+  fond et popup (`runtime.sendMessage`, `tabs.sendMessage`), `tabs.*`,
+  `scripting.*` (`executeScript`, `insertCSS`, `registerContentScripts`),
+  `declarativeNetRequest` (jeux de règles, règles dynamiques et de session),
+  `alarms`, `storage.onChanged`, `tabs.on*`, `runtime.onInstalled`.
+- Popup des extensions dans le panneau latéral (une fenêtre sur Android), qui
+  voit l'onglet actif ; pages d'options dans un onglet. Les fichiers des
+  extensions sont servis sur leur propre origine (`runtime.getURL`).
+- `BU_EXTENSIONS=builtin` : sous Windows, faire tourner les extensions par le
+  navigateur au lieu de WebView2 (pour essayer ce que font les autres
+  plateformes).
+
 ## [0.3.2] - 2026-11-15
 
 ### Ajouté

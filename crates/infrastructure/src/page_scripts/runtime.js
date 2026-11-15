@@ -57,10 +57,10 @@ let post;
 if (BRIDGE === "android") {
   const bridge = window.BUBridge;
   post = (msg) => {
+    if (!bridge) return deliver({ id: msg.id, error: "no bridge" });
     try {
-      const text = bridge ? bridge.call(JSON.stringify(msg)) : "";
-      if (text) deliver(JSON.parse(text));
-      else deliver({ id: msg.id, error: "no bridge" });
+      // The answer comes back through the hook, like on the desktop.
+      bridge.call(JSON.stringify(msg));
     } catch (e) {
       deliver({ id: msg.id, error: String(e) });
     }

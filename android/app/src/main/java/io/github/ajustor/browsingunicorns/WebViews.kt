@@ -22,14 +22,17 @@ import java.util.concurrent.ConcurrentHashMap
 import androidx.webkit.ScriptHandler
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import uniffi.mobile.BackgroundPage
 import uniffi.mobile.Interception
 import uniffi.mobile.MobileBrowser
+import uniffi.mobile.PageTarget
 import uniffi.mobile.WebViewHost
 
 /**
  * The engine side of the browser on Android: one WebView per tab, kept in
- * [container], only the active one visible. The Rust core decides what to
- * open and show (WebViewHost); the WebViews report back what happens.
+ * [container], only the active one visible; hidden ones for the extensions'
+ * background pages, and one for an extension popup. The Rust core decides
+ * what to open and show (WebViewHost); the WebViews report back what happens.
  */
 class WebViews(private val context: Context) : WebViewHost {
     val container = FrameLayout(context)
@@ -43,10 +46,88 @@ class WebViews(private val context: Context) : WebViewHost {
     private val injected = HashMap<ULong, List<ScriptHandler>>()
     private val documentStart = WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
 
-    /** The page scripts' bridge to the Rust core (their storage); guarded by a token. */
-    private inner class Bridge {
+    /** The extensions' background pages, by extension id. */
+    private val backgrounds = HashMap<String, WebView>()
+
+    /** The extension popup shown, if any. */
+    var panel: WebView? = null
+        private set
+
+    /** Called when the popup opens or closes. */
+    var onPanel: (WebView?) -> Unit = {}
+
+    /** The page scripts' bridge to the Rust core, for the WebView of [target]; guarded by a token. */
+    private inner class Bridge(private val target: PageTarget) {
         @JavascriptInterface
-        fun call(message: String): String = runCatching { browser.pageMessage(message) }.getOrDefault("")
+        fun call(message: String): String = runCatching { browser.pageMessage(target, message) }.getOrDefault("")
+    }
+
+    /** An extension's file, when [url] is one (`https://<id>.bu-ext.invalid/…`). */
+    private fun extensionFile(url: String): WebResourceResponse? {
+        val host = android.net.Uri.parse(url).host ?: return null
+        if (!host.endsWith(".bu-ext.invalid")) return null
+        val file = runCatching { browser.extensionResource(url) }.getOrNull()
+            ?: return WebResourceResponse("text/plain", "utf-8", 404, "Not found", emptyMap(), ByteArrayInputStream(ByteArray(0)))
+        return WebResourceResponse(
+            file.mimeType,
+            "utf-8",
+            200,
+            "OK",
+            mapOf("Access-Control-Allow-Origin" to "*"),
+            ByteArrayInputStream(file.data),
+        )
+    }
+
+    override fun postToPage(target: PageTarget, script: String) {
+        container.post {
+            val view = when (target) {
+                is PageTarget.Tab -> views[target.tab]
+                is PageTarget.Background -> backgrounds[target.extension]
+                is PageTarget.Panel -> panel
+            }
+            view?.evaluateJavascript(script, null)
+        }
+    }
+
+    override fun setBackgrounds(pages: List<BackgroundPage>) {
+        container.post {
+            val wanted = pages.associate { it.extension to it.url }
+            for (id in backgrounds.keys.filter { it !in wanted }) {
+                backgrounds.remove(id)?.let {
+                    container.removeView(it)
+                    it.destroy()
+                }
+            }
+            for ((id, url) in wanted) {
+                if (id in backgrounds) continue
+                val view = extensionView(PageTarget.Background(id))
+                // Attached (scripts and timers run) but out of sight.
+                view.visibility = View.INVISIBLE
+                container.addView(view, FrameLayout.LayoutParams(1, 1))
+                backgrounds[id] = view
+                view.loadUrl(url)
+            }
+        }
+    }
+
+    override fun showPanel(url: String?) {
+        container.post {
+            panel?.destroy()
+            panel = url?.let { extensionView(PageTarget.Panel).apply { loadUrl(it) } }
+            onPanel(panel)
+        }
+    }
+
+    /** A WebView for an extension's own pages (background, popup). */
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun extensionView(target: PageTarget): WebView = WebView(context).apply {
+        settings.javaScriptEnabled = true
+        settings.domStorageEnabled = true
+        addJavascriptInterface(Bridge(target), "BUBridge")
+        webViewClient = object : WebViewClient() {
+            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
+                extensionFile(request.url.toString())
+        }
     }
 
     override fun setPageScripts(scripts: List<String>) {
@@ -133,7 +214,7 @@ class WebViews(private val context: Context) : WebViewHost {
         settings.setSupportMultipleWindows(true)
         settings.builtInZoomControls = true
         settings.displayZoomControls = false
-        addJavascriptInterface(Bridge(), "BUBridge")
+        addJavascriptInterface(Bridge(PageTarget.Tab(tab)), "BUBridge")
         webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
                 pages[tab] = url
@@ -156,6 +237,7 @@ class WebViews(private val context: Context) : WebViewHost {
 
             // The extensions' network rules (ad and tracker blockers).
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
+                extensionFile(request.url.toString())?.let { return it }
                 val headers = request.requestHeaders
                 val verdict = runCatching {
                     browser.intercept(

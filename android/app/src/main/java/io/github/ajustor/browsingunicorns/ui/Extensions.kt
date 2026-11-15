@@ -50,8 +50,8 @@ fun ExtensionsScreen(c: BrowserController) {
             item {
                 InstallField(
                     c,
-                    intro = "From the Chrome Web Store: their blocking rules (ad and tracker blockers) and " +
-                        "page scripts run here; their popups and background pages do not.",
+                    intro = "From the Chrome Web Store: their blocking rules, page scripts, background pages " +
+                        "and popups run here, without the extension toolbar.",
                     label = "Chrome Web Store link or extension id",
                     siteLabel = "Chrome Web Store",
                     site = "https://chromewebstore.google.com/",
@@ -62,7 +62,10 @@ fun ExtensionsScreen(c: BrowserController) {
             items(c.extensions, key = { "ext:" + it.id }) { e ->
                 AddOnRow(e.name, e.version, e.description, e.enabled,
                     onEnabled = { c.setExtensionEnabled(e.id, it) },
-                    onRemove = { c.removeExtension(e.id) })
+                    onRemove = { c.removeExtension(e.id) }) {
+                    if (e.hasPopup) TextButton(onClick = { c.openPopup(e.id, e.name) }, enabled = e.enabled) { Text("Popup") }
+                    if (e.hasOptions) TextButton(onClick = { c.openOptions(e.id) }, enabled = e.enabled) { Text("Options") }
+                }
             }
             item {
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
@@ -143,6 +146,7 @@ private fun AddOnRow(
     enabled: Boolean,
     onEnabled: (Boolean) -> Unit,
     onRemove: () -> Unit,
+    actions: @Composable () -> Unit = {},
 ) {
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -153,6 +157,7 @@ private fun AddOnRow(
             if (description.isNotEmpty()) {
                 Text(description, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
+            Row { actions() }
         }
         Switch(checked = enabled, onCheckedChange = onEnabled)
         IconButton(onClick = onRemove) {

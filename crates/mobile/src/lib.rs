@@ -18,7 +18,10 @@ use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 use application::sync::sync_round;
 use application::{Browser, ExtensionManager, Target, UserScriptManager};
 use domain::{RuleSet, TabId, WebAddress};
+use infrastructure::extension_hub::{BrowserHub, Hub};
+use infrastructure::extension_server::{ExtensionServer, Origins};
 use infrastructure::extensions::ExtensionFolder;
+use infrastructure::page_scripts::Bridge;
 use infrastructure::script_storage::{ScriptStorage, new_token};
 use infrastructure::sync::{
     EncryptedSyncStore, SyncConfig, SyncConfigFile, SyncKey, new_device_id,
@@ -26,9 +29,9 @@ use infrastructure::sync::{
 use infrastructure::user_scripts::{UserScriptFolder, UserScriptRepository};
 use infrastructure::{JsonRepository, SystemClock, TomlSettingsRepository};
 
-pub use extensions::{ExtensionInfo, Interception, UserScriptInfo};
+pub use extensions::{ExtensionInfo, ExtensionResource, Interception, UserScriptInfo};
+pub use host::{BackgroundPage, PageTarget, SyncHttp, WebViewHost};
 use host::{HostEngine, HostTransport};
-pub use host::{SyncHttp, WebViewHost};
 
 uniffi::setup_scaffolding!();
 
@@ -131,8 +134,11 @@ pub struct MobileBrowser {
     extensions: Mutex<ExtensionManager>,
     /// Locked before `inner` when both are.
     user_scripts: Mutex<UserScriptManager>,
-    /// Storage of the page scripts (chrome.storage, GM_setValue).
-    script_storage: Mutex<ScriptStorage>,
+    /// The browser side of the extension APIs (storage, messages, tabs).
+    /// Locked before `inner`, after `extensions`.
+    hub: Mutex<Hub>,
+    /// Serves the extensions' files.
+    server: Arc<ExtensionServer>,
     /// The extensions' network rules, read for every request.
     rules: Arc<RwLock<RuleSet>>,
     extensions_dir: PathBuf,
@@ -165,10 +171,19 @@ impl MobileBrowser {
         self.user_scripts.lock().unwrap_or_else(|p| p.into_inner())
     }
 
-    fn storage_lock(&self) -> MutexGuard<'_, ScriptStorage> {
-        self.script_storage
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
+    fn hub_lock(&self) -> MutexGuard<'_, Hub> {
+        self.hub.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// `tabs.on*` events for the extensions, after the tabs changed.
+    fn hub_tick(&self) {
+        let extensions = self.extensions_lock().extensions().clone();
+        let mut hub = self.hub_lock();
+        let mut inner = self.lock();
+        hub.tabs_changed(&mut BrowserHub {
+            browser: &mut inner.browser,
+            extensions: &extensions,
+        });
     }
 
     fn store(&self, config: &SyncConfig) -> EncryptedSyncStore<HostTransport> {
@@ -224,15 +239,24 @@ impl MobileBrowser {
         let extensions_dir = dir.join("extensions");
         let user_scripts_dir = dir.join("userscripts");
         let page_token = new_token();
+        let state_dir = dir.join("extension-state");
+        let server = ExtensionServer::new(
+            dir.join("extensions"),
+            state_dir.join("versions.json"),
+            page_token.clone(),
+            Origins::Android,
+            Bridge::Android,
+        );
         let engine = HostEngine {
             host,
             rules: rules.clone(),
             extensions_dir: extensions_dir.clone(),
-            state_dir: dir.join("extension-state"),
+            state_dir: state_dir.clone(),
             user_scripts_dir: user_scripts_dir.clone(),
             page_token: page_token.clone(),
             extensions: Default::default(),
             user_scripts: Default::default(),
+            server: server.clone(),
         };
         let mut browser = Browser::new(engine, initial, profile);
         let _ = browser.load_profile();
@@ -289,7 +313,12 @@ impl MobileBrowser {
             browser.engine_mut(),
             user_scripts.scripts(),
         );
-        let script_storage = ScriptStorage::new(dir.join("script-storage"), page_token);
+        let hub = Hub::new(
+            ScriptStorage::new(dir.join("script-storage"), page_token),
+            Bridge::Android,
+            extensions_dir.clone(),
+            state_dir,
+        );
         let sync_file = SyncConfigFile::new(dir.join("sync.json"));
         let sync = sync_file.load();
         Arc::new(Self {
@@ -301,7 +330,8 @@ impl MobileBrowser {
             }),
             extensions: Mutex::new(extensions),
             user_scripts: Mutex::new(user_scripts),
-            script_storage: Mutex::new(script_storage),
+            hub: Mutex::new(hub),
+            server,
             rules,
             extensions_dir,
             sync_file,
@@ -360,10 +390,12 @@ impl MobileBrowser {
 
     pub fn close_tab(&self, id: u64) {
         self.lock().browser.close_tab(TabId::new(id));
+        self.hub_tick();
     }
 
     pub fn activate(&self, id: u64) {
         self.lock().browser.activate(TabId::new(id));
+        self.hub_tick();
     }
 
     /// What was typed in the address bar: address, host name or search.
@@ -440,6 +472,7 @@ impl MobileBrowser {
                 tab: TabId::new(tab),
                 title,
             });
+        self.hub_tick();
     }
 
     /// A page asked for a new window.
@@ -615,6 +648,7 @@ impl MobileBrowser {
         if let Ok(address) = WebAddress::parse(url) {
             let _ = self.lock().browser.handle(make(TabId::new(tab), address));
         }
+        self.hub_tick();
     }
 }
 

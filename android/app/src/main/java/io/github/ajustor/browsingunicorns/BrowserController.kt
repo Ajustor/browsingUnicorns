@@ -40,11 +40,35 @@ class BrowserController(val browser: MobileBrowser, val views: WebViews, private
     var userScripts by mutableStateOf<List<UserScriptInfo>>(emptyList())
         private set
 
+    /** The extension popup shown, and its title. */
+    var popup by mutableStateOf<android.webkit.WebView?>(null)
+        private set
+    var popupTitle by mutableStateOf("")
+        private set
+
     private var lastSync = 0L
 
     init {
         views.onChange = ::refresh
         views.onProgress = { progress = it }
+        views.onPanel = { popup = it }
+    }
+
+    /** Shows an extension's popup; it sees the active tab. */
+    fun openPopup(id: String, name: String) {
+        val url = browser.extensionPopupUrl(id) ?: return
+        popupTitle = name
+        views.showPanel(url)
+    }
+
+    fun closePopup() {
+        views.showPanel(null)
+        browser.extensionPopupClosed()
+    }
+
+    fun openOptions(id: String) {
+        val url = browser.extensionOptionsUrl(id) ?: return
+        open(url, newTab = true)
     }
 
     fun refresh() {

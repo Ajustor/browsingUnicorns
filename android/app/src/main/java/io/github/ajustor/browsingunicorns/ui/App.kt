@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -73,6 +74,7 @@ fun App(c: BrowserController) {
                 Screen.Sync -> SyncScreen(c)
                 Screen.Extensions -> ExtensionsScreen(c)
             }
+            c.popup?.let { ExtensionPopup(c, it) }
         }
     }
 }
@@ -206,3 +208,27 @@ private fun BottomBar(c: BrowserController) {
         }
     }
 }
+
+/** An extension's popup, over the browser (it sees the active tab). */
+@Composable
+private fun ExtensionPopup(c: BrowserController, view: android.webkit.WebView) {
+    androidx.compose.ui.window.Dialog(onDismissRequest = { c.closePopup() }) {
+        Surface(shape = RoundedCornerShape(16.dp), tonalElevation = 6.dp) {
+            Column(Modifier.fillMaxWidth()) {
+                Text(
+                    c.popupTitle,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(16.dp),
+                )
+                AndroidView(
+                    factory = {
+                        (view.parent as? ViewGroup)?.removeView(view)
+                        view
+                    },
+                    modifier = Modifier.fillMaxWidth().height(480.dp),
+                )
+            }
+        }
+    }
+}
+

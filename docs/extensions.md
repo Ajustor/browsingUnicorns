@@ -148,8 +148,19 @@ afficher correctement.
    le monde de la page), `runtime.sendMessage` sans réponse tant qu'il n'y a
    pas de page de fond, `runtime.getURL` sans fichiers servis hors Windows,
    pas de stockage depuis les iframes sous Windows.
-3. **Fond et popup/options dans le panneau** : web views cachées, protocole
-   `bu-ext://`, polyfill complet.
+3. ✅ **Fond et popup/options** (`extension_server`, `extension_hub`,
+   `extensions::state`) : fichiers servis sur l'origine de chaque extension
+   (`bu-ext://<id>/`, `http://bu-ext.<id>/` sous Windows,
+   `https://<id>.bu-ext.invalid/` sur Android), le runtime n'étant donné
+   qu'aux pages que le serveur vient de servir (nonce à usage unique) ; page
+   de fond dans une vue cachée (service worker exécuté comme une page,
+   `importScripts` synchrone) ; un hub côté Rust route les messages et répond
+   à `tabs`, `scripting`, `declarativeNetRequest` (jeux de règles et règles
+   dynamiques gardés dans le profil et appliqués au blocage), diffuse
+   `storage.onChanged` et `tabs.on*`. Le popup s'affiche dans le panneau
+   latéral et voit le vrai onglet actif. Limites : pas de `runtime.connect`
+   (ports), pas d'`offscreen`, alarmes perdues au redémarrage, pas de badge ni
+   de menu contextuel, messages des iframes non routés sous Windows.
 4. **Rapport de compatibilité** à l'installation, **synchro** des extensions
    et de leurs réglages.
 5. Mises à jour automatiques des extensions (requête au Web Store comme

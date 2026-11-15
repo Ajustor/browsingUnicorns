@@ -4,13 +4,61 @@
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
-use application::ports::{EngineError, ExtensionSupport, SyncError, Viewport, WebEngine};
+use application::ports::{
+    EngineError, ExtensionSupport, PageSource, SyncError, Viewport, WebEngine,
+};
 use domain::{Extensions, RuleSet, TabId, UserScripts, WebAddress};
+use infrastructure::extension_server::ExtensionServer;
 use infrastructure::page_scripts::{Bridge, Sources, page_scripts};
 use infrastructure::sync::BlobTransport;
 use infrastructure::sync::relay_api::{decode_group, device_url, group_url};
 
 use crate::MobileError;
+
+/// Which WebView a page script message is for.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
+pub enum PageTarget {
+    Tab {
+        tab: u64,
+    },
+    /// The hidden WebView of an extension's background page.
+    Background {
+        extension: String,
+    },
+    /// The extension popup.
+    Panel,
+}
+
+impl From<&PageSource> for PageTarget {
+    fn from(source: &PageSource) -> Self {
+        match source {
+            PageSource::Tab(tab) => Self::Tab { tab: tab.get() },
+            PageSource::Background(id) => Self::Background {
+                extension: id.to_string(),
+            },
+            PageSource::Panel => Self::Panel,
+        }
+    }
+}
+
+impl PageTarget {
+    pub fn source(&self) -> Option<PageSource> {
+        Some(match self {
+            Self::Tab { tab } => PageSource::Tab(TabId::new(*tab)),
+            Self::Background { extension } => {
+                PageSource::Background(domain::ExtensionId::parse(extension)?)
+            }
+            Self::Panel => PageSource::Panel,
+        })
+    }
+}
+
+/// An extension's background page, run in a hidden WebView.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct BackgroundPage {
+    pub extension: String,
+    pub url: String,
+}
 
 /// One Android WebView per tab, only the shown one visible.
 #[uniffi::export(with_foreign)]
@@ -27,6 +75,13 @@ pub trait WebViewHost: Send + Sync {
     /// WebView from now on (they replace the previous ones). May be called
     /// from any thread.
     fn set_page_scripts(&self, scripts: Vec<String>);
+    /// Runs `script` in `target`'s page. May be called from any thread.
+    fn post_to_page(&self, target: PageTarget, script: String);
+    /// The background pages to keep running (the others are closed). May
+    /// be called from any thread.
+    fn set_backgrounds(&self, pages: Vec<BackgroundPage>);
+    /// Shows an extension popup (`None`: closes it).
+    fn show_panel(&self, url: Option<String>);
 }
 
 /// HTTP for the sync relay. Blocking: called from a background thread.
@@ -54,6 +109,8 @@ pub struct HostEngine {
     pub page_token: String,
     pub extensions: Extensions,
     pub user_scripts: UserScripts,
+    /// Serves the extensions' files (`https://<id>.bu-ext.invalid/`).
+    pub server: Arc<ExtensionServer>,
 }
 
 impl HostEngine {
@@ -111,7 +168,36 @@ impl WebEngine for HostEngine {
         );
         *self.rules.write().unwrap_or_else(|p| p.into_inner()) = rules;
         self.extensions = extensions.clone();
+        self.server.set_extensions(extensions);
         self.send_page_scripts();
+        let pages = extensions
+            .items()
+            .iter()
+            .filter(|e| e.enabled)
+            .filter_map(|e| {
+                Some(BackgroundPage {
+                    extension: e.id.to_string(),
+                    url: self.server.background_url(&e.id)?,
+                })
+            })
+            .collect();
+        self.host.set_backgrounds(pages);
+    }
+
+    fn reply_to_page(&mut self, to: &PageSource, message: &str) {
+        self.host.post_to_page(
+            to.into(),
+            format!("window.__buReply && window.__buReply({message})"),
+        );
+    }
+
+    fn run_in_tab(&mut self, tab: TabId, script: &str) {
+        self.host
+            .post_to_page(PageTarget::Tab { tab: tab.get() }, script.to_owned());
+    }
+
+    fn show_panel_page(&mut self, url: Option<&str>, _area: Viewport) {
+        self.host.show_panel(url.map(str::to_owned));
     }
 
     fn set_user_scripts(&mut self, scripts: &UserScripts) {

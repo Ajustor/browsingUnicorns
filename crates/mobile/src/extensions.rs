@@ -8,7 +8,10 @@ use application::ports::ExtensionSource;
 use domain::{ExtensionId, Request, ResourceType, UserScriptId, Verdict};
 use infrastructure::extensions::extension_dir;
 
-use crate::{MobileBrowser, MobileError};
+use infrastructure::extension_hub::BrowserHub;
+use infrastructure::extension_server::Origins;
+
+use crate::{MobileBrowser, MobileError, PageTarget};
 
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct ExtensionInfo {
@@ -17,6 +20,14 @@ pub struct ExtensionInfo {
     pub version: String,
     pub description: String,
     pub enabled: bool,
+    pub has_popup: bool,
+    pub has_options: bool,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct ExtensionResource {
+    pub mime_type: String,
+    pub data: Vec<u8>,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -96,6 +107,8 @@ impl MobileBrowser {
                 version: e.version.clone(),
                 description: e.description.clone(),
                 enabled: e.enabled,
+                has_popup: e.popup.is_some(),
+                has_options: e.options.is_some(),
             })
             .collect()
     }
@@ -131,7 +144,7 @@ impl MobileBrowser {
         manager
             .remove(&id, self.lock().browser.engine_mut())
             .map_err(MobileError::new)?;
-        self.storage_lock().forget(&format!("ext:{id}"));
+        self.hub_lock().forget(&format!("ext:{id}"));
         Ok(())
     }
 
@@ -177,14 +190,58 @@ impl MobileBrowser {
         manager
             .remove(&id, self.lock().browser.engine_mut())
             .map_err(MobileError::new)?;
-        self.storage_lock().forget(&format!("us:{id}"));
+        self.hub_lock().forget(&format!("us:{id}"));
         Ok(())
     }
 
-    /// A message of the page scripts (`BUBridge.call`); the reply, or an
-    /// empty string for a message that is not theirs.
-    pub fn page_message(&self, message: String) -> String {
-        self.storage_lock().handle(&message).unwrap_or_default()
+    /// A message of the page scripts of `from` (`BUBridge.call`). The
+    /// answer comes back through `WebViewHost::post_to_page`.
+    pub fn page_message(&self, from: PageTarget, message: String) -> String {
+        let Some(source) = from.source() else {
+            return String::new();
+        };
+        let extensions = self.extensions_lock().extensions().clone();
+        let mut hub = self.hub_lock();
+        let mut inner = self.lock();
+        hub.handle(
+            &source,
+            &message,
+            &mut BrowserHub {
+                browser: &mut inner.browser,
+                extensions: &extensions,
+            },
+        );
+        String::new()
+    }
+
+    /// A file of an extension (`https://<id>.bu-ext.invalid/…`), for the
+    /// WebViews' `shouldInterceptRequest`; `None` for any other address.
+    pub fn extension_resource(&self, url: String) -> Option<ExtensionResource> {
+        self.server.serve(&url).map(|r| ExtensionResource {
+            mime_type: r.mime.split(';').next().unwrap_or(r.mime).to_owned(),
+            data: r.body,
+        })
+    }
+
+    /// The address of an extension's popup, to show in a panel.
+    pub fn extension_popup_url(&self, id: String) -> Option<String> {
+        let id = ExtensionId::parse(&id)?;
+        let manager = self.extensions_lock();
+        let e = manager.extensions().get(&id)?;
+        Some(Origins::Android.url(&id, e.popup.as_deref()?))
+    }
+
+    /// The address of an extension's options page, to open in a tab.
+    pub fn extension_options_url(&self, id: String) -> Option<String> {
+        let id = ExtensionId::parse(&id)?;
+        let manager = self.extensions_lock();
+        let e = manager.extensions().get(&id)?;
+        Some(Origins::Android.url(&id, e.options.as_deref()?))
+    }
+
+    /// The popup closed.
+    pub fn extension_popup_closed(&self) {
+        self.hub_lock().panel_closed();
     }
 
     /// What to do with a request of a WebView (`shouldInterceptRequest`):
