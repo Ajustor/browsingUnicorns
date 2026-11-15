@@ -10,7 +10,15 @@ description = "Adapters for the application ports: system web view, profile file
 default = ["desktop"]
 # The system web view (wry) and the HTTP sync transport. The Android app
 # brings its own WebView and HTTP client, and builds without it.
-desktop = ["dep:wry", "dep:raw-window-handle", "dep:gtk", "dep:ureq"]
+desktop = [
+    "dep:wry",
+    "dep:raw-window-handle",
+    "dep:gtk",
+    "dep:ureq",
+    "dep:zip",
+    "dep:webview2-com",
+    "dep:windows-core",
+]
 
 [dependencies]
 domain.workspace = true
@@ -29,10 +37,17 @@ wry = { version = "0.57", optional = true }
 raw-window-handle = { version = "0.6", optional = true }
 # `platform-verifier`: the system's certificates (corporate proxies...).
 ureq = { version = "3", features = ["platform-verifier"], optional = true }
+# Extensions: unpacking the .crx (a zip after a signed header).
+zip = { version = "9.6", default-features = false, features = ["deflate-flate2-zlib-rs"], optional = true }
 
 # A child web view on Linux needs GTK initialised and its loop advanced.
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = { version = "0.18", optional = true }
+
+# Managing the extensions of the WebView2 profile (same versions as wry).
+[target.'cfg(windows)'.dependencies]
+webview2-com = { version = "0.39", optional = true }
+windows-core = { version = "0.62", optional = true }
 
 [dev-dependencies]
 tempfile = "3"

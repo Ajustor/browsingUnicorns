@@ -27,9 +27,16 @@ binaire reste petit et le moteur profite des mises à jour de sécurité de l'OS
   historique, onglets ouverts, réglages) : onglet *Sync* du panneau latéral,
   appairage par code ou QR code, relais Cloudflare (`relay/sync`) qui ne voit
   que des données chiffrées
+- 🧩 Extensions Chrome (Windows) : onglet *Extensions* du panneau latéral,
+  installation par lien du Chrome Web Store, id ou fichier `.crx`, activation,
+  suppression ; popup et options s'ouvrent dans un onglet. WebView2 n'affiche
+  pas de bouton d'extension. La suite (un moteur d'extensions pour toutes les
+  plateformes) est décrite dans [`docs/extensions.md`](docs/extensions.md)
 - 💾 Profil dans `<data>/browsing-unicorns/` (`history.json`,
-  `bookmarks.json`, `session.json`), écrit au plus toutes les 5 s et à la
-  fermeture, par remplacement atomique
+  `bookmarks.json`, `session.json`, `extensions.json`, `webview/` pour les
+  données des pages), écrit au plus toutes les 5 s et à la fermeture, par
+  remplacement atomique. `BU_PROFILE_DIR` fait pointer l'appli vers un autre
+  profil (tests)
 - ⚙️ Page d'accueil et moteur de recherche réglables dans
   `<config>/browsing-unicorns/settings.toml`
 

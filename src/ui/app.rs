@@ -3,12 +3,13 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use application::Browser;
-use application::ports::{EngineEvent, Viewport};
+use application::ports::{EngineEvent, Viewport, WebEngine as _};
 use egui::{CentralPanel, Frame, TopBottomPanel, ViewportCommand};
 use infrastructure::WryEngine;
 use updater::ExitAction;
 
 use super::command::Command;
+use super::extensions::{ExtensionsRunner, ExtensionsView};
 use super::library::{Library, LibraryData};
 use super::omnibox::Omnibox;
 use super::sync::SyncRunner;
@@ -24,6 +25,7 @@ pub struct BrowserApp {
     events: Receiver<EngineEvent>,
     updates: Updates,
     sync: SyncRunner,
+    extensions: ExtensionsRunner,
     exit_slot: ExitSlot,
     omnibox: Omnibox,
     library: Library,
@@ -42,6 +44,7 @@ impl BrowserApp {
         events: Receiver<EngineEvent>,
         mut updates: Updates,
         sync: SyncRunner,
+        extensions: ExtensionsRunner,
         exit_slot: ExitSlot,
     ) -> Self {
         updates.check_if_due();
@@ -50,6 +53,7 @@ impl BrowserApp {
             events,
             updates,
             sync,
+            extensions,
             exit_slot,
             omnibox: Omnibox::default(),
             library: Library::default(),
@@ -94,6 +98,20 @@ impl BrowserApp {
             Command::SyncNow => {
                 self.sync.sync_now();
                 Ok(())
+            }
+            Command::InstallExtension(input) => {
+                self.extensions.install(&input);
+                Ok(())
+            }
+            Command::SetExtensionEnabled(id, enabled) => {
+                let r = self
+                    .extensions
+                    .set_enabled(&id, enabled, self.browser.engine_mut());
+                return self.report_err(r);
+            }
+            Command::RemoveExtension(id) => {
+                let r = self.extensions.remove(&id, self.browser.engine_mut());
+                return self.report_err(r);
             }
             other => {
                 self.run_ui(other);
@@ -160,7 +178,10 @@ impl BrowserApp {
             | Command::SyncTurnOn
             | Command::SyncJoin(_)
             | Command::SyncTurnOff
-            | Command::SyncNow => unreachable!("handled by run"),
+            | Command::SyncNow
+            | Command::InstallExtension(_)
+            | Command::SetExtensionEnabled(..)
+            | Command::RemoveExtension(_) => unreachable!("handled by run"),
         }
     }
 
@@ -216,6 +237,7 @@ impl eframe::App for BrowserApp {
         self.browser.engine().pump();
         self.drain_engine_events();
         self.drive_sync(ctx);
+        self.extensions.poll(self.browser.engine_mut());
         if let Some(notice) = self.updates.poll() {
             self.notice = Some(notice);
         }
@@ -253,6 +275,10 @@ impl eframe::App for BrowserApp {
                     config: self.sync.config(),
                     state: &self.sync.state,
                     devices: self.browser.remote_devices(),
+                },
+                extensions: ExtensionsView {
+                    supported: self.browser.engine().supports_extensions(),
+                    runner: &self.extensions,
                 },
             },
             &mut commands,

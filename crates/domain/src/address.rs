@@ -26,7 +26,8 @@ impl std::error::Error for AddressError {}
 
 impl WebAddress {
     /// Schemes a page may be loaded from.
-    pub const SCHEMES: &'static [&'static str] = &["http", "https", "file", "about"];
+    pub const SCHEMES: &'static [&'static str] =
+        &["http", "https", "file", "about", "chrome-extension"];
 
     pub fn parse(raw: &str) -> Result<Self, AddressError> {
         let url = Url::parse(raw.trim()).map_err(|_| AddressError::Invalid(raw.to_owned()))?;

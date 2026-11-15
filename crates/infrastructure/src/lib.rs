@@ -5,12 +5,16 @@
 
 mod clock;
 mod dto;
+#[cfg(feature = "desktop")]
+pub mod extensions;
 mod files;
 mod json_store;
 #[cfg(feature = "desktop")]
 mod parent_window;
 mod settings_store;
 pub mod sync;
+#[cfg(all(windows, feature = "desktop"))]
+mod webview2_extensions;
 #[cfg(feature = "desktop")]
 mod wry_engine;
 
@@ -27,9 +31,12 @@ pub use settings_store::TomlSettingsRepository;
 pub use wry_engine::WryEngine;
 
 /// `<data dir>/browsing-unicorns`, where history, bookmarks and the session
-/// are kept.
+/// are kept. `BU_PROFILE_DIR` replaces it (tests, a second profile).
 pub fn profile_dir() -> Option<PathBuf> {
-    dirs::data_dir().map(|d| d.join("browsing-unicorns"))
+    match std::env::var_os("BU_PROFILE_DIR") {
+        Some(dir) if !dir.is_empty() => Some(dir.into()),
+        _ => dirs::data_dir().map(|d| d.join("browsing-unicorns")),
+    }
 }
 
 /// The user's profile: JSON files in `dir`, settings in `settings`.

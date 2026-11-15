@@ -5,6 +5,7 @@
 
 mod address;
 mod bookmarks;
+mod extensions;
 mod history;
 mod omnibox;
 mod search;
@@ -16,6 +17,7 @@ mod visits;
 
 pub use address::{AddressError, WebAddress};
 pub use bookmarks::{Bookmark, Bookmarks, Removal};
+pub use extensions::{Extension, ExtensionId, Extensions};
 pub use history::History;
 pub use omnibox::resolve_omnibox;
 pub use search::SearchEngine;

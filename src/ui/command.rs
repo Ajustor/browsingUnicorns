@@ -1,5 +1,5 @@
 use application::Target;
-use domain::{TabId, WebAddress};
+use domain::{ExtensionId, TabId, WebAddress};
 
 use super::library::LibraryView;
 
@@ -33,4 +33,8 @@ pub enum Command {
     SyncJoin(String),
     SyncTurnOff,
     SyncNow,
+    /// A Web Store link, an extension id or a `.crx` path.
+    InstallExtension(String),
+    SetExtensionEnabled(ExtensionId, bool),
+    RemoveExtension(ExtensionId),
 }

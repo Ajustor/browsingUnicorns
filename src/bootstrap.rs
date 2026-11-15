@@ -4,15 +4,16 @@ use std::sync::Arc;
 use std::sync::mpsc;
 
 use anyhow::Context as _;
-use application::ports::Repository;
-use application::{Browser, Target};
+use application::ports::{Repository, WebEngine as _};
+use application::{Browser, ExtensionManager, Target};
 use domain::Settings;
-use infrastructure::{ParentWindow, TomlSettingsRepository, WryEngine};
+use infrastructure::extensions::ExtensionFolder;
+use infrastructure::{JsonRepository, ParentWindow, TomlSettingsRepository, WryEngine};
 use updater::{UpdateMemory, Updater};
 
 use infrastructure::sync::SyncConfigFile;
 
-use crate::ui::{BrowserApp, ExitSlot, SyncRunner, Updates};
+use crate::ui::{BrowserApp, ExitSlot, ExtensionsRunner, SyncRunner, Updates};
 
 pub fn build(
     cc: &eframe::CreationContext<'_>,
@@ -38,6 +39,7 @@ pub fn build(
     let engine = WryEngine::new(
         parent,
         profile_dir.join("webview"),
+        profile_dir.join("extensions"),
         sender,
         Arc::new(move || ctx.request_repaint()),
     );
@@ -50,6 +52,13 @@ pub fn build(
     for e in browser.load_profile() {
         log::warn!("profile: {e}");
     }
+    // Handed to the engine before the first tab: it installs them with it.
+    let extensions = ExtensionManager::load(
+        Box::new(JsonRepository::new(profile_dir.join("extensions.json"))),
+        Arc::new(ExtensionFolder::new(profile_dir.join("extensions"))),
+    )
+    .context("could not read the extensions")?;
+    browser.engine_mut().set_extensions(extensions.extensions());
     browser
         .restore_session()
         .context("could not open the first tab")?;
@@ -70,5 +79,9 @@ pub fn build(
         SyncConfigFile::new(profile_dir.join("sync.json")),
         move || ctx.request_repaint(),
     );
-    Ok(BrowserApp::new(browser, receiver, updates, sync, exit_slot))
+    let ctx = cc.egui_ctx.clone();
+    let extensions = ExtensionsRunner::new(extensions, move || ctx.request_repaint());
+    Ok(BrowserApp::new(
+        browser, receiver, updates, sync, extensions, exit_slot,
+    ))
 }

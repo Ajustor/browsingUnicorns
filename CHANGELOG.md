@@ -4,6 +4,20 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [Unreleased]
+
+### Ajouté
+
+- Extensions Chrome sur Windows : onglet *Extensions* du panneau latéral.
+  Installation depuis un lien du Chrome Web Store, un id ou un fichier `.crx`,
+  activation / désactivation, suppression ; popup et page d'options dans un
+  onglet. Testé avec uBlock Origin Lite.
+- `BU_PROFILE_DIR` : utiliser un autre dossier de profil.
+
+### Corrigé
+
+- Le panneau de l'historique s'élargissait à chaque mouvement de la souris.
+
 ## [0.2.1] - 2026-11-15
 
 ### Corrigé

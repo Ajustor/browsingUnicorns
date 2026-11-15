@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::sync::mpsc::Sender;
 
 use application::ports::{EngineError, EngineEvent, Viewport, WebEngine};
-use domain::{TabId, WebAddress};
+use domain::{Extensions, TabId, WebAddress};
 use wry::dpi::{PhysicalPosition, PhysicalSize};
 use wry::{NewWindowResponse, PageLoadEvent, Rect, WebContext, WebView, WebViewBuilder};
 
@@ -26,6 +26,15 @@ pub struct WryEngine {
     waker: Waker,
     /// Where the web views keep cookies, cache and storage.
     context: WebContext,
+    /// Where the unpacked extensions are (`<id>/` each).
+    extensions_dir: PathBuf,
+    /// Extensions to hand to the web view profile once a view exists.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pending_extensions: Option<Extensions>,
+    /// The extensions handed to the profile so far: the only ones removed
+    /// from it when the user removes them.
+    #[cfg(windows)]
+    managed_extensions: std::collections::HashSet<String>,
 }
 
 fn engine_error(e: wry::Error) -> EngineError {
@@ -46,6 +55,7 @@ impl WryEngine {
     pub fn new(
         parent: ParentWindow,
         data_dir: PathBuf,
+        extensions_dir: PathBuf,
         events: Sender<EngineEvent>,
         waker: Waker,
     ) -> Self {
@@ -61,6 +71,10 @@ impl WryEngine {
             events,
             waker,
             context: WebContext::new(Some(data_dir)),
+            extensions_dir,
+            pending_extensions: None,
+            #[cfg(windows)]
+            managed_extensions: Default::default(),
         }
     }
 
@@ -84,6 +98,37 @@ impl WryEngine {
         }
     }
 
+    /// Hands the extensions waiting for a view to the web view profile.
+    #[cfg(windows)]
+    fn apply_extensions(&mut self) {
+        use wry::WebViewExtWindows as _;
+
+        let Some(view) = self.views.values().next() else {
+            return;
+        };
+        let Some(extensions) = self.pending_extensions.take() else {
+            return;
+        };
+        self.managed_extensions
+            .extend(extensions.items().iter().map(|e| e.id.to_string()));
+        let wanted = extensions
+            .items()
+            .iter()
+            .map(|e| crate::webview2_extensions::Wanted {
+                id: e.id.to_string(),
+                path: crate::extensions::extension_dir(&self.extensions_dir, &e.id),
+                enabled: e.enabled,
+            })
+            .collect();
+        if let Err(e) = crate::webview2_extensions::reconcile(
+            &view.webview(),
+            wanted,
+            self.managed_extensions.clone(),
+        ) {
+            log::warn!("extensions: {e}");
+        }
+    }
+
     fn with_view(&self, tab: TabId, action: &str, f: impl FnOnce(&WebView) -> wry::Result<()>) {
         if let Some(view) = self.views.get(&tab)
             && let Err(e) = f(view)
@@ -98,7 +143,14 @@ impl WebEngine for WryEngine {
         let emit = self.emitter();
         let on_load = emit.clone();
         let on_title = emit.clone();
-        let view = WebViewBuilder::new_with_web_context(&mut self.context)
+        let builder = WebViewBuilder::new_with_web_context(&mut self.context);
+        // Every view shares the profile, and its extensions.
+        #[cfg(windows)]
+        let builder = {
+            use wry::WebViewBuilderExtWindows as _;
+            builder.with_browser_extensions_enabled(true)
+        };
+        let view = builder
             .with_url(address.as_str())
             .with_bounds(bounds(self.viewport))
             .with_visible(false)
@@ -124,6 +176,8 @@ impl WebEngine for WryEngine {
             .build_as_child(&self.parent)
             .map_err(engine_error)?;
         self.views.insert(tab, view);
+        #[cfg(windows)]
+        self.apply_extensions();
         Ok(())
     }
 
@@ -180,5 +234,18 @@ impl WebEngine for WryEngine {
         if let Some(tab) = self.shown {
             self.with_view(tab, "resize", |v| v.set_bounds(bounds(viewport)));
         }
+    }
+
+    fn supports_extensions(&self) -> bool {
+        cfg!(windows)
+    }
+
+    fn set_extensions(&mut self, extensions: &Extensions) {
+        if !self.supports_extensions() {
+            return;
+        }
+        self.pending_extensions = Some(extensions.clone());
+        #[cfg(windows)]
+        self.apply_extensions();
     }
 }

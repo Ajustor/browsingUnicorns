@@ -9,6 +9,7 @@ use egui_phosphor::regular as icon;
 use updater::{UpdateState, Updater};
 
 use super::command::Command;
+use super::extensions::{ExtensionsPanel, ExtensionsView};
 use super::sync_panel::{SyncPanel, SyncView};
 
 const MAX_ROWS: usize = 300;
@@ -18,6 +19,7 @@ pub enum LibraryView {
     History,
     Bookmarks,
     Sync,
+    Extensions,
     About,
 }
 
@@ -28,6 +30,7 @@ pub struct LibraryData<'a> {
     pub now: Timestamp,
     pub updater: &'a Updater,
     pub sync: SyncView<'a>,
+    pub extensions: ExtensionsView<'a>,
 }
 
 #[derive(Default)]
@@ -35,6 +38,7 @@ pub struct Library {
     pub open: Option<LibraryView>,
     filter: String,
     sync: SyncPanel,
+    extensions: ExtensionsPanel,
 }
 
 impl Library {
@@ -61,38 +65,53 @@ impl Library {
             now,
             updater,
             sync,
+            extensions,
         } = data;
         SidePanel::right("library")
             .resizable(true)
             .default_width(320.0)
             .min_width(220.0)
             .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    for (v, label) in [
-                        (
-                            LibraryView::History,
-                            format!("{} History", icon::CLOCK_COUNTER_CLOCKWISE),
-                        ),
-                        (LibraryView::Bookmarks, format!("{} Bookmarks", icon::STAR)),
-                        (
-                            LibraryView::Sync,
-                            format!("{} Sync", icon::ARROWS_CLOCKWISE),
-                        ),
-                        (LibraryView::About, format!("{} About", icon::INFO)),
-                    ] {
-                        if ui.selectable_label(view == v, label).clicked() && view != v {
-                            commands.push(Command::ToggleLibrary(v));
-                        }
+                // The views wrap in the width left by the close button: a row
+                // wider than the panel would make it grow.
+                ui.horizontal_top(|ui| {
+                    let close_width = ui.spacing().interact_size.y + ui.spacing().item_spacing.x;
+                    let tabs =
+                        egui::Layout::left_to_right(egui::Align::Center).with_main_wrap(true);
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(ui.available_width() - close_width, 0.0),
+                        tabs,
+                        |ui| {
+                            ui.set_min_width(ui.available_width());
+                            for (v, label) in [
+                                (
+                                    LibraryView::History,
+                                    format!("{} History", icon::CLOCK_COUNTER_CLOCKWISE),
+                                ),
+                                (LibraryView::Bookmarks, format!("{} Bookmarks", icon::STAR)),
+                                (
+                                    LibraryView::Sync,
+                                    format!("{} Sync", icon::ARROWS_CLOCKWISE),
+                                ),
+                                (
+                                    LibraryView::Extensions,
+                                    format!("{} Extensions", icon::PUZZLE_PIECE),
+                                ),
+                                (LibraryView::About, format!("{} About", icon::INFO)),
+                            ] {
+                                if ui.selectable_label(view == v, label).clicked() && view != v {
+                                    commands.push(Command::ToggleLibrary(v));
+                                }
+                            }
+                        },
+                    );
+                    if ui
+                        .add(Button::new(icon::X).frame(false))
+                        .on_hover_text("Close")
+                        .clicked()
+                    {
+                        commands.push(Command::ToggleLibrary(view));
                     }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui
-                            .add(Button::new(icon::X).frame(false))
-                            .on_hover_text("Close")
-                            .clicked()
-                        {
-                            commands.push(Command::ToggleLibrary(view));
-                        }
-                    });
                 });
                 match view {
                     LibraryView::About => {
@@ -103,6 +122,11 @@ impl Library {
                     LibraryView::Sync => {
                         ui.separator();
                         self.sync.show(ui, sync, now, commands);
+                        return;
+                    }
+                    LibraryView::Extensions => {
+                        ui.separator();
+                        self.extensions.show(ui, extensions, commands);
                         return;
                     }
                     _ => {}
@@ -116,7 +140,7 @@ impl Library {
                 match view {
                     LibraryView::History => self.history(ui, history, now, commands),
                     LibraryView::Bookmarks => self.bookmarks(ui, bookmarks, commands),
-                    LibraryView::About | LibraryView::Sync => {}
+                    LibraryView::About | LibraryView::Sync | LibraryView::Extensions => {}
                 }
             });
     }
@@ -241,13 +265,16 @@ fn entry(
                 .truncate(),
         )
         .on_hover_text(address.as_str());
-    ui.horizontal(|ui| {
-        ui.add(egui::Label::new(RichText::new(address.as_str()).small().weak()).truncate());
+    // The age goes on the right, the address is cut to what is left. Both
+    // must fit the panel's width: content wider than a resizable panel makes
+    // it grow at every frame.
+    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
         if let Some(age) = age {
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.small(age);
-            });
+            ui.small(age);
         }
+        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+            ui.add(egui::Label::new(RichText::new(address.as_str()).small().weak()).truncate());
+        });
     });
     ui.add_space(4.0);
     if response.clicked() {

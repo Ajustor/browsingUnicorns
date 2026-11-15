@@ -1,7 +1,9 @@
 use std::path::{Path, PathBuf};
 
 use application::ports::{Repository, RepositoryError};
-use domain::{Bookmarks, BrowsingHistory, SessionSnapshot, WebAddress};
+use domain::{
+    Bookmarks, BrowsingHistory, Extension, ExtensionId, Extensions, SessionSnapshot, WebAddress,
+};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
@@ -102,6 +104,65 @@ impl Repository<SessionSnapshot> for JsonRepository {
     }
 }
 
+#[derive(Default, Serialize, Deserialize)]
+struct ExtensionsFile {
+    extensions: Vec<ExtensionDto>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ExtensionDto {
+    id: String,
+    name: String,
+    version: String,
+    #[serde(default)]
+    description: String,
+    enabled: bool,
+    #[serde(default)]
+    popup: Option<String>,
+    #[serde(default)]
+    options: Option<String>,
+}
+
+impl Repository<Extensions> for JsonRepository {
+    fn load(&self) -> Result<Extensions, RepositoryError> {
+        let file: ExtensionsFile = self.load_file()?;
+        Ok(Extensions::from_items(
+            file.extensions
+                .into_iter()
+                .filter_map(|e| {
+                    Some(Extension {
+                        id: ExtensionId::parse(&e.id)?,
+                        name: e.name,
+                        version: e.version,
+                        description: e.description,
+                        enabled: e.enabled,
+                        popup: e.popup,
+                        options: e.options,
+                    })
+                })
+                .collect(),
+        ))
+    }
+
+    fn save(&self, extensions: &Extensions) -> Result<(), RepositoryError> {
+        self.save_file(&ExtensionsFile {
+            extensions: extensions
+                .items()
+                .iter()
+                .map(|e| ExtensionDto {
+                    id: e.id.to_string(),
+                    name: e.name.clone(),
+                    version: e.version.clone(),
+                    description: e.description.clone(),
+                    enabled: e.enabled,
+                    popup: e.popup.clone(),
+                    options: e.options.clone(),
+                })
+                .collect(),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -170,5 +231,23 @@ mod tests {
         let r = repo(&dir, "history.json");
         files::write(r.path(), "{not json").unwrap();
         assert!(Repository::<BrowsingHistory>::load(&r).is_err());
+    }
+
+    #[test]
+    fn extensions_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let r = JsonRepository::new(dir.path().join("extensions.json"));
+        assert!(Repository::<Extensions>::load(&r).unwrap().is_empty());
+        let extensions = Extensions::from_items(vec![Extension {
+            id: ExtensionId::parse("ddkjiahejlhfcafbddmgiahcphecmpfh").unwrap(),
+            name: "uBO Lite".into(),
+            version: "2025.1".into(),
+            description: "Blocks ads".into(),
+            enabled: false,
+            popup: Some("popup.html".into()),
+            options: None,
+        }]);
+        r.save(&extensions).unwrap();
+        assert_eq!(Repository::<Extensions>::load(&r).unwrap(), extensions);
     }
 }

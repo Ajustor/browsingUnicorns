@@ -1,10 +1,11 @@
 //! Ports: what the use cases need from the outside world.
 
 use std::fmt;
+use std::path::PathBuf;
 
 use domain::{
-    Bookmarks, BrowsingHistory, DeviceId, DeviceRecord, SessionSnapshot, Settings, TabId,
-    Timestamp, WebAddress,
+    Bookmarks, BrowsingHistory, DeviceId, DeviceRecord, Extension, ExtensionId, Extensions,
+    SessionSnapshot, Settings, TabId, Timestamp, WebAddress,
 };
 
 /// Where pages are drawn, in physical pixels relative to the window's client
@@ -43,6 +44,13 @@ pub trait WebEngine {
     fn go_forward(&mut self, tab: TabId);
     fn reload(&mut self, tab: TabId);
     fn set_viewport(&mut self, viewport: Viewport);
+
+    /// Whether this engine runs browser extensions.
+    fn supports_extensions(&self) -> bool {
+        false
+    }
+    /// The extensions to run from now on (installed, enabled or disabled).
+    fn set_extensions(&mut self, _extensions: &Extensions) {}
 }
 
 /// Something that happened in a view.
@@ -118,4 +126,34 @@ pub trait SyncStore: Send + Sync {
     fn pull(&self) -> Result<Vec<DeviceRecord>, SyncError>;
     /// Removes this device's record (it leaves the group).
     fn leave(&self, device: &DeviceId) -> Result<(), SyncError>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExtensionError(pub String);
+
+impl fmt::Display for ExtensionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for ExtensionError {}
+
+/// Where an extension is installed from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExtensionSource {
+    /// Downloaded from the Chrome Web Store.
+    Store(ExtensionId),
+    /// A `.crx` file on this computer.
+    File(PathBuf),
+}
+
+/// The extensions' files: fetches and unpacks packages, removes them.
+/// Installing may download: callers run it off the UI thread.
+pub trait ExtensionPackages: Send + Sync {
+    fn install(&self, source: &ExtensionSource) -> Result<Extension, ExtensionError>;
+    fn remove(&self, id: &ExtensionId) -> Result<(), ExtensionError>;
+    /// Deletes the files of extensions that are not in `keep` (left over by
+    /// a removal that could not finish).
+    fn prune(&self, keep: &Extensions);
 }
