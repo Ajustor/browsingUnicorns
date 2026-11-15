@@ -16,7 +16,7 @@ use infrastructure::sync::{
 };
 
 /// The relay deployed from `relay/sync`. `BU_SYNC_RELAY` overrides it (tests).
-pub const DEFAULT_RELAY: &str = "https://browsing-unicorns-sync.ajustor.workers.dev";
+pub const DEFAULT_RELAY: &str = "https://browsing-unicorns-sync.minecities.workers.dev";
 
 /// Rounds run this long after a local change...
 const AFTER_CHANGE: Duration = Duration::from_secs(15);

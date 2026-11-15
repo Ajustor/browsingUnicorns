@@ -28,7 +28,7 @@ pub use host::{SyncHttp, WebViewHost};
 uniffi::setup_scaffolding!();
 
 /// The relay deployed from `relay/sync` (same as the desktop's).
-pub const DEFAULT_RELAY: &str = "https://browsing-unicorns-sync.ajustor.workers.dev";
+pub const DEFAULT_RELAY: &str = "https://browsing-unicorns-sync.minecities.workers.dev";
 
 #[derive(Debug, uniffi::Error)]
 pub enum MobileError {
