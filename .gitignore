@@ -4,3 +4,5 @@
 !.claude/skills/
 __pycache__/
 /site
+/relay/*/node_modules
+/relay/*/.wrangler

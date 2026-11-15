@@ -1,0 +1,17 @@
+name = "browsing-unicorns-sync"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+# Encrypted device records. Create it once with
+#   npx wrangler kv namespace create SYNC
+# and put the id it prints here.
+[[kv_namespaces]]
+binding = "SYNC"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+# At most 60 requests per minute from one IP address.
+[[unsafe.bindings]]
+name = "RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "1002"
+simple = { limit = 60, period = 60 }
