@@ -277,7 +277,7 @@ impl eframe::App for BrowserApp {
                     devices: self.browser.remote_devices(),
                 },
                 extensions: ExtensionsView {
-                    supported: self.browser.engine().supports_extensions(),
+                    support: self.browser.engine().extension_support(),
                     runner: &self.extensions,
                 },
             },

@@ -7,8 +7,50 @@ import org.json.JSONObject
 import uniffi.mobile.MobileException
 import uniffi.mobile.SyncHttp
 
-/** HTTP to the sync relay for the Rust core. Blocking: called off the main thread. */
+/** HTTP for the Rust core: the sync relay, extension downloads. Blocking: called off the main thread. */
 class SyncHttpClient : SyncHttp {
+    override fun download(url: String): ByteArray {
+        var address = URL(url)
+        // HttpURLConnection does not follow redirects across hosts by itself.
+        repeat(5) {
+            val connection = try {
+                address.openConnection() as HttpURLConnection
+            } catch (e: IOException) {
+                throw MobileException.Failed("unreachable: ${e.message}")
+            }
+            try {
+                connection.instanceFollowRedirects = false
+                connection.connectTimeout = 10_000
+                connection.readTimeout = 60_000
+                connection.setRequestProperty("User-Agent", "browsingUnicorns-android/${BuildConfig.VERSION_NAME}")
+                val code = connection.responseCode
+                if (code in 300..399) {
+                    val location = connection.getHeaderField("Location")
+                        ?: throw MobileException.Failed("redirect without a location")
+                    address = URL(address, location)
+                    return@repeat
+                }
+                if (code !in 200..299) throw MobileException.Failed("HTTP $code")
+                return connection.inputStream.use { input ->
+                    val out = java.io.ByteArrayOutputStream()
+                    val buffer = ByteArray(64 * 1024)
+                    while (true) {
+                        val n = input.read(buffer)
+                        if (n < 0) break
+                        out.write(buffer, 0, n)
+                        if (out.size() > MAX_DOWNLOAD) throw MobileException.Failed("package too big")
+                    }
+                    out.toByteArray()
+                }
+            } catch (e: IOException) {
+                throw MobileException.Failed("download failed: ${e.message}")
+            } finally {
+                connection.disconnect()
+            }
+        }
+        throw MobileException.Failed("too many redirects")
+    }
+
     override fun put(url: String, token: String, body: ByteArray) {
         request("PUT", url, token, body)
     }
@@ -17,6 +59,10 @@ class SyncHttpClient : SyncHttp {
 
     override fun delete(url: String, token: String) {
         request("DELETE", url, token, null)
+    }
+
+    private companion object {
+        const val MAX_DOWNLOAD = 100 * 1024 * 1024
     }
 
     private fun request(method: String, url: String, token: String, body: ByteArray?): String {

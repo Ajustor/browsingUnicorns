@@ -10,11 +10,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import uniffi.mobile.BrowserState
+import uniffi.mobile.ExtensionInfo
 import uniffi.mobile.MobileBrowser
 import uniffi.mobile.MobileException
 import uniffi.mobile.SyncInfo
 
-enum class Screen { Browser, Tabs, History, Bookmarks, Sync }
+enum class Screen { Browser, Tabs, History, Bookmarks, Sync, Extensions }
 
 /**
  * The screen's state, refreshed from the Rust core after every action, and
@@ -30,6 +31,10 @@ class BrowserController(val browser: MobileBrowser, val views: WebViews, private
         private set
     var message by mutableStateOf<String?>(null)
     var syncing by mutableStateOf(false)
+        private set
+    var extensions by mutableStateOf<List<ExtensionInfo>>(emptyList())
+        private set
+    var installing by mutableStateOf(false)
         private set
 
     private var lastSync = 0L
@@ -63,6 +68,40 @@ class BrowserController(val browser: MobileBrowser, val views: WebViews, private
         if (!view.canGoBack()) return false
         view.goBack()
         return true
+    }
+
+    // --- Extensions ---------------------------------------------------------
+
+    fun refreshExtensions() {
+        extensions = browser.extensions()
+    }
+
+    /** Downloads and installs from a Chrome Web Store link or id. */
+    fun installExtension(input: String) {
+        if (installing) return
+        installing = true
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                try {
+                    "${browser.installExtension(input)} installed."
+                } catch (e: MobileException) {
+                    reason(e)
+                }
+            }
+            installing = false
+            refreshExtensions()
+            message = result
+        }
+    }
+
+    fun setExtensionEnabled(id: String, enabled: Boolean) {
+        act { setExtensionEnabled(id, enabled) }
+        refreshExtensions()
+    }
+
+    fun removeExtension(id: String) {
+        act { removeExtension(id) }
+        refreshExtensions()
     }
 
     // --- Sync ---------------------------------------------------------------

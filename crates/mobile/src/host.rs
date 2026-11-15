@@ -1,10 +1,11 @@
 //! What the Android app implements in Kotlin: its WebViews and its HTTP
 //! client. Rust calls them from the thread that called into Rust.
 
-use std::sync::Arc;
+use std::path::PathBuf;
+use std::sync::{Arc, RwLock};
 
-use application::ports::{EngineError, SyncError, Viewport, WebEngine};
-use domain::{TabId, WebAddress};
+use application::ports::{EngineError, ExtensionSupport, SyncError, Viewport, WebEngine};
+use domain::{Extensions, RuleSet, TabId, WebAddress};
 use infrastructure::sync::BlobTransport;
 use infrastructure::sync::relay_api::{decode_group, device_url, group_url};
 
@@ -30,38 +31,54 @@ pub trait SyncHttp: Send + Sync {
     /// The response body of a successful GET.
     fn get(&self, url: String, token: String) -> Result<String, MobileError>;
     fn delete(&self, url: String, token: String) -> Result<(), MobileError>;
+    /// The body of a plain GET (following redirects): extension packages.
+    fn download(&self, url: String) -> Result<Vec<u8>, MobileError>;
 }
 
 /// [`WebEngine`] backed by the app's [`WebViewHost`]. Page events come back
-/// through `MobileBrowser::on_*`.
-pub struct HostEngine(pub Arc<dyn WebViewHost>);
+/// through `MobileBrowser::on_*`. Extensions: their network rules, which
+/// `MobileBrowser::intercept` applies to the WebViews' requests.
+pub struct HostEngine {
+    pub host: Arc<dyn WebViewHost>,
+    pub rules: Arc<RwLock<RuleSet>>,
+    pub extensions_dir: PathBuf,
+}
 
 impl WebEngine for HostEngine {
     fn open_view(&mut self, tab: TabId, address: &WebAddress) -> Result<(), EngineError> {
-        self.0.open_view(tab.get(), address.to_string());
+        self.host.open_view(tab.get(), address.to_string());
         Ok(())
     }
     fn close_view(&mut self, tab: TabId) {
-        self.0.close_view(tab.get());
+        self.host.close_view(tab.get());
     }
     fn show(&mut self, tab: Option<TabId>) {
-        self.0.show(tab.map(TabId::get));
+        self.host.show(tab.map(TabId::get));
     }
     fn navigate(&mut self, tab: TabId, address: &WebAddress) -> Result<(), EngineError> {
-        self.0.navigate(tab.get(), address.to_string());
+        self.host.navigate(tab.get(), address.to_string());
         Ok(())
     }
     fn go_back(&mut self, tab: TabId) {
-        self.0.go_back(tab.get());
+        self.host.go_back(tab.get());
     }
     fn go_forward(&mut self, tab: TabId) {
-        self.0.go_forward(tab.get());
+        self.host.go_forward(tab.get());
     }
     fn reload(&mut self, tab: TabId) {
-        self.0.reload(tab.get());
+        self.host.reload(tab.get());
     }
     /// Compose lays the WebView out.
     fn set_viewport(&mut self, _viewport: Viewport) {}
+
+    fn extension_support(&self) -> ExtensionSupport {
+        ExtensionSupport::NetworkRules
+    }
+
+    fn set_extensions(&mut self, extensions: &Extensions) {
+        let rules = infrastructure::extensions::rule_set(&self.extensions_dir, extensions);
+        *self.rules.write().unwrap_or_else(|p| p.into_inner()) = rules;
+    }
 }
 
 /// [`BlobTransport`] over the app's [`SyncHttp`].

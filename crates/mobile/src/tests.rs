@@ -60,6 +60,14 @@ impl SyncHttp for FakeHttp {
         self.0.lock().unwrap().remove(&url);
         Ok(())
     }
+    fn download(&self, url: String) -> Result<Vec<u8>, MobileError> {
+        self.0
+            .lock()
+            .unwrap()
+            .get(&url)
+            .cloned()
+            .ok_or_else(|| MobileError::new("404"))
+    }
 }
 
 fn browser(
@@ -189,4 +197,141 @@ fn two_devices_pair_and_sync() {
     assert!(!phone.sync_info().enabled);
     desktop.sync_now().unwrap();
     assert!(desktop.sync_info().devices.is_empty(), "the phone left");
+}
+
+/// A CRX2 package of a blocker: `||ads.test^` blocked, `/ad.js` replaced by
+/// its stand-in.
+fn blocker_package() -> (domain::ExtensionId, Vec<u8>) {
+    use std::io::Write;
+
+    use sha2::{Digest, Sha256};
+
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let files = [
+        (
+            "manifest.json",
+            r#"{"name":"Blocker","version":"1","declarative_net_request":{"rule_resources":[{"id":"r","enabled":true,"path":"rules.json"}]}}"#,
+        ),
+        (
+            "rules.json",
+            r#"[{"id":1,"action":{"type":"block"},"condition":{"urlFilter":"||ads.test^"}},
+                {"id":2,"priority":2,"action":{"type":"redirect","redirect":{"extensionPath":"/war/noop.js"}},
+                 "condition":{"urlFilter":"/ad.js","resourceTypes":["script"]}}]"#,
+        ),
+        ("war/noop.js", "(function(){})();"),
+    ];
+    for (name, content) in files {
+        zip.start_file(name, zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(content.as_bytes()).unwrap();
+    }
+    let zip = zip.finish().unwrap().into_inner();
+    let key = b"blocker key";
+    let mut crx = b"Cr24".to_vec();
+    for n in [2u32, key.len() as u32, 0] {
+        crx.extend(n.to_le_bytes());
+    }
+    crx.extend(key);
+    crx.extend(zip);
+    (
+        domain::ExtensionId::from_key_hash(&Sha256::digest(key)),
+        crx,
+    )
+}
+
+#[test]
+fn extensions_block_requests() {
+    let dir = tempfile::tempdir().unwrap();
+    let http = Arc::new(FakeHttp::default());
+    let (id, package) = blocker_package();
+    http.0
+        .lock()
+        .unwrap()
+        .insert(infrastructure::extensions::store_package_url(&id), package);
+    let (b, _) = browser(&dir, "phone", &http);
+    let page = Some("https://news.test/".to_owned());
+    let intercept = |url: &str, dest: Option<&str>| {
+        b.intercept(
+            url.into(),
+            page.clone(),
+            false,
+            "GET".into(),
+            None,
+            dest.map(Into::into),
+        )
+    };
+    assert_eq!(
+        intercept("https://cdn.ads.test/x.png", None),
+        Interception::Allow
+    );
+
+    assert!(b.install_extension("not a link".into()).is_err());
+    let name = b
+        .install_extension(format!(
+            "https://chromewebstore.google.com/detail/blocker/{id}"
+        ))
+        .unwrap();
+    assert_eq!(name, "Blocker 1");
+    assert_eq!(b.extensions().len(), 1);
+    assert_eq!(
+        intercept("https://cdn.ads.test/x.png", None),
+        Interception::Block
+    );
+    assert_eq!(
+        intercept("https://news.test/style.css", Some("style")),
+        Interception::Allow
+    );
+    match intercept("https://cdn.example/ad.js", Some("script")) {
+        Interception::Serve { path, mime_type } => {
+            assert!(path.ends_with("noop.js"), "{path}");
+            assert_eq!(mime_type, "application/javascript");
+        }
+        other => panic!("{other:?}"),
+    }
+    // Top-level pages are left alone.
+    assert_eq!(
+        b.intercept(
+            "https://ads.test/".into(),
+            None,
+            true,
+            "GET".into(),
+            None,
+            None
+        ),
+        Interception::Allow
+    );
+
+    b.set_extension_enabled(id.to_string(), false).unwrap();
+    assert_eq!(
+        intercept("https://cdn.ads.test/x.png", None),
+        Interception::Allow
+    );
+    b.set_extension_enabled(id.to_string(), true).unwrap();
+    // Kept across restarts.
+    drop(b);
+    let (b, _) = browser(&dir, "phone", &http);
+    assert_eq!(
+        b.intercept(
+            "https://cdn.ads.test/x.png".into(),
+            page.clone(),
+            false,
+            "GET".into(),
+            None,
+            None
+        ),
+        Interception::Block
+    );
+    b.remove_extension(id.to_string()).unwrap();
+    assert!(b.extensions().is_empty());
+    assert_eq!(
+        b.intercept(
+            "https://cdn.ads.test/x.png".into(),
+            page,
+            false,
+            "GET".into(),
+            None,
+            None
+        ),
+        Interception::Allow
+    );
 }

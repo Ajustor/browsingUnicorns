@@ -8,20 +8,23 @@
 // MSVC prints "creating library ….lib" for the host build of the cdylib.
 #![allow(linker_messages)]
 
+mod extensions;
 mod host;
 
 use std::fmt;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 
 use application::sync::sync_round;
-use application::{Browser, Target};
-use domain::{TabId, WebAddress};
+use application::{Browser, ExtensionManager, Target};
+use domain::{RuleSet, TabId, WebAddress};
+use infrastructure::extensions::ExtensionFolder;
 use infrastructure::sync::{
     EncryptedSyncStore, SyncConfig, SyncConfigFile, SyncKey, new_device_id,
 };
 use infrastructure::{JsonRepository, SystemClock, TomlSettingsRepository};
 
+pub use extensions::{ExtensionInfo, Interception};
 use host::{HostEngine, HostTransport};
 pub use host::{SyncHttp, WebViewHost};
 
@@ -122,6 +125,11 @@ struct Inner {
 #[derive(uniffi::Object)]
 pub struct MobileBrowser {
     inner: Mutex<Inner>,
+    /// Locked before `inner` when both are.
+    extensions: Mutex<ExtensionManager>,
+    /// The extensions' network rules, read for every request.
+    rules: Arc<RwLock<RuleSet>>,
+    extensions_dir: PathBuf,
     sync_file: SyncConfigFile,
     http: Arc<dyn SyncHttp>,
     relay_url: String,
@@ -141,6 +149,10 @@ fn now() -> u64 {
 impl MobileBrowser {
     fn lock(&self) -> MutexGuard<'_, Inner> {
         self.inner.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    fn extensions_lock(&self) -> MutexGuard<'_, ExtensionManager> {
+        self.extensions.lock().unwrap_or_else(|p| p.into_inner())
     }
 
     fn store(&self, config: &SyncConfig) -> EncryptedSyncStore<HostTransport> {
@@ -192,8 +204,37 @@ impl MobileBrowser {
             clock: Box::new(SystemClock),
         };
         let initial = application::ports::Repository::load(&settings).unwrap_or_default();
-        let mut browser = Browser::new(HostEngine(host), initial, profile);
+        let rules = Arc::new(RwLock::new(RuleSet::default()));
+        let extensions_dir = dir.join("extensions");
+        let engine = HostEngine {
+            host,
+            rules: rules.clone(),
+            extensions_dir: extensions_dir.clone(),
+        };
+        let mut browser = Browser::new(engine, initial, profile);
         let _ = browser.load_profile();
+        let download_http = http.clone();
+        let packages = Arc::new(ExtensionFolder::new(
+            extensions_dir.clone(),
+            Arc::new(move |url: &str| {
+                download_http
+                    .download(url.to_owned())
+                    .map_err(|e| e.to_string())
+            }),
+        ));
+        let repository = Box::new(JsonRepository::new(dir.join("extensions.json")));
+        let extensions = ExtensionManager::load(repository, packages.clone()).unwrap_or_else(|e| {
+            eprintln!("extensions: {e}");
+            ExtensionManager::load(
+                Box::new(JsonRepository::new(dir.join("extensions.json.unreadable"))),
+                packages,
+            )
+            .expect("an empty list loads")
+        });
+        application::ports::WebEngine::set_extensions(
+            browser.engine_mut(),
+            extensions.extensions(),
+        );
         let sync_file = SyncConfigFile::new(dir.join("sync.json"));
         let sync = sync_file.load();
         Arc::new(Self {
@@ -203,6 +244,9 @@ impl MobileBrowser {
                 last_sync_at: None,
                 last_error: None,
             }),
+            extensions: Mutex::new(extensions),
+            rules,
+            extensions_dir,
             sync_file,
             http,
             relay_url: relay_url.unwrap_or_else(|| DEFAULT_RELAY.to_owned()),

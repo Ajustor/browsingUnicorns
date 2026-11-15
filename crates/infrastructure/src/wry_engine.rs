@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc::Sender;
 
-use application::ports::{EngineError, EngineEvent, Viewport, WebEngine};
+use application::ports::{EngineError, EngineEvent, ExtensionSupport, Viewport, WebEngine};
 use domain::{Extensions, TabId, WebAddress};
 use wry::dpi::{PhysicalPosition, PhysicalSize};
 use wry::{NewWindowResponse, PageLoadEvent, Rect, WebContext, WebView, WebViewBuilder};
@@ -236,12 +236,16 @@ impl WebEngine for WryEngine {
         }
     }
 
-    fn supports_extensions(&self) -> bool {
-        cfg!(windows)
+    fn extension_support(&self) -> ExtensionSupport {
+        if cfg!(windows) {
+            ExtensionSupport::Full
+        } else {
+            ExtensionSupport::None
+        }
     }
 
     fn set_extensions(&mut self, extensions: &Extensions) {
-        if !self.supports_extensions() {
+        if self.extension_support() == ExtensionSupport::None {
             return;
         }
         self.pending_extensions = Some(extensions.clone());

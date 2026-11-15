@@ -6,7 +6,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 
 use application::ExtensionManager;
 use application::Target;
-use application::ports::{ExtensionError, ExtensionSource, WebEngine};
+use application::ports::{ExtensionError, ExtensionSource, ExtensionSupport, WebEngine};
 use domain::{Extension, ExtensionId, Extensions};
 use egui::{Button, RichText, ScrollArea, TextEdit};
 use egui_phosphor::regular as icon;
@@ -112,7 +112,7 @@ impl ExtensionsRunner {
 
 /// What the view shows, borrowed for one frame.
 pub struct ExtensionsView<'a> {
-    pub supported: bool,
+    pub support: ExtensionSupport,
     pub runner: &'a ExtensionsRunner,
 }
 
@@ -129,12 +129,21 @@ impl ExtensionsPanel {
         view: ExtensionsView<'_>,
         commands: &mut Vec<Command>,
     ) {
-        if !view.supported {
-            ui.label(
-                "Extensions need the Windows web view (WebView2): the web view \
-                 of this system cannot run them.",
-            );
-            return;
+        match view.support {
+            ExtensionSupport::None => {
+                ui.label(
+                    "Extensions need the Windows web view (WebView2): the web view \
+                     of this system cannot run them.",
+                );
+                return;
+            }
+            ExtensionSupport::NetworkRules => {
+                ui.weak(
+                    "On this system the browser applies the extensions' blocking \
+                     rules (ad and tracker blockers); their other features do not run.",
+                );
+            }
+            ExtensionSupport::Full => {}
         }
         let runner = view.runner;
         ui.label("Chrome Web Store link, extension id or .crx file:");

@@ -2800,8 +2800,10 @@ dependencies = [
  "data-encoding",
  "domain",
  "infrastructure",
+ "sha2",
  "tempfile",
  "uniffi",
+ "zip",
 ]
 
 [[package]]

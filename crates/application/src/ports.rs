@@ -45,12 +45,22 @@ pub trait WebEngine {
     fn reload(&mut self, tab: TabId);
     fn set_viewport(&mut self, viewport: Viewport);
 
-    /// Whether this engine runs browser extensions.
-    fn supports_extensions(&self) -> bool {
-        false
+    /// How this engine runs browser extensions.
+    fn extension_support(&self) -> ExtensionSupport {
+        ExtensionSupport::None
     }
     /// The extensions to run from now on (installed, enabled or disabled).
     fn set_extensions(&mut self, _extensions: &Extensions) {}
+}
+
+/// What an engine does with extensions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExtensionSupport {
+    None,
+    /// The web view runs them itself (WebView2).
+    Full,
+    /// Only their network rules (blocking), applied by the browser.
+    NetworkRules,
 }
 
 /// Something that happened in a view.

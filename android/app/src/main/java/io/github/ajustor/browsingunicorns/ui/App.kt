@@ -71,6 +71,7 @@ fun App(c: BrowserController) {
                 Screen.History -> HistoryScreen(c)
                 Screen.Bookmarks -> BookmarksScreen(c)
                 Screen.Sync -> SyncScreen(c)
+                Screen.Extensions -> ExtensionsScreen(c)
             }
         }
     }
@@ -194,6 +195,11 @@ private fun BottomBar(c: BrowserController) {
                         menu = false
                         c.refreshSync()
                         c.screen = Screen.Sync
+                    })
+                    DropdownMenuItem(text = { Text("Extensions") }, onClick = {
+                        menu = false
+                        c.refreshExtensions()
+                        c.screen = Screen.Extensions
                     })
                 }
             }

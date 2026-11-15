@@ -10,9 +10,15 @@ import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
+import java.io.ByteArrayInputStream
+import java.io.File
+import java.io.FileInputStream
+import java.util.concurrent.ConcurrentHashMap
+import uniffi.mobile.Interception
 import uniffi.mobile.MobileBrowser
 import uniffi.mobile.WebViewHost
 
@@ -24,6 +30,9 @@ import uniffi.mobile.WebViewHost
 class WebViews(private val context: Context) : WebViewHost {
     val container = FrameLayout(context)
     private val views = HashMap<ULong, WebView>()
+
+    /** Each tab's page, readable from the WebView's IO thread (blocking rules). */
+    private val pages = ConcurrentHashMap<ULong, String>()
 
     lateinit var browser: MobileBrowser
 
@@ -47,6 +56,7 @@ class WebViews(private val context: Context) : WebViewHost {
     }
 
     override fun closeView(tab: ULong) {
+        pages.remove(tab)
         views.remove(tab)?.let {
             container.removeView(it)
             it.destroy()
@@ -75,6 +85,15 @@ class WebViews(private val context: Context) : WebViewHost {
         views[tab]?.reload()
     }
 
+    private fun blocked() = WebResourceResponse(
+        "text/plain",
+        "utf-8",
+        403,
+        "Blocked",
+        emptyMap(),
+        ByteArrayInputStream(ByteArray(0)),
+    )
+
     @SuppressLint("SetJavaScriptEnabled")
     private fun create(tab: ULong): WebView = WebView(context).apply {
         settings.javaScriptEnabled = true
@@ -84,6 +103,7 @@ class WebViews(private val context: Context) : WebViewHost {
         settings.displayZoomControls = false
         webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
+                pages[tab] = url
                 browser.onLoadStarted(tab, url)
                 onChange()
             }
@@ -97,6 +117,28 @@ class WebViews(private val context: Context) : WebViewHost {
             override fun doUpdateVisitedHistory(view: WebView, url: String, isReload: Boolean) {
                 browser.onLoadFinished(tab, url)
                 onChange()
+            }
+
+            // The extensions' network rules (ad and tracker blockers).
+            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
+                val headers = request.requestHeaders
+                val verdict = runCatching {
+                    browser.intercept(
+                        request.url.toString(),
+                        pages[tab],
+                        request.isForMainFrame,
+                        request.method ?: "GET",
+                        headers["Accept"] ?: headers["accept"],
+                        headers["Sec-Fetch-Dest"] ?: headers["sec-fetch-dest"],
+                    )
+                }.getOrDefault(Interception.Allow)
+                return when (verdict) {
+                    is Interception.Allow -> null
+                    is Interception.Block -> blocked()
+                    is Interception.Serve -> runCatching {
+                        WebResourceResponse(verdict.mimeType, "utf-8", FileInputStream(File(verdict.path)))
+                    }.getOrElse { blocked() }
+                }
             }
 
             // mailto:, tel:, intent:... go to the app that handles them.

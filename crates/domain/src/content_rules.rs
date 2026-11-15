@@ -52,6 +52,24 @@ impl ResourceType {
         })
     }
 
+    /// From a request's `Sec-Fetch-Dest` header.
+    pub fn from_fetch_dest(dest: &str) -> Option<Self> {
+        Some(match dest {
+            "document" => Self::MainFrame,
+            "iframe" | "frame" => Self::SubFrame,
+            "script" | "worker" | "sharedworker" | "serviceworker" | "audioworklet"
+            | "paintworklet" => Self::Script,
+            "style" => Self::Stylesheet,
+            "image" => Self::Image,
+            "font" => Self::Font,
+            "audio" | "video" | "track" => Self::Media,
+            "object" | "embed" => Self::Object,
+            "report" => Self::CspReport,
+            "empty" => Self::XmlHttpRequest,
+            _ => return None,
+        })
+    }
+
     /// A best guess from the address and the `Accept` header, for web views
     /// that do not say what a request is for (Android).
     pub fn guess(url: &str, accept: &str) -> Option<Self> {
