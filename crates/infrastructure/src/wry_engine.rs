@@ -31,6 +31,9 @@ pub struct WryEngine {
     /// Extensions to hand to the web view profile once a view exists.
     #[cfg_attr(not(windows), allow(dead_code))]
     pending_extensions: Option<Extensions>,
+    /// macOS, Linux: the extensions' network rules as WebKit content rules.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    rule_lists: crate::webkit_rules::RuleLists,
     /// The extensions handed to the profile so far: the only ones removed
     /// from it when the user removes them.
     #[cfg(windows)]
@@ -70,6 +73,12 @@ impl WryEngine {
             viewport: Viewport::default(),
             events,
             waker,
+            #[cfg(any(target_os = "macos", target_os = "linux"))]
+            rule_lists: crate::webkit_rules::RuleLists::new(
+                extensions_dir.clone(),
+                data_dir.join("content-filters"),
+                waker.clone(),
+            ),
             context: WebContext::new(Some(data_dir)),
             extensions_dir,
             pending_extensions: None,
@@ -79,11 +88,18 @@ impl WryEngine {
     }
 
     /// Advances the platform's own event loop where the web view needs it
-    /// (GTK on Linux). Call once per UI frame.
-    pub fn pump(&self) {
+    /// (GTK on Linux), and hands compiled content rules to the views. Call
+    /// once per UI frame.
+    pub fn pump(&mut self) {
         #[cfg(target_os = "linux")]
         while gtk::events_pending() {
             gtk::main_iteration_do(false);
+        }
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        if let Some(list) = self.rule_lists.poll() {
+            for view in self.views.values() {
+                crate::webkit_rules::RuleLists::apply(view, list);
+            }
         }
     }
 
@@ -175,6 +191,8 @@ impl WebEngine for WryEngine {
             })
             .build_as_child(&self.parent)
             .map_err(engine_error)?;
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        self.rule_lists.attach(&view);
         self.views.insert(tab, view);
         #[cfg(windows)]
         self.apply_extensions();
@@ -239,6 +257,8 @@ impl WebEngine for WryEngine {
     fn extension_support(&self) -> ExtensionSupport {
         if cfg!(windows) {
             ExtensionSupport::Full
+        } else if cfg!(any(target_os = "macos", target_os = "linux")) {
+            ExtensionSupport::NetworkRules
         } else {
             ExtensionSupport::None
         }
@@ -251,5 +271,7 @@ impl WebEngine for WryEngine {
         self.pending_extensions = Some(extensions.clone());
         #[cfg(windows)]
         self.apply_extensions();
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        self.rule_lists.update(extensions);
     }
 }

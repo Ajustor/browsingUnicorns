@@ -17,6 +17,16 @@ desktop = [
     "dep:ureq",
     "dep:webview2-com",
     "dep:windows-core",
+    "dep:webkit2gtk",
+    "dep:webkit2gtk-sys",
+    "dep:glib",
+    "dep:glib-sys",
+    "dep:gio-sys",
+    "dep:gobject-sys",
+    "dep:objc2",
+    "dep:objc2-foundation",
+    "dep:objc2-web-kit",
+    "dep:block2",
 ]
 
 [dependencies]
@@ -40,8 +50,28 @@ ureq = { version = "3", features = ["platform-verifier"], optional = true }
 zip = { version = "9.6", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 # A child web view on Linux needs GTK initialised and its loop advanced.
+# WebKitGTK's content filters (extensions' rules) through its C API: the
+# Rust bindings leave them out. Same versions as wry.
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = { version = "0.18", optional = true }
+webkit2gtk = { version = "=2.0.2", features = ["v2_38"], optional = true }
+webkit2gtk-sys = { version = "=2.0.2", features = ["v2_38"], optional = true }
+glib = { version = "0.18", optional = true }
+glib-sys = { version = "0.18", optional = true }
+gio-sys = { version = "0.18", optional = true }
+gobject-sys = { version = "0.18", optional = true }
+
+# WKWebView's content rule lists (extensions' rules). Same versions as wry.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { version = "0.6", optional = true }
+objc2-foundation = { version = "0.3", features = ["NSString", "NSError"], optional = true }
+objc2-web-kit = { version = "0.3", features = [
+    "block2",
+    "WKContentRuleList",
+    "WKContentRuleListStore",
+    "WKUserContentController",
+], optional = true }
+block2 = { version = "0.6", optional = true }
 
 # Managing the extensions of the WebView2 profile (same versions as wry).
 [target.'cfg(windows)'.dependencies]

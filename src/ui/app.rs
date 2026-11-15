@@ -234,7 +234,7 @@ impl BrowserApp {
 
 impl eframe::App for BrowserApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.browser.engine().pump();
+        self.browser.engine_mut().pump();
         self.drain_engine_events();
         self.drive_sync(ctx);
         self.extensions.poll(self.browser.engine_mut());
