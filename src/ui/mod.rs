@@ -7,10 +7,13 @@ mod command;
 mod library;
 mod omnibox;
 mod shortcuts;
+mod sync;
+mod sync_panel;
 mod tab_strip;
 mod toolbar;
 mod updates;
 
+pub use sync::SyncRunner;
 pub use updates::Updates;
 
 pub use app::{BrowserApp, ExitSlot};

@@ -9,8 +9,10 @@ use infrastructure::WryEngine;
 use updater::ExitAction;
 
 use super::command::Command;
-use super::library::Library;
+use super::library::{Library, LibraryData};
 use super::omnibox::Omnibox;
+use super::sync::SyncRunner;
+use super::sync_panel::SyncView;
 use super::updates::{Notice, Updates};
 use super::{APP_NAME, bookmarks_bar, tab_strip, toolbar};
 
@@ -21,6 +23,7 @@ pub struct BrowserApp {
     browser: Browser<WryEngine>,
     events: Receiver<EngineEvent>,
     updates: Updates,
+    sync: SyncRunner,
     exit_slot: ExitSlot,
     omnibox: Omnibox,
     library: Library,
@@ -38,6 +41,7 @@ impl BrowserApp {
         browser: Browser<WryEngine>,
         events: Receiver<EngineEvent>,
         mut updates: Updates,
+        sync: SyncRunner,
         exit_slot: ExitSlot,
     ) -> Self {
         updates.check_if_due();
@@ -45,6 +49,7 @@ impl BrowserApp {
             browser,
             events,
             updates,
+            sync,
             exit_slot,
             omnibox: Omnibox::default(),
             library: Library::default(),
@@ -74,6 +79,22 @@ impl BrowserApp {
             Command::ToggleBookmark => self.browser.toggle_bookmark().map(|_| ()),
             Command::RemoveBookmark(address) => self.browser.remove_bookmark(&address),
             Command::ClearHistory => self.browser.clear_history(),
+            Command::SyncTurnOn => {
+                let r = self.sync.turn_on();
+                return self.report_err(r);
+            }
+            Command::SyncJoin(code) => {
+                let r = self.sync.join(&code);
+                return self.report_err(r);
+            }
+            Command::SyncTurnOff => {
+                let r = self.sync.turn_off();
+                return self.report_err(r);
+            }
+            Command::SyncNow => {
+                self.sync.sync_now();
+                Ok(())
+            }
             other => {
                 self.run_ui(other);
                 Ok(())
@@ -81,6 +102,31 @@ impl BrowserApp {
         };
         if let Err(e) = result {
             self.report(e);
+        }
+    }
+
+    fn report_err(&mut self, result: Result<(), String>) {
+        if let Err(e) = result {
+            self.report(e);
+        }
+    }
+
+    /// Applies a finished round, and starts one when due.
+    fn drive_sync(&mut self, ctx: &egui::Context) {
+        if let Some(records) = self.sync.poll()
+            && let Err(e) = self.browser.apply_remote(&records)
+        {
+            self.report(e);
+        }
+        if self.sync.is_due(self.browser.has_unsynced_changes())
+            && let Some(config) = self.sync.config()
+        {
+            let (device, name) = (config.device.clone(), config.device_name.clone());
+            let record = self.browser.sync_record(device, &name);
+            self.sync.start(record);
+        }
+        if let Some(wait) = self.sync.next_check() {
+            ctx.request_repaint_after(wait);
         }
     }
 
@@ -110,7 +156,11 @@ impl BrowserApp {
             | Command::Open(..)
             | Command::ToggleBookmark
             | Command::RemoveBookmark(_)
-            | Command::ClearHistory => unreachable!("handled by run"),
+            | Command::ClearHistory
+            | Command::SyncTurnOn
+            | Command::SyncJoin(_)
+            | Command::SyncTurnOff
+            | Command::SyncNow => unreachable!("handled by run"),
         }
     }
 
@@ -165,6 +215,7 @@ impl eframe::App for BrowserApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.browser.engine().pump();
         self.drain_engine_events();
+        self.drive_sync(ctx);
         if let Some(notice) = self.updates.poll() {
             self.notice = Some(notice);
         }
@@ -193,10 +244,17 @@ impl eframe::App for BrowserApp {
         self.notice_bar(ctx);
         self.library.show(
             ctx,
-            self.browser.history(),
-            self.browser.bookmarks(),
-            self.browser.now(),
-            &self.updates.updater,
+            LibraryData {
+                history: self.browser.history(),
+                bookmarks: self.browser.bookmarks(),
+                now: self.browser.now(),
+                updater: &self.updates.updater,
+                sync: SyncView {
+                    config: self.sync.config(),
+                    state: &self.sync.state,
+                    devices: self.browser.remote_devices(),
+                },
+            },
             &mut commands,
         );
         CentralPanel::default().frame(Frame::NONE).show(ctx, |ui| {

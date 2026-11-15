@@ -29,4 +29,8 @@ pub enum Command {
     UpdateLater,
     SkipUpdate,
     RestartToUpdate,
+    SyncTurnOn,
+    SyncJoin(String),
+    SyncTurnOff,
+    SyncNow,
 }

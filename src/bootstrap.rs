@@ -10,7 +10,9 @@ use domain::Settings;
 use infrastructure::{ParentWindow, TomlSettingsRepository, WryEngine};
 use updater::{UpdateMemory, Updater};
 
-use crate::ui::{BrowserApp, ExitSlot, Updates};
+use infrastructure::sync::SyncConfigFile;
+
+use crate::ui::{BrowserApp, ExitSlot, SyncRunner, Updates};
 
 pub fn build(
     cc: &eframe::CreationContext<'_>,
@@ -56,7 +58,12 @@ pub fn build(
     let ctx = cc.egui_ctx.clone();
     let updates = Updates::new(
         Updater::new(&crate::APP, move || ctx.request_repaint()),
-        UpdateMemory::new(profile_dir),
+        UpdateMemory::new(&profile_dir),
     );
-    Ok(BrowserApp::new(browser, receiver, updates, exit_slot))
+    let ctx = cc.egui_ctx.clone();
+    let sync = SyncRunner::new(
+        SyncConfigFile::new(profile_dir.join("sync.json")),
+        move || ctx.request_repaint(),
+    );
+    Ok(BrowserApp::new(browser, receiver, updates, sync, exit_slot))
 }

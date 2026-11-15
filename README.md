@@ -23,6 +23,10 @@ binaire reste petit et le moteur profite des mises à jour de sécurité de l'OS
 - 🕘 Historique avec recherche (Ctrl+H) ; favoris (Ctrl+Shift+O) dans le même
   panneau latéral
 - ♻️ Les onglets ouverts sont rouverts au démarrage
+- 🔄 Synchro chiffrée de bout en bout avec les autres appareils (favoris,
+  historique, onglets ouverts, réglages) : onglet *Sync* du panneau latéral,
+  appairage par code ou QR code, relais Cloudflare (`relay/sync`) qui ne voit
+  que des données chiffrées
 - 💾 Profil dans `<data>/browsing-unicorns/` (`history.json`,
   `bookmarks.json`, `session.json`), écrit au plus toutes les 5 s et à la
   fermeture, par remplacement atomique

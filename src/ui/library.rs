@@ -9,6 +9,7 @@ use egui_phosphor::regular as icon;
 use updater::{UpdateState, Updater};
 
 use super::command::Command;
+use super::sync_panel::{SyncPanel, SyncView};
 
 const MAX_ROWS: usize = 300;
 
@@ -16,13 +17,24 @@ const MAX_ROWS: usize = 300;
 pub enum LibraryView {
     History,
     Bookmarks,
+    Sync,
     About,
+}
+
+/// What the panel shows, borrowed for one frame.
+pub struct LibraryData<'a> {
+    pub history: &'a BrowsingHistory,
+    pub bookmarks: &'a Bookmarks,
+    pub now: Timestamp,
+    pub updater: &'a Updater,
+    pub sync: SyncView<'a>,
 }
 
 #[derive(Default)]
 pub struct Library {
     pub open: Option<LibraryView>,
     filter: String,
+    sync: SyncPanel,
 }
 
 impl Library {
@@ -37,15 +49,19 @@ impl Library {
     pub fn show(
         &mut self,
         ctx: &egui::Context,
-        history: &BrowsingHistory,
-        bookmarks: &Bookmarks,
-        now: Timestamp,
-        updater: &Updater,
+        data: LibraryData<'_>,
         commands: &mut Vec<Command>,
     ) {
         let Some(view) = self.open else {
             return;
         };
+        let LibraryData {
+            history,
+            bookmarks,
+            now,
+            updater,
+            sync,
+        } = data;
         SidePanel::right("library")
             .resizable(true)
             .default_width(320.0)
@@ -58,6 +74,10 @@ impl Library {
                             format!("{} History", icon::CLOCK_COUNTER_CLOCKWISE),
                         ),
                         (LibraryView::Bookmarks, format!("{} Bookmarks", icon::STAR)),
+                        (
+                            LibraryView::Sync,
+                            format!("{} Sync", icon::ARROWS_CLOCKWISE),
+                        ),
                         (LibraryView::About, format!("{} About", icon::INFO)),
                     ] {
                         if ui.selectable_label(view == v, label).clicked() && view != v {
@@ -74,10 +94,18 @@ impl Library {
                         }
                     });
                 });
-                if view == LibraryView::About {
-                    ui.separator();
-                    about(ui, updater, commands);
-                    return;
+                match view {
+                    LibraryView::About => {
+                        ui.separator();
+                        about(ui, updater, commands);
+                        return;
+                    }
+                    LibraryView::Sync => {
+                        ui.separator();
+                        self.sync.show(ui, sync, now, commands);
+                        return;
+                    }
+                    _ => {}
                 }
                 ui.add(
                     TextEdit::singleline(&mut self.filter)
@@ -88,7 +116,7 @@ impl Library {
                 match view {
                     LibraryView::History => self.history(ui, history, now, commands),
                     LibraryView::Bookmarks => self.bookmarks(ui, bookmarks, commands),
-                    LibraryView::About => {}
+                    LibraryView::About | LibraryView::Sync => {}
                 }
             });
     }
@@ -231,7 +259,11 @@ fn entry(
 
 /// "5 min", "3 h", "2 d".
 fn ago(now: Timestamp, at: Timestamp) -> String {
-    let secs = now.saturating_sub(at);
+    ago_secs(now.saturating_sub(at))
+}
+
+/// "now", "5 min", "3 h", "2 d" for an age in seconds.
+pub fn ago_secs(secs: u64) -> String {
     match secs {
         0..60 => "now".into(),
         60..3_600 => format!("{} min", secs / 60),
