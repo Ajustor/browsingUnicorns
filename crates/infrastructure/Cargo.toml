@@ -4,23 +4,35 @@ version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Adapters for the application ports: system web view, settings file."
+description = "Adapters for the application ports: system web view, profile files, sync."
+
+[features]
+default = ["desktop"]
+# The system web view (wry) and the HTTP sync transport. The Android app
+# brings its own WebView and HTTP client, and builds without it.
+desktop = ["dep:wry", "dep:raw-window-handle", "dep:gtk", "dep:ureq"]
 
 [dependencies]
 domain.workspace = true
 application.workspace = true
-# The OS web view (WebView2 / WKWebView / WebKitGTK): no engine to ship.
-wry = "0.57"
-raw-window-handle = "0.6"
 serde = { version = "1", features = ["derive"] }
-toml = "0.8"
 serde_json = "1"
+toml = "0.8"
 dirs = "6"
 log = "0.4"
+# Sync: end-to-end encryption of the records, ids derived from the key.
+chacha20poly1305 = "0.10"
+sha2 = "0.10"
+data-encoding = "2"
+# The OS web view (WebView2 / WKWebView / WebKitGTK): no engine to ship.
+wry = { version = "0.57", optional = true }
+raw-window-handle = { version = "0.6", optional = true }
+# `platform-verifier`: the system's certificates (corporate proxies...).
+ureq = { version = "3", features = ["platform-verifier"], optional = true }
 
 # A child web view on Linux needs GTK initialised and its loop advanced.
 [target.'cfg(target_os = "linux")'.dependencies]
-gtk = "0.18"
+gtk = { version = "0.18", optional = true }
 
 [dev-dependencies]
 tempfile = "3"

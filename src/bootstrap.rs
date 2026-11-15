@@ -19,7 +19,12 @@ pub fn build(
 ) -> anyhow::Result<BrowserApp> {
     crate::ui::install_fonts(&cc.egui_ctx);
 
-    let settings = load_settings();
+    let settings_repo = TomlSettingsRepository::default_location()
+        .context("no config directory to keep the settings in")?;
+    let settings = settings_repo.load().unwrap_or_else(|e| {
+        log::warn!("settings ignored: {e}");
+        Settings::default()
+    });
     let profile_dir = infrastructure::profile_dir()
         .context("no data directory to keep history and bookmarks in")?;
 
@@ -30,7 +35,11 @@ pub fn build(
     let ctx = cc.egui_ctx.clone();
     let engine = WryEngine::new(parent, sender, Arc::new(move || ctx.request_repaint()));
 
-    let mut browser = Browser::new(engine, settings, infrastructure::json_profile(&profile_dir));
+    let mut browser = Browser::new(
+        engine,
+        settings,
+        infrastructure::json_profile(&profile_dir, settings_repo),
+    );
     for e in browser.load_profile() {
         log::warn!("profile: {e}");
     }
@@ -50,14 +59,4 @@ pub fn build(
         UpdateMemory::new(profile_dir),
     );
     Ok(BrowserApp::new(browser, receiver, updates, exit_slot))
-}
-
-fn load_settings() -> Settings {
-    let Some(repo) = TomlSettingsRepository::default_location() else {
-        return Settings::default();
-    };
-    repo.load().unwrap_or_else(|e| {
-        log::warn!("settings ignored: {e}");
-        Settings::default()
-    })
 }

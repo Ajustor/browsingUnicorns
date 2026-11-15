@@ -17,6 +17,8 @@ pub struct TomlSettingsRepository {
 struct SettingsFile {
     home_page: String,
     search_engine: SearchEngineFile,
+    /// When the settings were last changed (unix seconds), for sync.
+    updated_at: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -39,6 +41,7 @@ impl From<&Settings> for SettingsFile {
                 name: s.search_engine.name.clone(),
                 template: s.search_engine.template.clone(),
             },
+            updated_at: s.updated_at,
         }
     }
 }
@@ -50,6 +53,7 @@ impl SettingsFile {
         Ok(Settings {
             home_page,
             search_engine: SearchEngine::new(self.search_engine.name, self.search_engine.template),
+            updated_at: self.updated_at,
         })
     }
 }
@@ -106,6 +110,7 @@ mod tests {
         let settings = Settings {
             home_page: WebAddress::parse("https://example.com/").unwrap(),
             search_engine: SearchEngine::new("Qwant", "https://www.qwant.com/?q={query}"),
+            updated_at: 42,
         };
         repo(&dir).save(&settings).unwrap();
         assert_eq!(repo(&dir).load().unwrap(), settings);

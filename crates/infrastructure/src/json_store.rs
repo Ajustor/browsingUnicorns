@@ -1,10 +1,11 @@
 use std::path::{Path, PathBuf};
 
 use application::ports::{Repository, RepositoryError};
-use domain::{Bookmark, Bookmarks, BrowsingHistory, SessionSnapshot, Visit, WebAddress};
+use domain::{Bookmarks, BrowsingHistory, SessionSnapshot, WebAddress};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
+use crate::dto::{BookmarksDto, VisitDto};
 use crate::files;
 
 /// A domain value kept in a JSON file. A missing file loads as the default
@@ -41,15 +42,7 @@ fn parse(url: &str) -> Option<WebAddress> {
 
 #[derive(Default, Serialize, Deserialize)]
 struct HistoryFile {
-    visits: Vec<VisitFile>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct VisitFile {
-    url: String,
-    #[serde(default)]
-    title: String,
-    at: u64,
+    visits: Vec<VisitDto>,
 }
 
 impl Repository<BrowsingHistory> for JsonRepository {
@@ -58,71 +51,25 @@ impl Repository<BrowsingHistory> for JsonRepository {
         let visits = file
             .visits
             .into_iter()
-            .filter_map(|v| {
-                Some(Visit {
-                    address: parse(&v.url)?,
-                    title: v.title,
-                    at: v.at,
-                })
-            })
+            .filter_map(VisitDto::into_visit)
             .collect();
         Ok(BrowsingHistory::from_visits(visits))
     }
 
     fn save(&self, history: &BrowsingHistory) -> Result<(), RepositoryError> {
         self.save_file(&HistoryFile {
-            visits: history
-                .visits()
-                .iter()
-                .map(|v| VisitFile {
-                    url: v.address.to_string(),
-                    title: v.title.clone(),
-                    at: v.at,
-                })
-                .collect(),
+            visits: history.visits().iter().map(VisitDto::from).collect(),
         })
     }
-}
-
-#[derive(Default, Serialize, Deserialize)]
-struct BookmarksFile {
-    bookmarks: Vec<BookmarkFile>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct BookmarkFile {
-    url: String,
-    #[serde(default)]
-    title: String,
 }
 
 impl Repository<Bookmarks> for JsonRepository {
     fn load(&self) -> Result<Bookmarks, RepositoryError> {
-        let file: BookmarksFile = self.load_file()?;
-        Ok(Bookmarks::from_items(
-            file.bookmarks
-                .into_iter()
-                .filter_map(|b| {
-                    Some(Bookmark {
-                        address: parse(&b.url)?,
-                        title: b.title,
-                    })
-                })
-                .collect(),
-        ))
+        Ok(self.load_file::<BookmarksDto>()?.into())
     }
 
     fn save(&self, bookmarks: &Bookmarks) -> Result<(), RepositoryError> {
-        self.save_file(&BookmarksFile {
-            bookmarks: bookmarks
-                .items()
-                .iter()
-                .map(|b| BookmarkFile {
-                    url: b.address.to_string(),
-                    title: b.title.clone(),
-                })
-                .collect(),
-        })
+        self.save_file(&BookmarksDto::from(bookmarks))
     }
 }
 
@@ -193,7 +140,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let r = repo(&dir, "bookmarks.json");
         let mut bookmarks = Bookmarks::default();
-        bookmarks.add(addr("https://a.com/"), "A");
+        bookmarks.add(addr("https://a.com/"), "A", 1);
+        bookmarks.add(addr("https://b.com/"), "B", 2);
+        bookmarks.remove(&addr("https://b.com/"), 3);
         r.save(&bookmarks).unwrap();
         assert_eq!(Repository::<Bookmarks>::load(&r).unwrap(), bookmarks);
     }

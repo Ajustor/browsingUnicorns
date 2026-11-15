@@ -2,7 +2,10 @@
 
 use std::fmt;
 
-use domain::{Bookmarks, BrowsingHistory, SessionSnapshot, TabId, Timestamp, WebAddress};
+use domain::{
+    Bookmarks, BrowsingHistory, DeviceId, DeviceRecord, SessionSnapshot, Settings, TabId,
+    Timestamp, WebAddress,
+};
 
 /// Where pages are drawn, in physical pixels relative to the window's client
 /// area.
@@ -87,8 +90,31 @@ pub trait Clock {
 
 /// Where the user's data lives.
 pub struct Profile {
+    pub settings: Box<dyn Repository<Settings>>,
     pub history: Box<dyn Repository<BrowsingHistory>>,
     pub bookmarks: Box<dyn Repository<Bookmarks>>,
     pub session: Box<dyn Repository<SessionSnapshot>>,
     pub clock: Box<dyn Clock>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SyncError(pub String);
+
+impl fmt::Display for SyncError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for SyncError {}
+
+/// Where the devices of a sync group leave their records for each other.
+/// Blocking: call it off the UI thread.
+pub trait SyncStore: Send + Sync {
+    /// Replaces this device's record.
+    fn push(&self, record: &DeviceRecord) -> Result<(), SyncError>;
+    /// Every device's record, this one's included.
+    fn pull(&self) -> Result<Vec<DeviceRecord>, SyncError>;
+    /// Removes this device's record (it leaves the group).
+    fn leave(&self, device: &DeviceId) -> Result<(), SyncError>;
 }

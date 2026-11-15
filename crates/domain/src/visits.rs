@@ -97,6 +97,46 @@ impl BrowsingHistory {
     pub fn clear(&mut self) {
         self.visits.clear();
     }
+
+    /// The latest `count` visits, oldest first.
+    pub fn recent(&self, count: usize) -> &[Visit] {
+        &self.visits[self.visits.len().saturating_sub(count)..]
+    }
+
+    /// Takes in another device's visits. A visit already known (same address
+    /// at the same time) is not added again; a title fills in an empty one.
+    /// Returns whether anything changed.
+    pub fn merge(&mut self, others: &[Visit]) -> bool {
+        let mut known: std::collections::HashMap<(WebAddress, Timestamp), usize> = self
+            .visits
+            .iter()
+            .enumerate()
+            .map(|(i, v)| ((v.address.clone(), v.at), i))
+            .collect();
+        let mut changed = false;
+        for v in others {
+            if !Self::is_recordable(&v.address) {
+                continue;
+            }
+            match known.get(&(v.address.clone(), v.at)) {
+                Some(&i) => {
+                    if self.visits[i].title.is_empty() && !v.title.is_empty() {
+                        self.visits[i].title = v.title.clone();
+                        changed = true;
+                    }
+                }
+                None => {
+                    known.insert((v.address.clone(), v.at), self.visits.len());
+                    self.visits.push(v.clone());
+                    changed = true;
+                }
+            }
+        }
+        if changed {
+            *self = Self::from_visits(std::mem::take(&mut self.visits));
+        }
+        changed
+    }
 }
 
 #[cfg(test)]
@@ -147,6 +187,37 @@ mod tests {
         assert_eq!(hits.len(), 1);
         assert!(h.search("egui python", 10).is_empty());
         assert_eq!(h.search("", 1).len(), 1);
+    }
+
+    #[test]
+    fn merge_adds_unknown_visits_in_time_order_once() {
+        let mut desktop = BrowsingHistory::default();
+        desktop.record(addr("https://a.com/"), 10);
+        desktop.record(addr("https://c.com/"), 30);
+        let phone = vec![
+            Visit {
+                address: addr("https://b.com/"),
+                title: "B".into(),
+                at: 20,
+            },
+            Visit {
+                address: addr("https://a.com/"),
+                title: "A".into(),
+                at: 10,
+            },
+            Visit {
+                address: addr("about:blank"),
+                title: String::new(),
+                at: 40,
+            },
+        ];
+        assert!(desktop.merge(&phone));
+        let order: Vec<u64> = desktop.visits().iter().map(|v| v.at).collect();
+        assert_eq!(order, vec![10, 20, 30]);
+        assert_eq!(desktop.visits()[0].title, "A", "title filled in");
+        assert!(!desktop.merge(&phone), "nothing new the second time");
+        assert_eq!(desktop.recent(2).len(), 2);
+        assert_eq!(desktop.recent(2)[1].at, 30);
     }
 
     #[test]

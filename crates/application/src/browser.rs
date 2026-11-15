@@ -1,10 +1,11 @@
 use domain::{
-    Bookmarks, BrowsingHistory, Session, SessionSnapshot, Settings, TabId, Timestamp, WebAddress,
-    resolve_omnibox,
+    Bookmarks, BrowsingHistory, DeviceId, DeviceRecord, RemoteTab, Session, SessionSnapshot,
+    Settings, TabId, Timestamp, WebAddress, resolve_omnibox,
 };
 
 use crate::BrowserError;
 use crate::ports::{EngineEvent, Profile, Viewport, WebEngine};
+use crate::sync::RemoteDevice;
 
 /// Where to load a page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,6 +25,9 @@ pub struct Browser<E: WebEngine> {
     history_dirty: bool,
     bookmarks: Bookmarks,
     saved_session: SessionSnapshot,
+    remote_devices: Vec<RemoteDevice>,
+    /// Bookmarks, settings or history changed since the last sync record.
+    unsynced: bool,
 }
 
 impl<E: WebEngine> Browser<E> {
@@ -39,6 +43,8 @@ impl<E: WebEngine> Browser<E> {
             history_dirty: false,
             bookmarks: Bookmarks::default(),
             saved_session: SessionSnapshot::default(),
+            remote_devices: Vec::new(),
+            unsynced: false,
         }
     }
 
@@ -139,15 +145,90 @@ impl<E: WebEngine> Browser<E> {
         let Some(address) = tab.address().cloned() else {
             return Ok(false);
         };
-        let saved = self.bookmarks.toggle(address, tab.title());
+        let title = tab.title().to_owned();
+        let saved = self.bookmarks.toggle(address, title, self.now());
+        self.unsynced = true;
         self.profile.bookmarks.save(&self.bookmarks)?;
         Ok(saved)
     }
 
     pub fn remove_bookmark(&mut self, address: &WebAddress) -> Result<(), BrowserError> {
-        if self.bookmarks.remove(address) {
+        if self.bookmarks.remove(address, self.now()) {
+            self.unsynced = true;
             self.profile.bookmarks.save(&self.bookmarks)?;
         }
+        Ok(())
+    }
+
+    /// Other devices of the sync group, as of the last sync.
+    pub fn remote_devices(&self) -> &[RemoteDevice] {
+        &self.remote_devices
+    }
+
+    /// Whether something worth syncing changed since [`Self::sync_record`].
+    pub fn has_unsynced_changes(&self) -> bool {
+        self.unsynced
+    }
+
+    /// This device's state for the other devices.
+    pub fn sync_record(&mut self, device: DeviceId, name: &str) -> DeviceRecord {
+        self.unsynced = false;
+        DeviceRecord {
+            device,
+            name: name.to_owned(),
+            updated_at: self.now(),
+            bookmarks: self.bookmarks.clone(),
+            history: self.history.recent(DeviceRecord::HISTORY_LIMIT).to_vec(),
+            tabs: self
+                .session
+                .tabs()
+                .iter()
+                .filter_map(|t| {
+                    Some(RemoteTab {
+                        address: t.address()?.clone(),
+                        title: t.title().to_owned(),
+                    })
+                })
+                .collect(),
+            settings: self.settings.clone(),
+        }
+    }
+
+    /// Merges the other devices' records into this one's data and saves
+    /// what changed.
+    pub fn apply_remote(&mut self, records: &[DeviceRecord]) -> Result<(), BrowserError> {
+        let mut bookmarks_changed = false;
+        let mut settings_changed = false;
+        for r in records {
+            bookmarks_changed |= self.bookmarks.merge(&r.bookmarks);
+            self.history_dirty |= self.history.merge(&r.history);
+            settings_changed |= self.settings.merge(&r.settings);
+        }
+        self.remote_devices = records
+            .iter()
+            .map(|r| RemoteDevice {
+                id: r.device.clone(),
+                name: r.name.clone(),
+                updated_at: r.updated_at,
+                tabs: r.tabs.clone(),
+            })
+            .collect();
+        self.remote_devices.sort_by(|a, b| a.name.cmp(&b.name));
+        if bookmarks_changed {
+            self.profile.bookmarks.save(&self.bookmarks)?;
+        }
+        if settings_changed {
+            self.profile.settings.save(&self.settings)?;
+        }
+        Ok(())
+    }
+
+    /// Replaces the settings (they win over older ones on other devices).
+    pub fn update_settings(&mut self, mut settings: Settings) -> Result<(), BrowserError> {
+        settings.updated_at = self.now();
+        self.settings = settings;
+        self.unsynced = true;
+        self.profile.settings.save(&self.settings)?;
         Ok(())
     }
 
@@ -273,6 +354,7 @@ impl<E: WebEngine> Browser<E> {
                         // The title may have come before the end of the load.
                         self.history.retitle(&address, &title);
                         self.history_dirty = true;
+                        self.unsynced = true;
                     }
                 }
             }
@@ -389,6 +471,7 @@ mod tests {
 
     #[derive(Default)]
     struct Store {
+        settings: Cell<Settings>,
         history: Cell<BrowsingHistory>,
         bookmarks: Cell<Bookmarks>,
         session: Cell<SessionSnapshot>,
@@ -397,6 +480,7 @@ mod tests {
     impl Store {
         fn profile(&self) -> Profile {
             Profile {
+                settings: Box::new(MemoryRepository(self.settings.clone())),
                 history: Box::new(MemoryRepository(self.history.clone())),
                 bookmarks: Box::new(MemoryRepository(self.bookmarks.clone())),
                 session: Box::new(MemoryRepository(self.session.clone())),
@@ -473,6 +557,7 @@ mod tests {
             FakeEngine::default(),
             Settings::default(),
             Profile {
+                settings: Box::new(FailingRepository),
                 history: Box::new(FailingRepository),
                 bookmarks: Box::new(FailingRepository),
                 session: Box::new(FailingRepository),
@@ -512,6 +597,55 @@ mod tests {
         assert!(calls.contains(&Call::Open(2, "https://b.com/".into())));
         assert_eq!(calls.last(), Some(&Call::Show(Some(1))));
         assert_eq!(restored.session().active_id().map(TabId::get), Some(1));
+    }
+
+    fn device(id: &str) -> DeviceId {
+        DeviceId::new(id).unwrap()
+    }
+
+    #[test]
+    fn the_sync_record_carries_bookmarks_history_tabs_and_settings() {
+        let mut b = browser();
+        let id = b.open_tab(None).unwrap();
+        finish(&mut b, id, "https://a.com/");
+        b.toggle_bookmark().unwrap();
+        assert!(b.has_unsynced_changes());
+        let record = b.sync_record(device("desktop"), "Desktop");
+        assert!(!b.has_unsynced_changes());
+        assert_eq!(record.name, "Desktop");
+        assert_eq!(record.bookmarks.len(), 1);
+        assert_eq!(record.history.len(), 1);
+        assert_eq!(record.tabs.len(), 1);
+        assert_eq!(record.tabs[0].address, addr("https://a.com/"));
+    }
+
+    #[test]
+    fn remote_records_are_merged_and_saved() {
+        let store = Store::default();
+        let mut b = browser_with(&store);
+        let mut phone = browser();
+        let id = phone.open_tab(None).unwrap();
+        finish(&mut phone, id, "https://phone.com/");
+        phone.toggle_bookmark().unwrap();
+        phone
+            .update_settings(Settings {
+                home_page: addr("https://home.com/"),
+                ..Settings::default()
+            })
+            .unwrap();
+        let record = phone.sync_record(device("phone"), "Phone");
+
+        b.apply_remote(std::slice::from_ref(&record)).unwrap();
+        assert!(b.bookmarks().contains(&addr("https://phone.com/")));
+        assert_eq!(b.history().len(), 1);
+        assert_eq!(b.settings().home_page, addr("https://home.com/"));
+        assert_eq!(b.remote_devices().len(), 1);
+        assert_eq!(b.remote_devices()[0].name, "Phone");
+        assert_eq!(b.remote_devices()[0].tabs.len(), 1);
+        // Bookmarks and settings are saved right away, history on persist.
+        assert_eq!(store.bookmarks.borrow().as_ref().unwrap().len(), 1);
+        assert!(store.settings.borrow().is_some());
+        assert!(b.has_unsaved_changes());
     }
 
     #[test]

@@ -7,6 +7,7 @@
 mod browser;
 mod error;
 pub mod ports;
+pub mod sync;
 
 pub use browser::{Browser, Target};
 pub use error::BrowserError;
