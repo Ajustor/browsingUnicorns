@@ -129,9 +129,14 @@ afficher correctement.
 
 ## Étapes
 
-1. **Règles réseau partout** : conversion DNR + matcher + les quatre
-   adaptateurs. Résultat : uBlock Origin Lite, AdGuard MV3 etc. sur macOS,
-   Linux et Android. Plus gros gain, risque faible.
+1. ✅ **Règles réseau partout** (`domain::content_rules`,
+   `infrastructure::extensions::{dnr, safari}`, `webkit_rules.rs`,
+   `crates/mobile/src/extensions.rs`) : moteur de règles commun (index par
+   domaine et par mot du filtre, ~0,1 ms par requête avec les 18 893 règles
+   de uBlock Origin Lite), conversion vers WebKit (116 095 règles), Android
+   via `shouldInterceptRequest`. Limites : pas de `regexFilter` ni de
+   `modifyHeaders` ; sur WebKit, pas de redirection vers les scripts de
+   remplacement (ces règles sont ignorées pour ne pas casser les pages).
 2. **Content scripts + CSS + `storage` + messages** : les extensions « de
    page » et les scripts utilisateur (format Greasemonkey en prime).
 3. **Fond et popup/options dans le panneau** : web views cachées, protocole

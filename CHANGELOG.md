@@ -4,6 +4,16 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [Unreleased]
+
+### Ajouté
+
+- Bloqueurs de pub et de pistage (uBlock Origin Lite, AdGuard…) sur Android,
+  macOS et Linux : le navigateur applique lui-même les règles réseau
+  (`declarativeNetRequest`) des extensions installées. Écran *Extensions* dans
+  le menu de l'app Android. Les autres fonctions des extensions ne tournent
+  que sur Windows.
+
 ## [0.3.0] - 2026-11-15
 
 ### Ajouté

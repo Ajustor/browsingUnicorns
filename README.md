@@ -27,11 +27,16 @@ binaire reste petit et le moteur profite des mises à jour de sécurité de l'OS
   historique, onglets ouverts, réglages) : onglet *Sync* du panneau latéral,
   appairage par code ou QR code, relais Cloudflare (`relay/sync`) qui ne voit
   que des données chiffrées
-- 🧩 Extensions Chrome (Windows) : onglet *Extensions* du panneau latéral,
-  installation par lien du Chrome Web Store, id ou fichier `.crx`, activation,
-  suppression ; popup et options s'ouvrent dans un onglet. WebView2 n'affiche
-  pas de bouton d'extension. La suite (un moteur d'extensions pour toutes les
-  plateformes) est décrite dans [`docs/extensions.md`](docs/extensions.md)
+- 🧩 Extensions Chrome : onglet *Extensions* du panneau latéral (menu
+  *Extensions* sur Android), installation par lien du Chrome Web Store, id ou
+  fichier `.crx`, activation, suppression.
+  - Windows : elles tournent dans WebView2 ; popup et options s'ouvrent dans
+    un onglet (WebView2 n'affiche pas de bouton d'extension).
+  - Android, macOS, Linux : le navigateur applique leurs règles de blocage
+    (`declarativeNetRequest`) : bloqueurs de pub et de pistage. Sur WebKit
+    elles sont converties au format des *content blockers* de Safari.
+  - La suite (un moteur d'extensions complet pour toutes les plateformes) est
+    décrite dans [`docs/extensions.md`](docs/extensions.md)
 - 💾 Profil dans `<data>/browsing-unicorns/` (`history.json`,
   `bookmarks.json`, `session.json`, `extensions.json`, `webview/` pour les
   données des pages), écrit au plus toutes les 5 s et à la fermeture, par
