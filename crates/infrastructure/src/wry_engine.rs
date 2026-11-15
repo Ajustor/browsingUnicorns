@@ -27,6 +27,7 @@ pub struct WryEngine {
     /// Where the web views keep cookies, cache and storage.
     context: WebContext,
     /// Where the unpacked extensions are (`<id>/` each).
+    #[cfg_attr(not(windows), allow(dead_code))]
     extensions_dir: PathBuf,
     /// Extensions to hand to the web view profile once a view exists.
     #[cfg_attr(not(windows), allow(dead_code))]
@@ -72,13 +73,13 @@ impl WryEngine {
             shown: None,
             viewport: Viewport::default(),
             events,
-            waker,
             #[cfg(any(target_os = "macos", target_os = "linux"))]
             rule_lists: crate::webkit_rules::RuleLists::new(
                 extensions_dir.clone(),
                 data_dir.join("content-filters"),
                 waker.clone(),
             ),
+            waker,
             context: WebContext::new(Some(data_dir)),
             extensions_dir,
             pending_extensions: None,
