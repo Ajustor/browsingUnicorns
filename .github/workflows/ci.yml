@@ -82,8 +82,6 @@ jobs:
 
       # The runner has the SDK and an NDK; Gradle fetches the platform it needs.
       - name: Build the APK
-        env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
         run: bash scripts/build-android.sh assembleDebug
 
       - uses: actions/upload-artifact@v5

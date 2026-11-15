@@ -10,6 +10,11 @@
 set -euo pipefail
 
 task="${1:-assembleDebug}"
+
+# On GitHub runners the NDK is announced by ANDROID_NDK_LATEST_HOME /
+# ANDROID_NDK_ROOT; an empty ANDROID_NDK_HOME would hide them from cargo-ndk.
+export ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_ROOT:-}}}"
+[ -n "$ANDROID_NDK_HOME" ] || unset ANDROID_NDK_HOME
 cd "$(dirname "$0")/.."
 
 cargo ndk -t arm64-v8a -t x86_64 --platform 26 \
