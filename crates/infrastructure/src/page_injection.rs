@@ -66,7 +66,7 @@ mod platform {
 
     /// Ours are found again by their [`MARKER`].
     #[derive(Default)]
-    pub struct Handles;
+    pub struct Handles(());
 
     pub fn replace(view: &WebView, scripts: &[String], _handles: &mut Handles) {
         let Some(mtm) = MainThreadMarker::new() else {
@@ -135,7 +135,7 @@ mod platform {
     use wry::WebView;
 
     #[derive(Default)]
-    pub struct Handles;
+    pub struct Handles(());
 
     pub fn replace(_view: &WebView, _scripts: &[String], _handles: &mut Handles) {}
 }
