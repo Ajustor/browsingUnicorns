@@ -1,27 +1,93 @@
 //! Chrome extensions on disk: downloaded from the Chrome Web Store (or read
 //! from a `.crx` file) and unpacked into `<profile>/extensions/<id>/`, where
 //! the web view loads them from.
+//!
+//! Where the web view has no extension engine (Android, WebKit), the
+//! browser applies the extensions' network rules itself: [`rule_set`].
 
 mod crx;
+mod dnr;
 mod manifest;
+pub mod safari;
 
 use std::fs;
 use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::sync::Arc;
 
 use application::ports::{ExtensionError, ExtensionPackages, ExtensionSource};
 use data_encoding::BASE64;
-use domain::{Extension, ExtensionId, Extensions};
+use domain::{Extension, ExtensionId, Extensions, RuleSet};
 
 /// Packages bigger than this are refused.
-const MAX_PACKAGE: u64 = 100 * 1024 * 1024;
+pub const MAX_PACKAGE: u64 = 100 * 1024 * 1024;
 /// The browser version announced to the Web Store, which serves the build of
 /// the extension made for it.
 const CHROME_VERSION: &str = "140.0.0.0";
 
+/// Fetches a URL (following redirects) and returns the body, or an error
+/// message. Each app brings its HTTP client.
+pub type Download = Arc<dyn Fn(&str) -> Result<Vec<u8>, String> + Send + Sync>;
+
 pub struct ExtensionFolder {
     dir: PathBuf,
+    download: Download,
+}
+
+/// Where the Chrome Web Store serves the package of `id`.
+pub fn store_package_url(id: &ExtensionId) -> String {
+    format!(
+        "https://clients2.google.com/service/update2/crx?response=redirect\
+         &prodversion={CHROME_VERSION}&acceptformat=crx2,crx3&x=id%3D{id}%26uc"
+    )
+}
+
+/// The network rules of the enabled `extensions` unpacked in `dir`.
+pub fn rule_set(dir: &Path, extensions: &Extensions) -> RuleSet {
+    let per_extension = extensions
+        .items()
+        .iter()
+        .filter(|e| e.enabled)
+        .filter_map(|e| match dnr::read_rules(&extension_dir(dir, &e.id)) {
+            Ok((rules, skipped)) => {
+                log::info!(
+                    "extensions: {} network rules from {} ({skipped} left out)",
+                    rules.len(),
+                    e.name
+                );
+                Some((e.id.clone(), rules))
+            }
+            Err(err) => {
+                log::warn!("extensions: rules of {}: {err}", e.name);
+                None
+            }
+        })
+        .collect();
+    RuleSet::new(per_extension)
+}
+
+/// [`Download`] with ureq (desktop).
+#[cfg(feature = "desktop")]
+pub fn ureq_download() -> Download {
+    use std::time::Duration;
+
+    let tls = ureq::tls::TlsConfig::builder()
+        .root_certs(ureq::tls::RootCerts::PlatformVerifier)
+        .build();
+    let agent = ureq::Agent::config_builder()
+        .tls_config(tls)
+        .timeout_connect(Some(Duration::from_secs(10)))
+        .timeout_global(Some(Duration::from_secs(120)))
+        .build()
+        .new_agent();
+    Arc::new(move |url: &str| {
+        let mut resp = agent.get(url).call().map_err(|e| e.to_string())?;
+        resp.body_mut()
+            .with_config()
+            .limit(MAX_PACKAGE)
+            .read_to_vec()
+            .map_err(|e| e.to_string())
+    })
 }
 
 fn error(e: impl std::fmt::Display) -> ExtensionError {
@@ -34,37 +100,19 @@ pub fn extension_dir(dir: &Path, id: &ExtensionId) -> PathBuf {
 }
 
 impl ExtensionFolder {
-    pub fn new(dir: impl Into<PathBuf>) -> Self {
-        Self { dir: dir.into() }
+    pub fn new(dir: impl Into<PathBuf>, download: Download) -> Self {
+        Self {
+            dir: dir.into(),
+            download,
+        }
     }
 
     pub fn dir(&self) -> &Path {
         &self.dir
     }
 
-    fn download(id: &ExtensionId) -> Result<Vec<u8>, ExtensionError> {
-        let url = format!(
-            "https://clients2.google.com/service/update2/crx?response=redirect\
-             &prodversion={CHROME_VERSION}&acceptformat=crx2,crx3&x=id%3D{id}%26uc"
-        );
-        let tls = ureq::tls::TlsConfig::builder()
-            .root_certs(ureq::tls::RootCerts::PlatformVerifier)
-            .build();
-        let agent = ureq::Agent::config_builder()
-            .tls_config(tls)
-            .timeout_connect(Some(Duration::from_secs(10)))
-            .timeout_global(Some(Duration::from_secs(120)))
-            .build()
-            .new_agent();
-        let mut resp = agent
-            .get(&url)
-            .call()
-            .map_err(|e| error(format!("Chrome Web Store: {e}")))?;
-        let body = resp
-            .body_mut()
-            .with_config()
-            .limit(MAX_PACKAGE)
-            .read_to_vec()
+    fn download(&self, id: &ExtensionId) -> Result<Vec<u8>, ExtensionError> {
+        let body = (self.download)(&store_package_url(id))
             .map_err(|e| error(format!("Chrome Web Store: {e}")))?;
         if body.is_empty() {
             return Err(error("the Chrome Web Store has no extension with this id"));
@@ -145,7 +193,7 @@ impl ExtensionPackages for ExtensionFolder {
     fn install(&self, source: &ExtensionSource) -> Result<Extension, ExtensionError> {
         fs::create_dir_all(&self.dir).map_err(error)?;
         match source {
-            ExtensionSource::Store(id) => self.unpack(&Self::download(id)?, Some(id)),
+            ExtensionSource::Store(id) => self.unpack(&self.download(id)?, Some(id)),
             ExtensionSource::File(path) => {
                 let bytes =
                     fs::read(path).map_err(|e| error(format!("{}: {e}", path.display())))?;
@@ -185,6 +233,10 @@ mod tests {
 
     use super::*;
 
+    fn no_download() -> Download {
+        Arc::new(|_: &str| Err("offline".to_owned()))
+    }
+
     fn zip_with(files: &[(&str, &str)]) -> Vec<u8> {
         let mut out = zip::ZipWriter::new(Cursor::new(Vec::new()));
         for (name, content) in files {
@@ -214,7 +266,7 @@ mod tests {
     #[test]
     fn installs_updates_and_removes() {
         let root = tempfile::tempdir().unwrap();
-        let folder = ExtensionFolder::new(root.path().join("extensions"));
+        let folder = ExtensionFolder::new(root.path().join("extensions"), no_download());
         let file = root.path().join("ext.crx");
         fs::write(&file, package("First")).unwrap();
 
@@ -252,7 +304,7 @@ mod tests {
     #[test]
     fn a_store_package_must_be_the_one_asked_for() {
         let root = tempfile::tempdir().unwrap();
-        let folder = ExtensionFolder::new(root.path());
+        let folder = ExtensionFolder::new(root.path(), no_download());
         let other = ExtensionId::parse("ddkjiahejlhfcafbddmgiahcphecmpfh").unwrap();
         assert!(folder.unpack(&package("x"), Some(&other)).is_err());
         assert!(
@@ -262,11 +314,12 @@ mod tests {
     }
 
     /// Talks to the real Chrome Web Store.
+    #[cfg(feature = "desktop")]
     #[test]
     #[ignore = "downloads uBlock Origin Lite from the Chrome Web Store"]
     fn installs_from_the_store() {
         let root = tempfile::tempdir().unwrap();
-        let folder = ExtensionFolder::new(root.path());
+        let folder = ExtensionFolder::new(root.path(), ureq_download());
         let id = ExtensionId::parse("ddkjiahejlhfcafbddmgiahcphecmpfh").unwrap();
         let ext = folder.install(&ExtensionSource::Store(id.clone())).unwrap();
         assert_eq!(ext.id, id);
@@ -276,5 +329,36 @@ mod tests {
                 .join("manifest.json")
                 .exists()
         );
+
+        // Its network rules, and how long a decision takes.
+        let set = rule_set(folder.dir(), &Extensions::from_items(vec![ext]));
+        println!("{} rules", set.len());
+        assert!(set.len() > 1000);
+        let (webkit, count) = safari::content_rule_list(&set);
+        println!("{count} WebKit rules, {} KB", webkit.len() / 1024);
+        let page = Some("https://news.example/");
+        let urls = [
+            "https://www.google-analytics.com/collect?v=1",
+            "https://googleads.g.doubleclick.net/pagead/viewthroughconversion/1/",
+            "https://news.example/style.css",
+            "https://cdn.example.org/lib/jquery.min.js",
+        ];
+        let start = std::time::Instant::now();
+        let verdicts: Vec<_> = urls
+            .iter()
+            .map(|url| {
+                let ty = domain::ResourceType::guess(url, "*/*");
+                let request = domain::Request::new(url, Some("news.example"), ty, "GET").unwrap();
+                set.decide(&request, page)
+            })
+            .collect();
+        println!("{} decisions in {:?}", urls.len(), start.elapsed());
+        for (url, verdict) in urls.iter().zip(&verdicts) {
+            println!("{url}: {verdict:?}");
+        }
+        assert_eq!(verdicts[0], domain::Verdict::Block);
+        assert_eq!(verdicts[1], domain::Verdict::Block);
+        assert_eq!(verdicts[2], domain::Verdict::Allow);
+        assert_eq!(verdicts[3], domain::Verdict::Allow);
     }
 }

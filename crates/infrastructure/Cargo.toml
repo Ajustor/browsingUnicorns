@@ -15,7 +15,6 @@ desktop = [
     "dep:raw-window-handle",
     "dep:gtk",
     "dep:ureq",
-    "dep:zip",
     "dep:webview2-com",
     "dep:windows-core",
 ]
@@ -38,7 +37,7 @@ raw-window-handle = { version = "0.6", optional = true }
 # `platform-verifier`: the system's certificates (corporate proxies...).
 ureq = { version = "3", features = ["platform-verifier"], optional = true }
 # Extensions: unpacking the .crx (a zip after a signed header).
-zip = { version = "9.6", default-features = false, features = ["deflate-flate2-zlib-rs"], optional = true }
+zip = { version = "9.6", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 # A child web view on Linux needs GTK initialised and its loop advanced.
 [target.'cfg(target_os = "linux")'.dependencies]

@@ -5,7 +5,6 @@
 
 mod clock;
 mod dto;
-#[cfg(feature = "desktop")]
 pub mod extensions;
 mod files;
 mod json_store;

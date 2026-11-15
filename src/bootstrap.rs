@@ -55,7 +55,10 @@ pub fn build(
     // Handed to the engine before the first tab: it installs them with it.
     let extensions = ExtensionManager::load(
         Box::new(JsonRepository::new(profile_dir.join("extensions.json"))),
-        Arc::new(ExtensionFolder::new(profile_dir.join("extensions"))),
+        Arc::new(ExtensionFolder::new(
+            profile_dir.join("extensions"),
+            infrastructure::extensions::ureq_download(),
+        )),
     )
     .context("could not read the extensions")?;
     browser.engine_mut().set_extensions(extensions.extensions());

@@ -5,6 +5,7 @@
 
 mod address;
 mod bookmarks;
+mod content_rules;
 mod extensions;
 mod history;
 mod omnibox;
@@ -17,6 +18,9 @@ mod visits;
 
 pub use address::{AddressError, WebAddress};
 pub use bookmarks::{Bookmark, Bookmarks, Removal};
+pub use content_rules::{
+    DomainType, NetworkRule, Request, ResourceType, RuleAction, RuleSet, UrlFilter, Verdict,
+};
 pub use extensions::{Extension, ExtensionId, Extensions};
 pub use history::History;
 pub use omnibox::resolve_omnibox;

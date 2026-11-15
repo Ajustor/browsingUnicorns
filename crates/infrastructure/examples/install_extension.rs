@@ -42,7 +42,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         ExtensionSource::Store(ExtensionId::from_store_input(&input).ok_or("not an extension id")?)
     };
-    let packages = Arc::new(ExtensionFolder::new(profile.join("extensions")));
+    let packages = Arc::new(ExtensionFolder::new(
+        profile.join("extensions"),
+        infrastructure::extensions::ureq_download(),
+    ));
     let mut manager = ExtensionManager::load(
         Box::new(JsonRepository::new(profile.join("extensions.json"))),
         packages.clone(),
