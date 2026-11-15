@@ -378,8 +378,7 @@ impl<E: WebEngine> Browser<E> {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
-    use std::rc::Rc;
+    use std::sync::{Arc, Mutex};
 
     use super::*;
     use crate::ports::{Clock, EngineError, Repository, RepositoryError};
@@ -436,14 +435,14 @@ mod tests {
     }
 
     /// A repository whose content the test can read and preset.
-    struct MemoryRepository<T>(Rc<RefCell<Option<T>>>);
+    struct MemoryRepository<T>(Arc<Mutex<Option<T>>>);
 
-    impl<T: Clone + Default> Repository<T> for MemoryRepository<T> {
+    impl<T: Clone + Default + Send> Repository<T> for MemoryRepository<T> {
         fn load(&self) -> Result<T, RepositoryError> {
-            Ok(self.0.borrow().clone().unwrap_or_default())
+            Ok(self.0.lock().unwrap().clone().unwrap_or_default())
         }
         fn save(&self, value: &T) -> Result<(), RepositoryError> {
-            *self.0.borrow_mut() = Some(value.clone());
+            *self.0.lock().unwrap() = Some(value.clone());
             Ok(())
         }
     }
@@ -467,7 +466,7 @@ mod tests {
         }
     }
 
-    type Cell<T> = Rc<RefCell<Option<T>>>;
+    type Cell<T> = Arc<Mutex<Option<T>>>;
 
     #[derive(Default)]
     struct Store {
@@ -525,14 +524,17 @@ mod tests {
         assert_eq!(b.history().visits()[0].title, "A");
         assert_eq!(b.history().visits()[0].at, 1_000);
 
-        assert!(store.history.borrow().is_none(), "saved only on persist");
+        assert!(
+            store.history.lock().unwrap().is_none(),
+            "saved only on persist"
+        );
         assert!(b.has_unsaved_changes());
         b.persist().unwrap();
         assert!(!b.has_unsaved_changes());
-        assert_eq!(store.history.borrow().as_ref().unwrap().len(), 1);
+        assert_eq!(store.history.lock().unwrap().as_ref().unwrap().len(), 1);
 
         b.clear_history().unwrap();
-        assert!(store.history.borrow().as_ref().unwrap().is_empty());
+        assert!(store.history.lock().unwrap().as_ref().unwrap().is_empty());
     }
 
     #[test]
@@ -545,10 +547,10 @@ mod tests {
         finish(&mut b, id, "https://a.com/");
         assert!(b.toggle_bookmark().unwrap());
         assert!(b.is_active_bookmarked());
-        assert_eq!(store.bookmarks.borrow().as_ref().unwrap().len(), 1);
+        assert_eq!(store.bookmarks.lock().unwrap().as_ref().unwrap().len(), 1);
         b.remove_bookmark(&addr("https://a.com/")).unwrap();
         assert!(!b.is_active_bookmarked());
-        assert!(store.bookmarks.borrow().as_ref().unwrap().is_empty());
+        assert!(store.bookmarks.lock().unwrap().as_ref().unwrap().is_empty());
     }
 
     #[test]
@@ -583,7 +585,7 @@ mod tests {
         b.activate(first);
         b.persist().unwrap();
 
-        let saved = store.session.borrow().clone().unwrap();
+        let saved = store.session.lock().unwrap().clone().unwrap();
         assert_eq!(
             saved.tabs,
             vec![addr("https://a.com/"), addr("https://b.com/")]
@@ -643,8 +645,8 @@ mod tests {
         assert_eq!(b.remote_devices()[0].name, "Phone");
         assert_eq!(b.remote_devices()[0].tabs.len(), 1);
         // Bookmarks and settings are saved right away, history on persist.
-        assert_eq!(store.bookmarks.borrow().as_ref().unwrap().len(), 1);
-        assert!(store.settings.borrow().is_some());
+        assert_eq!(store.bookmarks.lock().unwrap().as_ref().unwrap().len(), 1);
+        assert!(store.settings.lock().unwrap().is_some());
         assert!(b.has_unsaved_changes());
     }
 

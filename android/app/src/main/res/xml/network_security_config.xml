@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Pages may use plain HTTP like in any browser; the sync relay is HTTPS
+         (http://10.0.2.2 is the developer's machine seen from the emulator). -->
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

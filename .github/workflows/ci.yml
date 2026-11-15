@@ -55,3 +55,50 @@ jobs:
 
       - name: cargo test
         run: cargo test --workspace
+
+  android:
+    name: Android app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: android
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      # The runner has the SDK and an NDK; Gradle fetches the platform it needs.
+      - name: Build the APK
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
+        run: bash scripts/build-android.sh assembleDebug
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: browsingUnicorns-android-debug
+          path: android/app/build/outputs/apk/debug/*.apk
+
+  relay:
+    name: Sync relay
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Tests
+        working-directory: relay/sync
+        run: npm test

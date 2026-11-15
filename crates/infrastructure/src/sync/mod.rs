@@ -12,6 +12,7 @@
 mod config;
 #[cfg(feature = "desktop")]
 mod http;
+pub mod relay_api;
 
 use application::ports::{SyncError, SyncStore};
 use chacha20poly1305::aead::{Aead, AeadCore, KeyInit, OsRng, Payload, rand_core::RngCore};

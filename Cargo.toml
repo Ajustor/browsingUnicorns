@@ -11,7 +11,7 @@ name = "browsingUnicorns"
 path = "src/main.rs"
 
 [workspace]
-members = ["crates/domain", "crates/application", "crates/infrastructure", "crates/updater"]
+members = ["crates/domain", "crates/application", "crates/infrastructure", "crates/updater", "crates/mobile"]
 
 [workspace.package]
 edition = "2024"
@@ -22,13 +22,13 @@ license = "MIT"
 [workspace.dependencies]
 domain = { path = "crates/domain" }
 application = { path = "crates/application" }
-infrastructure = { path = "crates/infrastructure" }
+infrastructure = { path = "crates/infrastructure", default-features = false }
 updater = { path = "crates/updater" }
 
 [dependencies]
 domain.workspace = true
 application.workspace = true
-infrastructure.workspace = true
+infrastructure = { workspace = true, features = ["desktop"] }
 updater.workspace = true
 eframe = { version = "0.31", features = ["default"] }
 egui = "0.31"

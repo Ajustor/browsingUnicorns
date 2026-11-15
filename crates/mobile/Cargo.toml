@@ -1,0 +1,30 @@
+[package]
+name = "mobile"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "The browser core for the Android app, exposed to Kotlin with UniFFI."
+
+[lib]
+# cdylib: libmobile.so loaded by the app; lib: the bindgen binary and tests.
+crate-type = ["cdylib", "lib"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+required-features = ["cli"]
+
+[features]
+cli = ["uniffi/cli"]
+
+[dependencies]
+domain.workspace = true
+application.workspace = true
+# Without the desktop web view and HTTP client: the app brings its own.
+infrastructure.workspace = true
+uniffi = "0.32"
+
+[dev-dependencies]
+tempfile = "3"
+data-encoding = "2"

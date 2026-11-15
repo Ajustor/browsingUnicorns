@@ -1,0 +1,8 @@
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
+# Built from crates/mobile by scripts/build-android.* (cargo ndk + uniffi-bindgen).
+/app/src/main/jniLibs/
+/app/src/main/java/uniffi/

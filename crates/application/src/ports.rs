@@ -78,13 +78,14 @@ impl fmt::Display for RepositoryError {
 impl std::error::Error for RepositoryError {}
 
 /// Keeps one value across runs (settings, history, bookmarks, session).
-pub trait Repository<T> {
+/// `Send`, so that a browser can be shared with another thread (Android).
+pub trait Repository<T>: Send {
     /// The saved value, or the default one when nothing was saved yet.
     fn load(&self) -> Result<T, RepositoryError>;
     fn save(&self, value: &T) -> Result<(), RepositoryError>;
 }
 
-pub trait Clock {
+pub trait Clock: Send {
     fn now(&self) -> Timestamp;
 }
 
