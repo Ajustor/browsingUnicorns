@@ -97,6 +97,21 @@ class BrowserController(val browser: MobileBrowser, val views: WebViews, private
         return true
     }
 
+    // --- Developer tools ----------------------------------------------------
+
+    var webDebugging by mutableStateOf(views.webDebugging)
+        private set
+
+    fun toggleWebDebugging() {
+        views.webDebugging = !views.webDebugging
+        webDebugging = views.webDebugging
+        message = if (webDebugging) {
+            "Web debugging on: inspect the pages from chrome://inspect on a computer (USB debugging)"
+        } else {
+            "Web debugging off"
+        }
+    }
+
     // --- Extensions ---------------------------------------------------------
 
     fun refreshExtensions() {

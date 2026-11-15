@@ -1,12 +1,13 @@
 use egui::{Button, RichText};
 use egui_phosphor::regular as icon;
 
-use domain::Tab;
+use domain::{Profile, Tab};
 
 use super::command::Command;
 use super::extension_bar::{self, Action};
 use super::library::LibraryView;
 use super::omnibox::Omnibox;
+use super::profiles::avatar;
 
 pub fn show(
     ui: &mut egui::Ui,
@@ -14,6 +15,7 @@ pub fn show(
     bookmarked: bool,
     omnibox: &mut Omnibox,
     actions: &[Action],
+    profile: &Profile,
     commands: &mut Vec<Command>,
 ) {
     let history = active.map(Tab::history);
@@ -52,8 +54,17 @@ pub fn show(
 
         // Right to left so the address bar takes the room left in between.
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if avatar(ui, profile, 20.0)
+                .on_hover_text(format!("Profile: {} (profiles)", profile.name))
+                .clicked()
+            {
+                commands.push(Command::ToggleLibrary(LibraryView::Profiles));
+            }
             if button(ui, icon::BOOKS, "History and bookmarks (Ctrl+H)", true) {
                 commands.push(Command::ToggleLibrary(LibraryView::History));
+            }
+            if button(ui, icon::CODE, "Developer tools (F12)", active.is_some()) {
+                commands.push(Command::OpenDevTools);
             }
             extension_bar::show(ui, actions, commands);
             let (star, tip) = if bookmarked {

@@ -16,6 +16,10 @@ binaire reste petit et le moteur profite des mises à jour de sécurité de l'OS
 - 🔎 Barre d'adresse unique : une adresse complète, un nom d'hôte
   (`rust-lang.org`, `localhost:3000`) ou une recherche (Ctrl+L / F6)
 - ⬅️ Précédent / suivant (Alt+←/→), recharger (F5 / Ctrl+R), accueil (Alt+Home)
+- 🛠️ Outils de développement de l'onglet actif : F12, Ctrl+Shift+I
+  (Cmd+Option+I sur macOS) ou le bouton `</>` ; *Inspect* dans l'onglet
+  *Extensions* pour la page de fond d'une extension. Android : *Web debugging*
+  dans le menu, puis `chrome://inspect` sur un ordinateur
 - 🪟 Les liens `target="_blank"` et `window.open` s'ouvrent dans un nouvel onglet
 - 🔒 Indicateur HTTPS, titre de la page dans l'onglet et la fenêtre
 - ⭐ Favoris : étoile dans la barre d'adresse (Ctrl+D), barre de favoris sous
@@ -45,13 +49,20 @@ binaire reste petit et le moteur profite des mises à jour de sécurité de l'OS
 - 📜 Scripts utilisateur (Greasemonkey / Tampermonkey) partout : adresse d'un
   `.user.js` dans l'onglet *Extensions*, `GM_*` et `GM.*` (valeurs gardées
   dans le profil)
-- 💾 Profil dans `<data>/browsing-unicorns/` (`history.json`,
+- 👥 Profils (travail, perso…) : chacun a son historique, ses favoris, ses
+  onglets, ses extensions, ses cookies, ses réglages et sa synchro, et s'ouvre
+  dans sa propre fenêtre. Avatar à droite de la barre d'outils → onglet
+  *Profiles* du panneau latéral (ajouter, ouvrir, renommer, couleur,
+  supprimer). `browsingUnicorns --profile <id>` ouvre un profil directement.
+- 💾 Profil par défaut dans `<data>/browsing-unicorns/` (`history.json`,
   `bookmarks.json`, `session.json`, `extensions.json`, `webview/` pour les
-  données des pages), écrit au plus toutes les 5 s et à la fermeture, par
+  données des pages), les autres dans `profiles/<id>/` en dessous, la liste
+  dans `profiles.json`. Écrit au plus toutes les 5 s et à la fermeture, par
   remplacement atomique. `BU_PROFILE_DIR` fait pointer l'appli vers un autre
-  profil (tests)
+  dossier (tests)
 - ⚙️ Page d'accueil et moteur de recherche réglables dans
-  `<config>/browsing-unicorns/settings.toml`
+  `<config>/browsing-unicorns/settings.toml` (profil par défaut) ou
+  `profiles/<id>/settings.toml`
 
 ```toml
 home_page = "https://duckduckgo.com/"

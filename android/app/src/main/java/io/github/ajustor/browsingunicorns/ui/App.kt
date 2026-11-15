@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Star
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -203,6 +204,14 @@ private fun BottomBar(c: BrowserController) {
                         c.refreshExtensions()
                         c.screen = Screen.Extensions
                     })
+                    DropdownMenuItem(
+                        text = { Text("Web debugging") },
+                        trailingIcon = { Checkbox(checked = c.webDebugging, onCheckedChange = null) },
+                        onClick = {
+                            menu = false
+                            c.toggleWebDebugging()
+                        },
+                    )
                 }
             }
         }

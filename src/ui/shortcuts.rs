@@ -22,6 +22,17 @@ const SHORTCUTS: &[(Modifiers, Key, Command)] = &[
     (Modifiers::ALT, Key::ArrowRight, Command::Forward),
     (Modifiers::ALT, Key::Home, Command::Home),
     (Modifiers::COMMAND, Key::D, Command::ToggleBookmark),
+    (Modifiers::NONE, Key::F12, Command::OpenDevTools),
+    (
+        Modifiers::COMMAND.plus(Modifiers::SHIFT),
+        Key::I,
+        Command::OpenDevTools,
+    ),
+    (
+        Modifiers::COMMAND.plus(Modifiers::ALT),
+        Key::I,
+        Command::OpenDevTools,
+    ),
     (
         Modifiers::COMMAND,
         Key::H,

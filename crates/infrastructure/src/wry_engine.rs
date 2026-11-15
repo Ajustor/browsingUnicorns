@@ -124,7 +124,7 @@ fn base_builder<'a>(
         builder.with_browser_extensions_enabled(!builtin_extensions())
     };
     let builder = builder
-        .with_devtools(cfg!(debug_assertions))
+        .with_devtools(true)
         .with_ipc_handler(move |request| {
             emit(EngineEvent::PageMessage {
                 from: source.clone(),
@@ -385,6 +385,11 @@ impl WryEngine {
         }
     }
 
+    /// Whether extension `id`'s background page runs (it can be inspected).
+    pub fn has_background(&self, id: &ExtensionId) -> bool {
+        self.backgrounds.contains_key(id)
+    }
+
     /// The address of `path` of extension `id`, where its files are served.
     pub fn extension_url(&self, id: &ExtensionId, path: &str) -> Option<String> {
         self.server.as_ref().map(|s| s.origins().url(id, path))
@@ -579,6 +584,13 @@ impl WebEngine for WryEngine {
 
     fn run_in_tab(&mut self, tab: TabId, script: &str) {
         self.with_view(tab, "script", |v| v.evaluate_script(script));
+    }
+
+    fn open_devtools(&mut self, page: &PageSource) {
+        match self.view_of(page) {
+            Some(view) => view.open_devtools(),
+            None => log::warn!("devtools: no page {page:?}"),
+        }
     }
 
     fn show_panel_page(&mut self, url: Option<&str>, area: Viewport) {

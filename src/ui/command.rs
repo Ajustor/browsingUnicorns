@@ -2,6 +2,7 @@ use application::Target;
 use domain::{ExtensionId, TabId, UserScriptId, WebAddress};
 
 use super::library::LibraryView;
+use super::profiles::ProfileCommand;
 
 /// What the user asked for, collected from widgets and shortcuts and run
 /// once per frame by [`super::BrowserApp`].
@@ -41,6 +42,11 @@ pub enum Command {
     InstallUserScript(String),
     SetUserScriptEnabled(UserScriptId, bool),
     RemoveUserScript(UserScriptId),
+    Profile(ProfileCommand),
+    /// The web inspector of the active tab.
+    OpenDevTools,
+    /// The web inspector of an extension's background page.
+    InspectExtension(ExtensionId),
     /// Opens an extension's popup under `anchor` (its button), or
     /// closes it.
     ToggleExtensionPopup {

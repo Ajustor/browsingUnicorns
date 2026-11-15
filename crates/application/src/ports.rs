@@ -5,7 +5,8 @@ use std::path::PathBuf;
 
 use domain::{
     Bookmarks, BrowsingHistory, DeviceId, DeviceRecord, Extension, ExtensionId, Extensions,
-    SessionSnapshot, Settings, TabId, Timestamp, UserScript, UserScriptId, UserScripts, WebAddress,
+    ProfileId, SessionSnapshot, Settings, TabId, Timestamp, UserScript, UserScriptId, UserScripts,
+    WebAddress,
 };
 
 /// Where pages are drawn, in physical pixels relative to the window's client
@@ -57,6 +58,8 @@ pub trait WebEngine {
     fn reply_to_page(&mut self, _to: &PageSource, _message: &str) {}
     /// Runs `script` in `tab`'s page (an extension's `executeScript`).
     fn run_in_tab(&mut self, _tab: TabId, _script: &str) {}
+    /// Opens the web inspector of `page`.
+    fn open_devtools(&mut self, _page: &PageSource) {}
     /// Shows `url` (an extension's popup) in the side panel area, or hides it.
     fn show_panel_page(&mut self, _url: Option<&str>, _area: Viewport) {}
 }
@@ -199,4 +202,14 @@ pub trait UserScriptPackages: Send + Sync {
     fn remove(&self, id: &UserScriptId) -> Result<(), ExtensionError>;
     /// Deletes the code of scripts that are not in `keep`.
     fn prune(&self, keep: &UserScripts);
+}
+
+/// The profiles' data folders.
+pub trait ProfileStore: Send {
+    /// Makes the empty folder of a new profile.
+    fn create(&self, id: &ProfileId) -> Result<(), RepositoryError>;
+    /// Deletes a profile's data.
+    fn delete(&self, id: &ProfileId) -> Result<(), RepositoryError>;
+    /// Whether a window runs the profile.
+    fn is_open(&self, id: &ProfileId) -> bool;
 }

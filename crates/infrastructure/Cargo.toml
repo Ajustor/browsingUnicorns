@@ -43,7 +43,8 @@ chacha20poly1305 = "0.10"
 sha2 = "0.10"
 data-encoding = "2"
 # The OS web view (WebView2 / WKWebView / WebKitGTK): no engine to ship.
-wry = { version = "0.57", optional = true }
+# `devtools`: the web inspector in release builds too.
+wry = { version = "0.57", optional = true, features = ["devtools"] }
 raw-window-handle = { version = "0.6", optional = true }
 # `platform-verifier`: the system's certificates (corporate proxies...).
 ureq = { version = "3", features = ["platform-verifier"], optional = true }

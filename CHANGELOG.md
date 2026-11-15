@@ -4,6 +4,26 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [Unreleased]
+
+### Ajouté
+
+- Profils : chacun a son historique, ses favoris, ses onglets, ses
+  extensions, ses cookies, ses réglages et sa synchro, et s'ouvre dans sa
+  propre fenêtre. Avatar à droite de la barre d'outils, onglet *Profiles* du
+  panneau latéral (ajouter, ouvrir, renommer, couleur, supprimer) ; nom du
+  profil dans le titre de la fenêtre ; `--profile <id>` en ligne de commande.
+- Outils de développement : F12, Ctrl+Shift+I (Cmd+Option+I sur macOS) ou le
+  bouton `</>` de la barre d'outils ouvrent l'inspecteur de l'onglet actif,
+  aussi dans les versions publiées ; *Inspect* dans l'onglet *Extensions*
+  inspecte la page de fond d'une extension.
+- Android : option *Web debugging* du menu, pour inspecter les pages depuis
+  `chrome://inspect` sur un ordinateur (débogage USB).
+
+### Modifié
+
+- Rust 1.89 minimum.
+
 ## [0.4.1] - 2026-11-15
 
 ### Ajouté

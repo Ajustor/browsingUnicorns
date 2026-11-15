@@ -16,7 +16,7 @@ members = ["crates/domain", "crates/application", "crates/infrastructure", "crat
 [workspace.package]
 edition = "2024"
 # let-chains
-rust-version = "1.88"
+rust-version = "1.89"
 license = "MIT"
 
 [workspace.dependencies]

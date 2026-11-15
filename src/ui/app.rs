@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use application::Browser;
-use application::ports::{EngineEvent, Viewport, WebEngine as _};
+use application::ports::{EngineEvent, PageSource, Viewport, WebEngine as _};
 use egui::{CentralPanel, Frame, TopBottomPanel, ViewportCommand};
 use infrastructure::WryEngine;
 use updater::ExitAction;
@@ -11,8 +11,9 @@ use updater::ExitAction;
 use super::command::Command;
 use super::extension_bar::{DEFAULT_POPUP, ExtensionBar};
 use super::extensions::{ExtensionsRunner, ExtensionsView};
-use super::library::{Library, LibraryData};
+use super::library::{Library, LibraryData, LibraryView};
 use super::omnibox::Omnibox;
+use super::profiles::{ProfileCommand, ProfilesRunner};
 use super::sync::SyncRunner;
 use super::sync_panel::SyncView;
 use super::updates::{Notice, Updates};
@@ -32,6 +33,7 @@ pub struct BrowserApp {
     user_scripts: UserScriptsRunner,
     hub: Hub,
     bar: ExtensionBar,
+    profiles: ProfilesRunner,
     exit_slot: ExitSlot,
     omnibox: Omnibox,
     library: Library,
@@ -61,6 +63,7 @@ impl BrowserApp {
         mut updates: Updates,
         sync: SyncRunner,
         add_ons: AddOns,
+        profiles: ProfilesRunner,
         exit_slot: ExitSlot,
     ) -> Self {
         let AddOns {
@@ -79,6 +82,7 @@ impl BrowserApp {
             user_scripts,
             hub,
             bar,
+            profiles,
             exit_slot,
             omnibox: Omnibox::default(),
             library: Library::default(),
@@ -153,6 +157,14 @@ impl BrowserApp {
                 }
                 Ok(())
             }
+            Command::Profile(command) => {
+                let rename = matches!(command, ProfileCommand::Rename(..));
+                let r = self.profiles.run(command);
+                if rename {
+                    self.library.profiles.reset_name();
+                }
+                return self.report_err(r);
+            }
             Command::InstallUserScript(url) => {
                 self.user_scripts.install(&url);
                 Ok(())
@@ -214,6 +226,17 @@ impl BrowserApp {
             Command::Forward => self.browser.go_forward(),
             Command::Reload => self.browser.reload(),
             Command::FocusOmnibox => self.omnibox.request_focus(),
+            Command::OpenDevTools => {
+                if let Some(tab) = self.browser.session().active_id() {
+                    self.browser
+                        .engine_mut()
+                        .open_devtools(&PageSource::Tab(tab));
+                }
+            }
+            Command::InspectExtension(id) => self
+                .browser
+                .engine_mut()
+                .open_devtools(&PageSource::Background(id)),
             Command::ToggleLibrary(view) => self.library.toggle(view),
             Command::CheckForUpdates => self.updates.check_now(),
             Command::InstallUpdate => self.updates.updater.install(),
@@ -240,6 +263,7 @@ impl BrowserApp {
             | Command::InstallUserScript(_)
             | Command::SetUserScriptEnabled(..)
             | Command::RemoveUserScript(_)
+            | Command::Profile(_)
             | Command::ToggleExtensionPopup { .. } => unreachable!("handled by run"),
         }
     }
@@ -302,9 +326,14 @@ impl BrowserApp {
     }
 
     fn sync_window_title(&mut self, ctx: &egui::Context) {
+        let app = if self.profiles.several() {
+            format!("{APP_NAME} ({})", self.profiles.current().name)
+        } else {
+            APP_NAME.to_owned()
+        };
         let title = match self.browser.session().active() {
-            Some(tab) => format!("{} — {APP_NAME}", tab.display_title()),
-            None => APP_NAME.to_owned(),
+            Some(tab) => format!("{} — {app}", tab.display_title()),
+            None => app,
         };
         if title != self.window_title {
             ctx.send_viewport_cmd(ViewportCommand::Title(title.clone()));
@@ -367,6 +396,7 @@ impl eframe::App for BrowserApp {
                 self.browser.is_active_bookmarked(),
                 &mut self.omnibox,
                 &actions,
+                self.profiles.current(),
                 &mut commands,
             );
         });
@@ -376,6 +406,9 @@ impl eframe::App for BrowserApp {
             });
         }
         self.updates.banner(ctx, &mut commands);
+        if self.library.open == Some(LibraryView::Profiles) {
+            self.profiles.refresh(ctx);
+        }
         self.notice_bar(ctx);
         self.library.show(
             ctx,
@@ -394,8 +427,10 @@ impl eframe::App for BrowserApp {
                     origins: infrastructure::builtin_extensions()
                         .then(infrastructure::extension_server::Origins::desktop),
                     runner: &self.extensions,
+                    engine: self.browser.engine(),
                     user_scripts: &self.user_scripts,
                 },
+                profiles: &self.profiles,
             },
             &mut commands,
         );

@@ -117,6 +117,8 @@ pub struct ExtensionsView<'a> {
     pub origins: Option<infrastructure::extension_server::Origins>,
     pub runner: &'a ExtensionsRunner,
     pub user_scripts: &'a super::user_scripts::UserScriptsRunner,
+    /// Which background pages run (to inspect them).
+    pub engine: &'a infrastructure::WryEngine,
 }
 
 /// What the view keeps between frames.
@@ -216,7 +218,8 @@ impl ExtensionsPanel {
             return;
         }
         for e in extensions.items() {
-            extension_row(ui, e, view.origins, commands);
+            let inspect = view.engine.has_background(&e.id);
+            extension_row(ui, e, view.origins, inspect, commands);
             ui.add_space(6.0);
         }
         ui.weak(if view.origins.is_some() {
@@ -234,6 +237,7 @@ fn extension_row(
     ui: &mut egui::Ui,
     e: &Extension,
     origins: Option<infrastructure::extension_server::Origins>,
+    inspect: bool,
     commands: &mut Vec<Command>,
 ) {
     ui.horizontal(|ui| {
@@ -271,6 +275,14 @@ fn extension_row(
                         .clicked()
                 {
                     commands.push(Command::Open(page, Target::NewTab));
+                }
+                if inspect
+                    && ui
+                        .add(Button::new(format!("{} Inspect", icon::CODE)).small())
+                        .on_hover_text("Developer tools of its background page")
+                        .clicked()
+                {
+                    commands.push(Command::InspectExtension(e.id.clone()));
                 }
             }
             // WebView2's own: its pages in a tab.

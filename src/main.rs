@@ -3,7 +3,7 @@
 //! This crate is the presentation layer (egui) and the composition root that
 //! wires the infrastructure adapters into the application use cases.
 //!
-//! Usage: `browsingUnicorns [address or search]`
+//! Usage: `browsingUnicorns [--profile <id>] [address or search]`
 
 // No console window on Windows, debug builds included. Launched from a
 // terminal (`cargo run`), the inherited handles still show the logs.
@@ -36,11 +36,11 @@ fn main() -> eframe::Result<()> {
     };
     let exit_slot = ui::ExitSlot::default();
     let slot = exit_slot.clone();
-    let start_page = std::env::args().nth(1);
+    let args = Args::parse(std::env::args().skip(1));
     eframe::run_native(
         ui::APP_NAME,
         options,
-        Box::new(move |cc| Ok(Box::new(bootstrap::build(cc, slot, start_page)?))),
+        Box::new(move |cc| Ok(Box::new(bootstrap::build(cc, slot, args)?))),
     )?;
 
     // The window is gone: apply a downloaded update if one was scheduled.
@@ -56,8 +56,55 @@ fn main() -> eframe::Result<()> {
     Ok(())
 }
 
+/// The command line.
+#[derive(Debug, Default, PartialEq)]
+pub struct Args {
+    /// `--profile <id>`: the profile to run (the default one otherwise).
+    pub profile: Option<String>,
+    /// An address or a search to open (a terminal, the OS opening a link).
+    pub start_page: Option<String>,
+}
+
+impl Args {
+    fn parse(mut args: impl Iterator<Item = String>) -> Self {
+        let mut parsed = Self::default();
+        while let Some(arg) = args.next() {
+            if arg == "--profile" {
+                parsed.profile = args.next();
+            } else if let Some(id) = arg.strip_prefix("--profile=") {
+                parsed.profile = Some(id.to_owned());
+            } else if parsed.start_page.is_none() {
+                parsed.start_page = Some(arg);
+            }
+        }
+        parsed
+    }
+}
+
 /// Title bar and taskbar icon (the .exe's own icon comes from build.rs).
 fn window_icon() -> egui::IconData {
     eframe::icon_data::from_png_bytes(include_bytes!("../assets/icon.png"))
         .expect("assets/icon.png is a valid PNG")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(args: &[&str]) -> Args {
+        Args::parse(args.iter().map(|a| a.to_string()))
+    }
+
+    #[test]
+    fn profile_and_address() {
+        assert_eq!(parse(&[]), Args::default());
+        assert_eq!(
+            parse(&["https://example.com/"]).start_page.as_deref(),
+            Some("https://example.com/")
+        );
+        let args = parse(&["--profile", "work", "example.com"]);
+        assert_eq!(args.profile.as_deref(), Some("work"));
+        assert_eq!(args.start_page.as_deref(), Some("example.com"));
+        assert_eq!(parse(&["--profile=home"]).profile.as_deref(), Some("home"));
+    }
 }

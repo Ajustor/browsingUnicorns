@@ -15,6 +15,7 @@ mod page_injection;
 pub mod page_scripts;
 #[cfg(feature = "desktop")]
 mod parent_window;
+pub mod profiles;
 pub mod script_storage;
 mod settings_store;
 pub mod sync;
@@ -41,7 +42,8 @@ pub use settings_store::TomlSettingsRepository;
 pub use wry_engine::{EngineFiles, WryEngine, builtin_extensions};
 
 /// `<data dir>/browsing-unicorns`, where history, bookmarks and the session
-/// are kept. `BU_PROFILE_DIR` replaces it (tests, a second profile).
+/// of the default profile are kept, the other profiles under it.
+/// `BU_PROFILE_DIR` replaces it (tests).
 pub fn profile_dir() -> Option<PathBuf> {
     match std::env::var_os("BU_PROFILE_DIR") {
         Some(dir) if !dir.is_empty() => Some(dir.into()),

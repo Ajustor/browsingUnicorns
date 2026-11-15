@@ -8,6 +8,7 @@ mod extension_bar;
 mod extensions;
 mod library;
 mod omnibox;
+mod profiles;
 mod shortcuts;
 mod sync;
 mod sync_panel;
@@ -18,6 +19,7 @@ mod user_scripts;
 
 pub use extension_bar::ExtensionBar;
 pub use extensions::ExtensionsRunner;
+pub use profiles::ProfilesRunner;
 pub use sync::SyncRunner;
 pub use updates::Updates;
 pub use user_scripts::UserScriptsRunner;

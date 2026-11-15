@@ -46,6 +46,20 @@ class WebViews(private val context: Context) : WebViewHost {
     private val injected = HashMap<ULong, List<ScriptHandler>>()
     private val documentStart = WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
 
+    private val prefs = context.getSharedPreferences("browser", Context.MODE_PRIVATE)
+
+    /** Pages inspectable from a computer's `chrome://inspect` (USB debugging). */
+    var webDebugging: Boolean = prefs.getBoolean("web_debugging", false)
+        set(value) {
+            field = value
+            prefs.edit().putBoolean("web_debugging", value).apply()
+            WebView.setWebContentsDebuggingEnabled(value)
+        }
+
+    init {
+        WebView.setWebContentsDebuggingEnabled(webDebugging)
+    }
+
     /** The extensions' background pages, by extension id. */
     private val backgrounds = HashMap<String, WebView>()
 

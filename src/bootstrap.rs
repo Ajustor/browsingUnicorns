@@ -5,11 +5,12 @@ use std::sync::mpsc;
 
 use anyhow::Context as _;
 use application::ports::{Repository, WebEngine as _};
-use application::{Browser, ExtensionManager, Target, UserScriptManager};
-use domain::Settings;
+use application::{Browser, ExtensionManager, ProfileManager, Target, UserScriptManager};
+use domain::{ProfileId, Settings};
 use infrastructure::extension_hub::Hub;
 use infrastructure::extensions::ExtensionFolder;
 use infrastructure::page_scripts::Bridge;
+use infrastructure::profiles::{ProfileDirs, ProfileLock};
 use infrastructure::script_storage::{ScriptStorage, new_token};
 use infrastructure::user_scripts::{UserScriptFolder, UserScriptRepository};
 use infrastructure::{
@@ -19,26 +20,47 @@ use updater::{UpdateMemory, Updater};
 
 use infrastructure::sync::SyncConfigFile;
 
+use crate::Args;
 use crate::ui::{
-    AddOns, BrowserApp, ExitSlot, ExtensionBar, ExtensionsRunner, SyncRunner, Updates,
-    UserScriptsRunner,
+    AddOns, BrowserApp, ExitSlot, ExtensionBar, ExtensionsRunner, ProfilesRunner, SyncRunner,
+    Updates, UserScriptsRunner,
 };
 
 pub fn build(
     cc: &eframe::CreationContext<'_>,
     exit_slot: ExitSlot,
-    start_page: Option<String>,
+    args: Args,
 ) -> anyhow::Result<BrowserApp> {
     crate::ui::install_fonts(&cc.egui_ctx);
 
-    let settings_repo = TomlSettingsRepository::default_location()
+    let dirs = ProfileDirs::default_location()
+        .context("no data directory to keep history and bookmarks in")?;
+    let current = match args.profile.as_deref().map(|p| (p, ProfileId::parse(p))) {
+        Some((_, Some(id))) => id,
+        Some((p, None)) => {
+            log::warn!("--profile {p:?}: not a profile id, the default profile opens");
+            ProfileId::default_profile()
+        }
+        None => ProfileId::default_profile(),
+    };
+    let profile_dir = dirs.dir(&current);
+    let lock = ProfileLock::acquire(&profile_dir);
+    if lock.is_none() {
+        log::warn!("profile {current} is already open in another window");
+    }
+    let profiles = ProfileManager::load(
+        Box::new(dirs.list()),
+        Box::new(dirs.clone()),
+        current.clone(),
+    )
+    .context("could not read the profiles")?;
+    let settings_repo: TomlSettingsRepository = dirs
+        .settings(&current)
         .context("no config directory to keep the settings in")?;
     let settings = settings_repo.load().unwrap_or_else(|e| {
         log::warn!("settings ignored: {e}");
         Settings::default()
     });
-    let profile_dir = infrastructure::profile_dir()
-        .context("no data directory to keep history and bookmarks in")?;
 
     // Safety: the web views live in the app, which eframe drops before the
     // window.
@@ -96,7 +118,7 @@ pub fn build(
         .restore_session()
         .context("could not open the first tab")?;
     // `browsingUnicorns <address>`: from a terminal, or the OS opening a link.
-    if let Some(input) = start_page
+    if let Some(input) = args.start_page
         && let Err(e) = browser.submit(&input, Target::NewTab)
     {
         log::warn!("start page {input:?}: {e}");
@@ -132,6 +154,7 @@ pub fn build(
                 profile_dir.join("extension-state"),
             ),
         },
+        ProfilesRunner::new(profiles, lock),
         exit_slot,
     ))
 }

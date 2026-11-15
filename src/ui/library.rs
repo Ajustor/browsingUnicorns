@@ -10,6 +10,7 @@ use updater::{UpdateState, Updater};
 
 use super::command::Command;
 use super::extensions::{ExtensionsPanel, ExtensionsView};
+use super::profiles::{ProfilesPanel, ProfilesRunner};
 use super::sync_panel::{SyncPanel, SyncView};
 
 const MAX_ROWS: usize = 300;
@@ -20,6 +21,7 @@ pub enum LibraryView {
     Bookmarks,
     Sync,
     Extensions,
+    Profiles,
     About,
 }
 
@@ -31,6 +33,7 @@ pub struct LibraryData<'a> {
     pub updater: &'a Updater,
     pub sync: SyncView<'a>,
     pub extensions: ExtensionsView<'a>,
+    pub profiles: &'a ProfilesRunner,
 }
 
 #[derive(Default)]
@@ -39,6 +42,7 @@ pub struct Library {
     filter: String,
     sync: SyncPanel,
     extensions: ExtensionsPanel,
+    pub profiles: ProfilesPanel,
 }
 
 impl Library {
@@ -66,6 +70,7 @@ impl Library {
             updater,
             sync,
             extensions,
+            profiles,
         } = data;
         SidePanel::right("library")
             .resizable(true)
@@ -96,6 +101,10 @@ impl Library {
                                 (
                                     LibraryView::Extensions,
                                     format!("{} Extensions", icon::PUZZLE_PIECE),
+                                ),
+                                (
+                                    LibraryView::Profiles,
+                                    format!("{} Profiles", icon::USER_CIRCLE),
                                 ),
                                 (LibraryView::About, format!("{} About", icon::INFO)),
                             ] {
@@ -129,6 +138,13 @@ impl Library {
                         self.extensions.show(ui, extensions, commands);
                         return;
                     }
+                    LibraryView::Profiles => {
+                        ui.separator();
+                        egui::ScrollArea::vertical().show(ui, |ui| {
+                            self.profiles.show(ui, profiles, commands);
+                        });
+                        return;
+                    }
                     _ => {}
                 }
                 ui.add(
@@ -140,7 +156,10 @@ impl Library {
                 match view {
                     LibraryView::History => self.history(ui, history, now, commands),
                     LibraryView::Bookmarks => self.bookmarks(ui, bookmarks, commands),
-                    LibraryView::About | LibraryView::Sync | LibraryView::Extensions => {}
+                    LibraryView::About
+                    | LibraryView::Sync
+                    | LibraryView::Extensions
+                    | LibraryView::Profiles => {}
                 }
             });
     }
