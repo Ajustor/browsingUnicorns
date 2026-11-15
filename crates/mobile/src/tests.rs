@@ -307,7 +307,10 @@ fn extensions_block_requests() {
         .unwrap();
     assert_eq!(file.mime_type, "text/javascript");
     assert_eq!(file.data, b"(function(){})();");
-    assert!(b.extension_resource("https://example.com/".into()).is_none());
+    assert!(
+        b.extension_resource("https://example.com/".into())
+            .is_none()
+    );
     assert_eq!(b.extensions().len(), 1);
     assert_eq!(
         intercept("https://cdn.ads.test/x.png", None),
