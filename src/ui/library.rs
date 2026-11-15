@@ -6,6 +6,8 @@ use domain::{Bookmarks, BrowsingHistory, Timestamp, WebAddress};
 use egui::{Button, RichText, ScrollArea, SidePanel, TextEdit};
 use egui_phosphor::regular as icon;
 
+use updater::{UpdateState, Updater};
+
 use super::command::Command;
 
 const MAX_ROWS: usize = 300;
@@ -14,6 +16,7 @@ const MAX_ROWS: usize = 300;
 pub enum LibraryView {
     History,
     Bookmarks,
+    About,
 }
 
 #[derive(Default)]
@@ -37,6 +40,7 @@ impl Library {
         history: &BrowsingHistory,
         bookmarks: &Bookmarks,
         now: Timestamp,
+        updater: &Updater,
         commands: &mut Vec<Command>,
     ) {
         let Some(view) = self.open else {
@@ -54,6 +58,7 @@ impl Library {
                             format!("{} History", icon::CLOCK_COUNTER_CLOCKWISE),
                         ),
                         (LibraryView::Bookmarks, format!("{} Bookmarks", icon::STAR)),
+                        (LibraryView::About, format!("{} About", icon::INFO)),
                     ] {
                         if ui.selectable_label(view == v, label).clicked() && view != v {
                             commands.push(Command::ToggleLibrary(v));
@@ -69,6 +74,11 @@ impl Library {
                         }
                     });
                 });
+                if view == LibraryView::About {
+                    ui.separator();
+                    about(ui, updater, commands);
+                    return;
+                }
                 ui.add(
                     TextEdit::singleline(&mut self.filter)
                         .hint_text("Filter")
@@ -78,6 +88,7 @@ impl Library {
                 match view {
                     LibraryView::History => self.history(ui, history, now, commands),
                     LibraryView::Bookmarks => self.bookmarks(ui, bookmarks, commands),
+                    LibraryView::About => {}
                 }
             });
     }
@@ -155,6 +166,34 @@ impl Library {
                 icon::STAR
             ));
         }
+    }
+}
+
+/// Version and update check.
+fn about(ui: &mut egui::Ui, updater: &Updater, commands: &mut Vec<Command>) {
+    ui.heading("browsingUnicorns");
+    ui.label(format!("Version {}", updater.current_version()));
+    ui.add_space(8.0);
+    let status = match &updater.state {
+        UpdateState::Idle => String::new(),
+        UpdateState::Checking => "Checking for updates…".into(),
+        UpdateState::UpToDate => "Up to date.".into(),
+        UpdateState::Available(i) => format!("Version {} is available.", i.version),
+        UpdateState::Downloading(i) => format!("Downloading version {}…", i.version),
+        UpdateState::Ready(i) => format!("Version {} is ready: restart to use it.", i.version),
+        UpdateState::Failed(e) => format!("Update check failed: {e}"),
+    };
+    if !status.is_empty() {
+        ui.label(status);
+    }
+    if ui
+        .add_enabled(
+            !updater.is_busy(),
+            Button::new(format!("{} Check for updates", icon::ARROW_CLOCKWISE)),
+        )
+        .clicked()
+    {
+        commands.push(Command::CheckForUpdates);
     }
 }
 

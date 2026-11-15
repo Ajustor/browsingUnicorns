@@ -4,14 +4,19 @@ use std::sync::Arc;
 use std::sync::mpsc;
 
 use anyhow::Context as _;
-use application::Browser;
 use application::ports::Repository;
+use application::{Browser, Target};
 use domain::Settings;
 use infrastructure::{ParentWindow, TomlSettingsRepository, WryEngine};
+use updater::{UpdateMemory, Updater};
 
-use crate::ui::BrowserApp;
+use crate::ui::{BrowserApp, ExitSlot, Updates};
 
-pub fn build(cc: &eframe::CreationContext<'_>) -> anyhow::Result<BrowserApp> {
+pub fn build(
+    cc: &eframe::CreationContext<'_>,
+    exit_slot: ExitSlot,
+    start_page: Option<String>,
+) -> anyhow::Result<BrowserApp> {
     crate::ui::install_fonts(&cc.egui_ctx);
 
     let settings = load_settings();
@@ -25,14 +30,26 @@ pub fn build(cc: &eframe::CreationContext<'_>) -> anyhow::Result<BrowserApp> {
     let ctx = cc.egui_ctx.clone();
     let engine = WryEngine::new(parent, sender, Arc::new(move || ctx.request_repaint()));
 
-    let mut browser = Browser::new(engine, settings, infrastructure::json_profile(profile_dir));
+    let mut browser = Browser::new(engine, settings, infrastructure::json_profile(&profile_dir));
     for e in browser.load_profile() {
         log::warn!("profile: {e}");
     }
     browser
         .restore_session()
         .context("could not open the first tab")?;
-    Ok(BrowserApp::new(browser, receiver))
+    // `browsingUnicorns <address>`: from a terminal, or the OS opening a link.
+    if let Some(input) = start_page
+        && let Err(e) = browser.submit(&input, Target::NewTab)
+    {
+        log::warn!("start page {input:?}: {e}");
+    }
+
+    let ctx = cc.egui_ctx.clone();
+    let updates = Updates::new(
+        Updater::new(&crate::APP, move || ctx.request_repaint()),
+        UpdateMemory::new(profile_dir),
+    );
+    Ok(BrowserApp::new(browser, receiver, updates, exit_slot))
 }
 
 fn load_settings() -> Settings {

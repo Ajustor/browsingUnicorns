@@ -7,11 +7,11 @@ license.workspace = true
 description = "A light and fast web browser written in Rust"
 
 [[bin]]
-name = "browsing-unicorns"
+name = "browsingUnicorns"
 path = "src/main.rs"
 
 [workspace]
-members = ["crates/domain", "crates/application", "crates/infrastructure"]
+members = ["crates/domain", "crates/application", "crates/infrastructure", "crates/updater"]
 
 [workspace.package]
 edition = "2024"
@@ -23,11 +23,13 @@ license = "MIT"
 domain = { path = "crates/domain" }
 application = { path = "crates/application" }
 infrastructure = { path = "crates/infrastructure" }
+updater = { path = "crates/updater" }
 
 [dependencies]
 domain.workspace = true
 application.workspace = true
 infrastructure.workspace = true
+updater.workspace = true
 eframe = { version = "0.31", features = ["default"] }
 egui = "0.31"
 egui-phosphor = "0.9"

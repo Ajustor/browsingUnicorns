@@ -65,6 +65,7 @@ browsing-unicorns (src/)      présentation egui + composition root (bootstrap.r
 | Application | `crates/application` | domain | Cas d'usage, ports (traits) |
 | Infrastructure | `crates/infrastructure` | domain, application, wry, toml | Implémente les ports |
 | Présentation | `src/` | toutes | UI egui, câblage |
+| Mise à jour | `crates/updater` | ureq, sha2, self-replace | Autonome, repris de storingUnicorns |
 
 - L'UI ne parle qu'au cas d'usage `Browser` : les widgets produisent des
   `Command`, exécutées une fois par frame.
@@ -99,10 +100,29 @@ python scripts/draw-icon.py assets/icon.png 256
 ./scripts/New-Icon.ps1   # assets/icon.ico, intégrée à l'exe par build.rs
 ```
 
+## Releases et mises à jour
+
+Comme storingUnicorns :
+
+1. Monter `version` dans `Cargo.toml` et ajouter sa section
+   `## [X.Y.Z] - date` dans `CHANGELOG.md`.
+2. Pousser un tag `vX.Y.Z` : `.github/workflows/release.yml` vérifie que le tag
+   correspond à `Cargo.toml`, teste, construit `.msi`, `.exe` portable,
+   AppImage, `.dmg` et les binaires seuls, crée la release GitHub puis publie
+   sur GitHub Pages `latest.json` (version, notes, URL et SHA-256 de chaque
+   fichier), la page de téléchargement (`pages/index.html`) et les scripts
+   d'installation.
+3. L'appli lit `https://ajustor.github.io/browsingUnicorns/latest.json` une
+   fois par jour (`crates/updater`), propose la mise à jour dans un bandeau,
+   vérifie le SHA-256, puis remplace l'exécutable (ou lance le `.msi` à la
+   fermeture pour une installation dans Program Files). « Check for updates »
+   dans l'onglet About du panneau latéral force la vérification.
+
+Le dépôt est privé : GitHub Pages (public) est publié par Actions, ce qui
+demande un compte Pro et Pages réglé sur « GitHub Actions ».
+
 ## Pistes
 
 - Page de réglages dans l'interface
 - Navigation privée, bloqueur de contenu
 - Téléchargements
-- Mise à jour automatique et paquets (MSI, DMG, AppImage) comme
-  codingUnicorns / storingUnicorns

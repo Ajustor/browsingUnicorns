@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  WiX v3 installer for browsingUnicorns.
+
+  Build (from the project root, after a release build: cargo build -r):
+    candle.exe -arch x64 -dProductVersion=0.1.0 -out wix\main.wixobj wix\main.wxs
+    light.exe  -ext WixUIExtension -out browsingUnicorns-setup.msi wix\main.wixobj
+
+  UpgradeCode is this product's own: never reuse another app's, MajorUpgrade
+  would uninstall it.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*"
+           Name="browsingUnicorns"
+           Language="1036"
+           Version="$(var.ProductVersion)"
+           Manufacturer="Ajustor"
+           UpgradeCode="{873ED42B-AF32-459A-B004-343A3740EB08}">
+
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine"
+             Description="browsingUnicorns — navigateur web léger" />
+
+    <MajorUpgrade DowngradeErrorMessage="Une version plus récente de browsingUnicorns est déjà installée." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="AppIcon" SourceFile="assets\icon.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    <Property Id="ARPHELPLINK" Value="https://ajustor.github.io/browsingUnicorns/" />
+
+    <UIRef Id="WixUI_Minimal" />
+    <WixVariable Id="WixUILicenseRtf" Value="wix\License.rtf" />
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="browsingUnicorns" />
+      </Directory>
+      <Directory Id="ProgramMenuFolder" />
+    </Directory>
+
+    <Feature Id="ProductFeature" Title="browsingUnicorns" Level="1">
+      <ComponentRef Id="MainExecutable" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+
+    <DirectoryRef Id="INSTALLFOLDER">
+      <Component Id="MainExecutable" Guid="*">
+        <File Id="MainExecutable" Name="browsingUnicorns.exe"
+              Source="target\release\browsingUnicorns.exe" KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <DirectoryRef Id="ProgramMenuFolder">
+      <Component Id="StartMenuShortcut" Guid="*">
+        <Shortcut Id="StartMenuLink" Name="browsingUnicorns"
+                  Description="Navigateur web léger"
+                  Target="[INSTALLFOLDER]browsingUnicorns.exe"
+                  WorkingDirectory="INSTALLFOLDER" Icon="AppIcon" />
+        <RegistryValue Root="HKCU" Key="Software\browsingUnicorns" Name="StartMenu"
+                       Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+  </Product>
+</Wix>

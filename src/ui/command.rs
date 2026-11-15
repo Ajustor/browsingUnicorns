@@ -24,4 +24,9 @@ pub enum Command {
     ClearHistory,
     /// Shows the library on that view, or hides it when it already shows it.
     ToggleLibrary(LibraryView),
+    CheckForUpdates,
+    InstallUpdate,
+    UpdateLater,
+    SkipUpdate,
+    RestartToUpdate,
 }

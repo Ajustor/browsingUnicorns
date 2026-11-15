@@ -1,0 +1,19 @@
+[package]
+name = "updater"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Self-update from the release manifest published on GitHub Pages (ported from storingUnicorns)."
+
+[dependencies]
+# `platform-verifier`: trust the system's certificates, so HTTPS works behind
+# a corporate proxy or an antivirus whose root only the OS store knows.
+ureq = { version = "3", features = ["platform-verifier"] }
+semver = "1"
+sha2 = "0.10"
+self-replace = "1"
+tempfile = "3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+log = "0.4"

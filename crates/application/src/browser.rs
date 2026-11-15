@@ -211,10 +211,16 @@ impl<E: WebEngine> Browser<E> {
     /// Loads what was typed in the address bar in the active tab (in a new
     /// one when there is none). Returns `false` when there was nothing to load.
     pub fn submit_omnibox(&mut self, input: &str) -> Result<bool, BrowserError> {
+        self.submit(input, Target::ActiveTab)
+    }
+
+    /// Loads typed input (address, host name or search) in `target`.
+    /// Returns `false` when there was nothing to load.
+    pub fn submit(&mut self, input: &str, target: Target) -> Result<bool, BrowserError> {
         let Some(address) = resolve_omnibox(input, &self.settings.search_engine) else {
             return Ok(false);
         };
-        self.load(address, Target::ActiveTab)?;
+        self.load(address, target)?;
         Ok(true)
     }
 

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=browsingUnicorns
+GenericName=Web Browser
+Comment=Light and fast web browser
+Exec=browsingUnicorns %u
+Icon=browsingUnicorns
+Terminal=false
+Categories=Network;WebBrowser;
+MimeType=text/html;x-scheme-handler/http;x-scheme-handler/https;
+StartupWMClass=browsingUnicorns

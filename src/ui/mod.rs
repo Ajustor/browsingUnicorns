@@ -9,8 +9,11 @@ mod omnibox;
 mod shortcuts;
 mod tab_strip;
 mod toolbar;
+mod updates;
 
-pub use app::BrowserApp;
+pub use updates::Updates;
+
+pub use app::{BrowserApp, ExitSlot};
 
 pub const APP_NAME: &str = "Browsing Unicorns";
 

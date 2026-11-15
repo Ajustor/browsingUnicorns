@@ -1,45 +1,66 @@
 use std::sync::mpsc::Receiver;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use application::Browser;
 use application::ports::{EngineEvent, Viewport};
 use egui::{CentralPanel, Frame, TopBottomPanel, ViewportCommand};
 use infrastructure::WryEngine;
+use updater::ExitAction;
 
 use super::command::Command;
 use super::library::Library;
 use super::omnibox::Omnibox;
+use super::updates::{Notice, Updates};
 use super::{APP_NAME, bookmarks_bar, tab_strip, toolbar};
+
+/// What `main` runs once the window is gone (apply an update).
+pub type ExitSlot = Arc<Mutex<Option<ExitAction>>>;
 
 pub struct BrowserApp {
     browser: Browser<WryEngine>,
     events: Receiver<EngineEvent>,
+    updates: Updates,
+    exit_slot: ExitSlot,
     omnibox: Omnibox,
     library: Library,
-    error: Option<String>,
+    notice: Option<Notice>,
     window_title: String,
     last_persist: Instant,
+    close_requested: bool,
 }
 
 /// History and session are written at most this often (and on exit).
 const PERSIST_EVERY: Duration = Duration::from_secs(5);
 
 impl BrowserApp {
-    pub fn new(browser: Browser<WryEngine>, events: Receiver<EngineEvent>) -> Self {
+    pub fn new(
+        browser: Browser<WryEngine>,
+        events: Receiver<EngineEvent>,
+        mut updates: Updates,
+        exit_slot: ExitSlot,
+    ) -> Self {
+        updates.check_if_due();
         Self {
             browser,
             events,
+            updates,
+            exit_slot,
             omnibox: Omnibox::default(),
             library: Library::default(),
-            error: None,
+            notice: None,
             window_title: String::new(),
             last_persist: Instant::now(),
+            close_requested: false,
         }
     }
 
     fn report(&mut self, error: impl std::fmt::Display) {
         log::error!("{error}");
-        self.error = Some(error.to_string());
+        self.notice = Some(Notice {
+            error: true,
+            text: error.to_string(),
+        });
     }
 
     fn run(&mut self, command: Command) {
@@ -49,49 +70,47 @@ impl BrowserApp {
             }),
             Command::Home => self.browser.go_home(),
             Command::Submit(input) => self.browser.submit_omnibox(&input).map(|_| ()),
-            Command::CloseTab(id) => {
-                self.browser.close_tab(id);
-                Ok(())
-            }
-            Command::CloseActiveTab => {
-                self.browser.close_active_tab();
-                Ok(())
-            }
-            Command::Activate(id) => {
-                self.browser.activate(id);
-                Ok(())
-            }
-            Command::CycleTabs(offset) => {
-                self.browser.cycle_tabs(offset);
-                Ok(())
-            }
-            Command::Back => {
-                self.browser.go_back();
-                Ok(())
-            }
-            Command::Forward => {
-                self.browser.go_forward();
-                Ok(())
-            }
-            Command::Reload => {
-                self.browser.reload();
-                Ok(())
-            }
-            Command::FocusOmnibox => {
-                self.omnibox.request_focus();
-                Ok(())
-            }
             Command::Open(address, target) => self.browser.load(address, target),
             Command::ToggleBookmark => self.browser.toggle_bookmark().map(|_| ()),
             Command::RemoveBookmark(address) => self.browser.remove_bookmark(&address),
             Command::ClearHistory => self.browser.clear_history(),
-            Command::ToggleLibrary(view) => {
-                self.library.toggle(view);
+            other => {
+                self.run_ui(other);
                 Ok(())
             }
         };
         if let Err(e) = result {
             self.report(e);
+        }
+    }
+
+    /// Commands that cannot fail.
+    fn run_ui(&mut self, command: Command) {
+        match command {
+            Command::CloseTab(id) => self.browser.close_tab(id),
+            Command::CloseActiveTab => self.browser.close_active_tab(),
+            Command::Activate(id) => self.browser.activate(id),
+            Command::CycleTabs(offset) => self.browser.cycle_tabs(offset),
+            Command::Back => self.browser.go_back(),
+            Command::Forward => self.browser.go_forward(),
+            Command::Reload => self.browser.reload(),
+            Command::FocusOmnibox => self.omnibox.request_focus(),
+            Command::ToggleLibrary(view) => self.library.toggle(view),
+            Command::CheckForUpdates => self.updates.check_now(),
+            Command::InstallUpdate => self.updates.updater.install(),
+            Command::UpdateLater => self.updates.updater.later(),
+            Command::SkipUpdate => self.updates.skip(),
+            Command::RestartToUpdate => {
+                self.updates.updater.schedule_restart();
+                self.close_requested = true;
+            }
+            Command::NewTab
+            | Command::Home
+            | Command::Submit(_)
+            | Command::Open(..)
+            | Command::ToggleBookmark
+            | Command::RemoveBookmark(_)
+            | Command::ClearHistory => unreachable!("handled by run"),
         }
     }
 
@@ -120,12 +139,35 @@ impl BrowserApp {
             self.window_title = title;
         }
     }
+
+    fn notice_bar(&mut self, ctx: &egui::Context) {
+        let Some(notice) = &self.notice else {
+            return;
+        };
+        let mut dismissed = false;
+        TopBottomPanel::bottom("notice").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                if notice.error {
+                    ui.colored_label(ui.visuals().error_fg_color, &notice.text);
+                } else {
+                    ui.label(&notice.text);
+                }
+                dismissed = ui.small_button("OK").clicked();
+            });
+        });
+        if dismissed {
+            self.notice = None;
+        }
+    }
 }
 
 impl eframe::App for BrowserApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.browser.engine().pump();
         self.drain_engine_events();
+        if let Some(notice) = self.updates.poll() {
+            self.notice = Some(notice);
+        }
 
         let mut commands = Vec::new();
         super::shortcuts::collect(ctx, &mut commands);
@@ -147,21 +189,14 @@ impl eframe::App for BrowserApp {
                 bookmarks_bar::show(ui, self.browser.bookmarks(), &mut commands);
             });
         }
-        if let Some(error) = self.error.clone() {
-            TopBottomPanel::bottom("error").show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.colored_label(ui.visuals().error_fg_color, error);
-                    if ui.small_button("OK").clicked() {
-                        self.error = None;
-                    }
-                });
-            });
-        }
+        self.updates.banner(ctx, &mut commands);
+        self.notice_bar(ctx);
         self.library.show(
             ctx,
             self.browser.history(),
             self.browser.bookmarks(),
             self.browser.now(),
+            &self.updates.updater,
             &mut commands,
         );
         CentralPanel::default().frame(Frame::NONE).show(ctx, |ui| {
@@ -180,7 +215,7 @@ impl eframe::App for BrowserApp {
             self.run(command);
         }
 
-        if self.browser.session().is_empty() {
+        if self.close_requested || self.browser.session().is_empty() {
             ctx.send_viewport_cmd(ViewportCommand::Close);
         }
         self.sync_window_title(ctx);
@@ -199,5 +234,12 @@ impl eframe::App for BrowserApp {
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.persist();
+        // A downloaded update still applies on a plain quit (MSI).
+        self.updates.updater.schedule_on_quit();
+        *self
+            .exit_slot
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) =
+            self.updates.updater.exit_action.clone();
     }
 }
