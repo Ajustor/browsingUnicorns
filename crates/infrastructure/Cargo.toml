@@ -1,0 +1,25 @@
+[package]
+name = "infrastructure"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Adapters for the application ports: system web view, settings file."
+
+[dependencies]
+domain.workspace = true
+application.workspace = true
+# The OS web view (WebView2 / WKWebView / WebKitGTK): no engine to ship.
+wry = "0.57"
+raw-window-handle = "0.6"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+dirs = "6"
+log = "0.4"
+
+# A child web view on Linux needs GTK initialised and its loop advanced.
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
+
+[dev-dependencies]
+tempfile = "3"

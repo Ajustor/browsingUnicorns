@@ -1,0 +1,46 @@
+[package]
+name = "browsing-unicorns"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "A light and fast web browser written in Rust"
+
+[[bin]]
+name = "browsing-unicorns"
+path = "src/main.rs"
+
+[workspace]
+members = ["crates/domain", "crates/application", "crates/infrastructure"]
+
+[workspace.package]
+edition = "2024"
+# let-chains
+rust-version = "1.88"
+license = "MIT"
+
+[workspace.dependencies]
+domain = { path = "crates/domain" }
+application = { path = "crates/application" }
+infrastructure = { path = "crates/infrastructure" }
+
+[dependencies]
+domain.workspace = true
+application.workspace = true
+infrastructure.workspace = true
+eframe = { version = "0.31", features = ["default"] }
+egui = "0.31"
+egui-phosphor = "0.9"
+anyhow = "1"
+log = "0.4"
+env_logger = "0.11"
+
+[build-dependencies]
+# Embeds assets/icon.ico in the Windows executable (see build.rs).
+winresource = "0.1"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
