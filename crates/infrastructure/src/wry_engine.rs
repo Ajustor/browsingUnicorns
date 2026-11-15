@@ -36,11 +36,12 @@ pub struct EngineFiles {
     pub page_token: String,
 }
 
-/// Whether the browser runs extensions itself on Windows instead of
-/// WebView2 (`BU_EXTENSIONS=builtin`): to try on Windows what macOS and
-/// Linux do.
+/// Whether the browser runs extensions itself (every platform, by
+/// default). `BU_EXTENSIONS=native` hands them to WebView2 on Windows
+/// instead: its own engine, but no popup next to the page and no way to
+/// tell an extension which tab is active.
 pub fn builtin_extensions() -> bool {
-    !cfg!(windows) || std::env::var("BU_EXTENSIONS").is_ok_and(|v| v == "builtin")
+    !cfg!(windows) || std::env::var("BU_EXTENSIONS").map_or(true, |v| v != "native")
 }
 
 /// [`WebEngine`] backed by the system web view (WebView2 on Windows,
@@ -81,6 +82,12 @@ pub struct WryEngine {
     /// from it when the user removes them.
     #[cfg(windows)]
     managed_extensions: std::collections::HashSet<String>,
+    /// Windows, extensions run by the browser: their network rules, and
+    /// each tab's page (for the rules about the page making a request).
+    #[cfg(windows)]
+    blocking_rules: Arc<std::sync::RwLock<domain::RuleSet>>,
+    #[cfg(windows)]
+    tab_pages: HashMap<TabId, std::rc::Rc<std::cell::RefCell<String>>>,
 }
 
 fn engine_error(e: wry::Error) -> EngineError {
@@ -188,6 +195,10 @@ impl WryEngine {
             pending_extensions: None,
             #[cfg(windows)]
             managed_extensions: Default::default(),
+            #[cfg(windows)]
+            blocking_rules: Arc::default(),
+            #[cfg(windows)]
+            tab_pages: HashMap::new(),
         }
     }
 
@@ -340,37 +351,61 @@ impl WebEngine for WryEngine {
         let on_load = emit.clone();
         let on_title = emit.clone();
         let on_message = emit.clone();
-        // No address yet: the page scripts must be in before the first load.
-        let view = base_builder(
+        let builder = base_builder(
             &mut self.context,
             self.server.as_ref(),
             PageSource::Tab(tab),
             on_message,
-        )
-        .with_bounds(bounds(self.viewport))
-        .with_visible(false)
-        .with_on_page_load_handler(move |event, url| {
-            let Ok(address) = WebAddress::parse(&url) else {
-                return;
-            };
-            on_load(match event {
-                PageLoadEvent::Started => EngineEvent::LoadStarted { tab, address },
-                PageLoadEvent::Finished => EngineEvent::LoadFinished { tab, address },
-            });
-        })
-        .with_document_title_changed_handler(move |title| {
-            on_title(EngineEvent::TitleChanged { tab, title });
-        })
-        .with_new_window_req_handler(move |url, _features| {
-            if let Ok(address) = WebAddress::parse(&url) {
-                emit(EngineEvent::NewTabRequested { address });
-            }
-            NewWindowResponse::Deny
-        })
-        .build_as_child(&self.parent)
-        .map_err(engine_error)?;
+        );
+        // The page the tab shows, for the network rules.
+        #[cfg(windows)]
+        let page = std::rc::Rc::new(std::cell::RefCell::new(address.to_string()));
+        #[cfg(windows)]
+        let builder = {
+            let page = page.clone();
+            builder.with_navigation_handler(move |url| {
+                *page.borrow_mut() = url;
+                true
+            })
+        };
+        // No address yet: the page scripts must be in before the first load.
+        let view = builder
+            .with_bounds(bounds(self.viewport))
+            .with_visible(false)
+            .with_on_page_load_handler(move |event, url| {
+                let Ok(address) = WebAddress::parse(&url) else {
+                    return;
+                };
+                on_load(match event {
+                    PageLoadEvent::Started => EngineEvent::LoadStarted { tab, address },
+                    PageLoadEvent::Finished => EngineEvent::LoadFinished { tab, address },
+                });
+            })
+            .with_document_title_changed_handler(move |title| {
+                on_title(EngineEvent::TitleChanged { tab, title });
+            })
+            .with_new_window_req_handler(move |url, _features| {
+                if let Ok(address) = WebAddress::parse(&url) {
+                    emit(EngineEvent::NewTabRequested { address });
+                }
+                NewWindowResponse::Deny
+            })
+            .build_as_child(&self.parent)
+            .map_err(engine_error)?;
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         self.rule_lists.attach(&view);
+        #[cfg(windows)]
+        if builtin_extensions() {
+            if let Err(e) = crate::webview2_blocking::attach(
+                &view,
+                self.blocking_rules.clone(),
+                self.files.extensions_dir.clone(),
+                page.clone(),
+            ) {
+                log::warn!("extensions: network rules in tab {tab}: {e}");
+            }
+            self.tab_pages.insert(tab, page);
+        }
         let mut handles = Handles::default();
         page_injection::replace(&view, &self.page_scripts, &mut handles);
         view.load_url(address.as_str()).map_err(engine_error)?;
@@ -385,6 +420,8 @@ impl WebEngine for WryEngine {
         // Dropping the view destroys it.
         self.views.remove(&tab);
         self.injected.remove(&tab);
+        #[cfg(windows)]
+        self.tab_pages.remove(&tab);
         if self.shown == Some(tab) {
             self.shown = None;
         }
@@ -456,6 +493,20 @@ impl WebEngine for WryEngine {
         self.apply_extensions();
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         self.rule_lists.update(extensions);
+        #[cfg(windows)]
+        if builtin_extensions() {
+            // Read off the UI thread: big rulesets take a moment.
+            let (rules, dir, state, list) = (
+                self.blocking_rules.clone(),
+                self.files.extensions_dir.clone(),
+                self.files.state_dir.clone(),
+                extensions.clone(),
+            );
+            std::thread::spawn(move || {
+                let set = crate::extensions::rule_set(&dir, Some(&state), &list);
+                *rules.write().unwrap_or_else(|p| p.into_inner()) = set;
+            });
+        }
         self.extensions = extensions.clone();
         if let Some(server) = &self.server {
             server.set_extensions(extensions);
