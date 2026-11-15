@@ -35,7 +35,12 @@ pub fn build(
     let parent = unsafe { ParentWindow::new(cc) }.context("no native window to embed pages in")?;
     let (sender, receiver) = mpsc::channel();
     let ctx = cc.egui_ctx.clone();
-    let engine = WryEngine::new(parent, sender, Arc::new(move || ctx.request_repaint()));
+    let engine = WryEngine::new(
+        parent,
+        profile_dir.join("webview"),
+        sender,
+        Arc::new(move || ctx.request_repaint()),
+    );
 
     let mut browser = Browser::new(
         engine,

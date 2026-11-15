@@ -1,11 +1,12 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc::Sender;
 
 use application::ports::{EngineError, EngineEvent, Viewport, WebEngine};
 use domain::{TabId, WebAddress};
 use wry::dpi::{PhysicalPosition, PhysicalSize};
-use wry::{NewWindowResponse, PageLoadEvent, Rect, WebView, WebViewBuilder};
+use wry::{NewWindowResponse, PageLoadEvent, Rect, WebContext, WebView, WebViewBuilder};
 
 use crate::ParentWindow;
 
@@ -23,6 +24,8 @@ pub struct WryEngine {
     viewport: Viewport,
     events: Sender<EngineEvent>,
     waker: Waker,
+    /// Where the web views keep cookies, cache and storage.
+    context: WebContext,
 }
 
 fn engine_error(e: wry::Error) -> EngineError {
@@ -37,7 +40,15 @@ fn bounds(v: Viewport) -> Rect {
 }
 
 impl WryEngine {
-    pub fn new(parent: ParentWindow, events: Sender<EngineEvent>, waker: Waker) -> Self {
+    /// `data_dir` holds what the pages store (cookies, cache...). It must be
+    /// writable: by default WebView2 writes next to the executable, which
+    /// fails once installed in Program Files.
+    pub fn new(
+        parent: ParentWindow,
+        data_dir: PathBuf,
+        events: Sender<EngineEvent>,
+        waker: Waker,
+    ) -> Self {
         #[cfg(target_os = "linux")]
         if let Err(e) = gtk::init() {
             log::error!("GTK initialisation failed: {e}");
@@ -49,6 +60,7 @@ impl WryEngine {
             viewport: Viewport::default(),
             events,
             waker,
+            context: WebContext::new(Some(data_dir)),
         }
     }
 
@@ -86,7 +98,7 @@ impl WebEngine for WryEngine {
         let emit = self.emitter();
         let on_load = emit.clone();
         let on_title = emit.clone();
-        let view = WebViewBuilder::new()
+        let view = WebViewBuilder::new_with_web_context(&mut self.context)
             .with_url(address.as_str())
             .with_bounds(bounds(self.viewport))
             .with_visible(false)

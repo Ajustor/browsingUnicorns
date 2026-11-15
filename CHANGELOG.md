@@ -4,6 +4,14 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.2.1] - 2026-11-15
+
+### Corrigé
+
+- L'application installée par le `.msi` ne démarrait pas : WebView2 voulait
+  écrire ses données (cookies, cache) dans Program Files. Elles sont maintenant
+  dans le profil, `<data>/browsing-unicorns/webview`.
+
 ## [0.2.0] - 2026-11-15
 
 ### Ajouté
