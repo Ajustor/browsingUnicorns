@@ -9,9 +9,14 @@ pub mod extensions;
 mod files;
 mod json_store;
 #[cfg(feature = "desktop")]
+mod page_injection;
+pub mod page_scripts;
+#[cfg(feature = "desktop")]
 mod parent_window;
+pub mod script_storage;
 mod settings_store;
 pub mod sync;
+pub mod user_scripts;
 #[cfg(all(any(target_os = "macos", target_os = "linux"), feature = "desktop"))]
 mod webkit_rules;
 #[cfg(all(windows, feature = "desktop"))]
@@ -29,7 +34,7 @@ pub use json_store::JsonRepository;
 pub use parent_window::ParentWindow;
 pub use settings_store::TomlSettingsRepository;
 #[cfg(feature = "desktop")]
-pub use wry_engine::WryEngine;
+pub use wry_engine::{EngineFiles, WryEngine};
 
 /// `<data dir>/browsing-unicorns`, where history, bookmarks and the session
 /// are kept. `BU_PROFILE_DIR` replaces it (tests, a second profile).

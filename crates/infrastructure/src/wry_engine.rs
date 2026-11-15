@@ -4,14 +4,30 @@ use std::sync::Arc;
 use std::sync::mpsc::Sender;
 
 use application::ports::{EngineError, EngineEvent, ExtensionSupport, Viewport, WebEngine};
-use domain::{Extensions, TabId, WebAddress};
+use domain::{Extensions, TabId, UserScripts, WebAddress};
 use wry::dpi::{PhysicalPosition, PhysicalSize};
 use wry::{NewWindowResponse, PageLoadEvent, Rect, WebContext, WebView, WebViewBuilder};
 
 use crate::ParentWindow;
+use crate::page_injection::{self, Handles};
+use crate::page_scripts::{Bridge, Sources, page_scripts};
 
 /// Called after an event is sent, so the UI wakes up to read it.
 pub type Waker = Arc<dyn Fn() + Send + Sync>;
+
+/// Where the engine keeps and finds things.
+pub struct EngineFiles {
+    /// What the pages store (cookies, cache...). It must be writable: by
+    /// default WebView2 writes next to the executable, which fails once
+    /// installed in Program Files.
+    pub data_dir: PathBuf,
+    /// The unpacked extensions (`<id>/` each).
+    pub extensions_dir: PathBuf,
+    /// The user scripts' code.
+    pub user_scripts_dir: PathBuf,
+    /// Written into the page scripts, checked by the script storage.
+    pub page_token: String,
+}
 
 /// [`WebEngine`] backed by the system web view (WebView2 on Windows,
 /// WKWebView on macOS, WebKitGTK on Linux), one child view per tab.
@@ -26,9 +42,13 @@ pub struct WryEngine {
     waker: Waker,
     /// Where the web views keep cookies, cache and storage.
     context: WebContext,
-    /// Where the unpacked extensions are (`<id>/` each).
-    #[cfg_attr(not(windows), allow(dead_code))]
-    extensions_dir: PathBuf,
+    files: EngineFiles,
+    /// Installed extensions and user scripts, for the page scripts.
+    extensions: Extensions,
+    user_scripts: UserScripts,
+    /// The scripts injected into every page, and each view's handles.
+    page_scripts: Vec<String>,
+    injected: HashMap<TabId, Handles>,
     /// Extensions to hand to the web view profile once a view exists.
     #[cfg_attr(not(windows), allow(dead_code))]
     pending_extensions: Option<Extensions>,
@@ -53,13 +73,9 @@ fn bounds(v: Viewport) -> Rect {
 }
 
 impl WryEngine {
-    /// `data_dir` holds what the pages store (cookies, cache...). It must be
-    /// writable: by default WebView2 writes next to the executable, which
-    /// fails once installed in Program Files.
     pub fn new(
         parent: ParentWindow,
-        data_dir: PathBuf,
-        extensions_dir: PathBuf,
+        files: EngineFiles,
         events: Sender<EngineEvent>,
         waker: Waker,
     ) -> Self {
@@ -75,13 +91,17 @@ impl WryEngine {
             events,
             #[cfg(any(target_os = "macos", target_os = "linux"))]
             rule_lists: crate::webkit_rules::RuleLists::new(
-                extensions_dir.clone(),
-                data_dir.join("content-filters"),
+                files.extensions_dir.clone(),
+                files.data_dir.join("content-filters"),
                 waker.clone(),
             ),
             waker,
-            context: WebContext::new(Some(data_dir)),
-            extensions_dir,
+            context: WebContext::new(Some(files.data_dir.clone())),
+            files,
+            extensions: Extensions::default(),
+            user_scripts: UserScripts::default(),
+            page_scripts: Vec::new(),
+            injected: HashMap::new(),
             pending_extensions: None,
             #[cfg(windows)]
             managed_extensions: Default::default(),
@@ -133,7 +153,7 @@ impl WryEngine {
             .iter()
             .map(|e| crate::webview2_extensions::Wanted {
                 id: e.id.to_string(),
-                path: crate::extensions::extension_dir(&self.extensions_dir, &e.id),
+                path: crate::extensions::extension_dir(&self.files.extensions_dir, &e.id),
                 enabled: e.enabled,
             })
             .collect();
@@ -143,6 +163,25 @@ impl WryEngine {
             self.managed_extensions.clone(),
         ) {
             log::warn!("extensions: {e}");
+        }
+    }
+
+    /// Builds the page scripts again and hands them to every view.
+    fn rebuild_page_scripts(&mut self) {
+        let sources = Sources {
+            extensions_dir: &self.files.extensions_dir,
+            // WebView2 runs the extensions' content scripts itself.
+            extensions: (self.extension_support() != ExtensionSupport::Full)
+                .then_some(&self.extensions),
+            user_scripts_dir: &self.files.user_scripts_dir,
+            user_scripts: &self.user_scripts,
+            token: &self.files.page_token,
+            bridge: Bridge::Ipc,
+        };
+        self.page_scripts = page_scripts(&sources);
+        for (tab, view) in &self.views {
+            let handles = self.injected.entry(*tab).or_default();
+            page_injection::replace(view, &self.page_scripts, handles);
         }
     }
 
@@ -160,6 +199,7 @@ impl WebEngine for WryEngine {
         let emit = self.emitter();
         let on_load = emit.clone();
         let on_title = emit.clone();
+        let on_message = emit.clone();
         let builder = WebViewBuilder::new_with_web_context(&mut self.context);
         // Every view shares the profile, and its extensions.
         #[cfg(windows)]
@@ -167,8 +207,8 @@ impl WebEngine for WryEngine {
             use wry::WebViewBuilderExtWindows as _;
             builder.with_browser_extensions_enabled(true)
         };
+        // No address yet: the page scripts must be in before the first load.
         let view = builder
-            .with_url(address.as_str())
             .with_bounds(bounds(self.viewport))
             .with_visible(false)
             .with_devtools(cfg!(debug_assertions))
@@ -184,6 +224,13 @@ impl WebEngine for WryEngine {
             .with_document_title_changed_handler(move |title| {
                 on_title(EngineEvent::TitleChanged { tab, title });
             })
+            // The page scripts' bridge (extension storage...).
+            .with_ipc_handler(move |request| {
+                on_message(EngineEvent::PageMessage {
+                    tab,
+                    body: request.into_body(),
+                });
+            })
             .with_new_window_req_handler(move |url, _features| {
                 if let Ok(address) = WebAddress::parse(&url) {
                     emit(EngineEvent::NewTabRequested { address });
@@ -194,6 +241,10 @@ impl WebEngine for WryEngine {
             .map_err(engine_error)?;
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         self.rule_lists.attach(&view);
+        let mut handles = Handles::default();
+        page_injection::replace(&view, &self.page_scripts, &mut handles);
+        view.load_url(address.as_str()).map_err(engine_error)?;
+        self.injected.insert(tab, handles);
         self.views.insert(tab, view);
         #[cfg(windows)]
         self.apply_extensions();
@@ -203,6 +254,7 @@ impl WebEngine for WryEngine {
     fn close_view(&mut self, tab: TabId) {
         // Dropping the view destroys it.
         self.views.remove(&tab);
+        self.injected.remove(&tab);
         if self.shown == Some(tab) {
             self.shown = None;
         }
@@ -259,7 +311,7 @@ impl WebEngine for WryEngine {
         if cfg!(windows) {
             ExtensionSupport::Full
         } else if cfg!(any(target_os = "macos", target_os = "linux")) {
-            ExtensionSupport::NetworkRules
+            ExtensionSupport::Partial
         } else {
             ExtensionSupport::None
         }
@@ -274,5 +326,19 @@ impl WebEngine for WryEngine {
         self.apply_extensions();
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         self.rule_lists.update(extensions);
+        self.extensions = extensions.clone();
+        if self.extension_support() == ExtensionSupport::Partial {
+            self.rebuild_page_scripts();
+        }
+    }
+
+    fn set_user_scripts(&mut self, scripts: &UserScripts) {
+        self.user_scripts = scripts.clone();
+        self.rebuild_page_scripts();
+    }
+
+    fn reply_to_page(&mut self, tab: TabId, reply: &str) {
+        let script = format!("window.__buReply && window.__buReply({reply})");
+        self.with_view(tab, "page reply", |v| v.evaluate_script(&script));
     }
 }

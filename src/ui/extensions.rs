@@ -114,12 +114,14 @@ impl ExtensionsRunner {
 pub struct ExtensionsView<'a> {
     pub support: ExtensionSupport,
     pub runner: &'a ExtensionsRunner,
+    pub user_scripts: &'a super::user_scripts::UserScriptsRunner,
 }
 
 /// What the view keeps between frames.
 #[derive(Default)]
 pub struct ExtensionsPanel {
     input: String,
+    script_input: String,
 }
 
 impl ExtensionsPanel {
@@ -129,6 +131,22 @@ impl ExtensionsPanel {
         view: ExtensionsView<'_>,
         commands: &mut Vec<Command>,
     ) {
+        ScrollArea::vertical()
+            .auto_shrink([false, true])
+            .show(ui, |ui| {
+                self.extensions(ui, &view, commands);
+                ui.separator();
+                super::user_scripts::show(ui, view.user_scripts, &mut self.script_input, commands);
+            });
+    }
+
+    fn extensions(
+        &mut self,
+        ui: &mut egui::Ui,
+        view: &ExtensionsView<'_>,
+        commands: &mut Vec<Command>,
+    ) {
+        ui.heading("Extensions");
         match view.support {
             ExtensionSupport::None => {
                 ui.label(
@@ -137,10 +155,10 @@ impl ExtensionsPanel {
                 );
                 return;
             }
-            ExtensionSupport::NetworkRules => {
+            ExtensionSupport::Partial => {
                 ui.weak(
-                    "On this system the browser applies the extensions' blocking \
-                     rules (ad and tracker blockers); their other features do not run.",
+                    "On this system the browser runs the extensions' blocking rules \
+                     and page scripts; their background pages and popups do not run.",
                 );
             }
             ExtensionSupport::Full => {}
@@ -195,23 +213,21 @@ impl ExtensionsPanel {
             ui.weak("No extensions.");
             return;
         }
-        ScrollArea::vertical()
-            .auto_shrink([false, true])
-            .show(ui, |ui| {
-                for e in extensions.items() {
-                    extension_row(ui, e, commands);
-                    ui.add_space(6.0);
-                }
-            });
-        ui.add_space(4.0);
-        ui.weak(
+        let full = view.support == ExtensionSupport::Full;
+        for e in extensions.items() {
+            extension_row(ui, e, full, commands);
+            ui.add_space(6.0);
+        }
+        ui.weak(if full {
             "Pages already open see a change after a reload. Toolbar buttons do \
-             not exist here: Popup and Options open the extension's pages in a tab.",
-        );
+             not exist here: Popup and Options open the extension's pages in a tab."
+        } else {
+            "Pages already open see a change after a reload."
+        });
     }
 }
 
-fn extension_row(ui: &mut egui::Ui, e: &Extension, commands: &mut Vec<Command>) {
+fn extension_row(ui: &mut egui::Ui, e: &Extension, pages: bool, commands: &mut Vec<Command>) {
     ui.horizontal(|ui| {
         let mut enabled = e.enabled;
         if ui
@@ -228,7 +244,12 @@ fn extension_row(ui: &mut egui::Ui, e: &Extension, commands: &mut Vec<Command>) 
         ui.add(egui::Label::new(RichText::new(&e.description).small().weak()).wrap());
     }
     ui.horizontal(|ui| {
-        for (label, page) in [("Popup", e.popup_page()), ("Options", e.options_page())] {
+        let pages = if pages {
+            vec![("Popup", e.popup_page()), ("Options", e.options_page())]
+        } else {
+            Vec::new()
+        };
+        for (label, page) in pages {
             if let Some(page) = page
                 && ui
                     .add_enabled(e.enabled, Button::new(label).small())

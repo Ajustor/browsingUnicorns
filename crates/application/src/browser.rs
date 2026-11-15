@@ -371,6 +371,8 @@ impl<E: WebEngine> Browser<E> {
             EngineEvent::NewTabRequested { address } => {
                 self.open_tab(Some(address))?;
             }
+            // Answered by the presentation (page scripts' bridge).
+            EngineEvent::PageMessage { .. } => {}
         }
         Ok(())
     }

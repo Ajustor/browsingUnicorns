@@ -15,7 +15,9 @@ use super::omnibox::Omnibox;
 use super::sync::SyncRunner;
 use super::sync_panel::SyncView;
 use super::updates::{Notice, Updates};
+use super::user_scripts::UserScriptsRunner;
 use super::{APP_NAME, bookmarks_bar, tab_strip, toolbar};
+use infrastructure::script_storage::ScriptStorage;
 
 /// What `main` runs once the window is gone (apply an update).
 pub type ExitSlot = Arc<Mutex<Option<ExitAction>>>;
@@ -26,6 +28,9 @@ pub struct BrowserApp {
     updates: Updates,
     sync: SyncRunner,
     extensions: ExtensionsRunner,
+    user_scripts: UserScriptsRunner,
+    /// Storage of the page scripts (chrome.storage, GM_setValue).
+    script_storage: ScriptStorage,
     exit_slot: ExitSlot,
     omnibox: Omnibox,
     library: Library,
@@ -33,6 +38,13 @@ pub struct BrowserApp {
     window_title: String,
     last_persist: Instant,
     close_requested: bool,
+}
+
+/// Extensions, user scripts and the storage of their page scripts.
+pub struct AddOns {
+    pub extensions: ExtensionsRunner,
+    pub user_scripts: UserScriptsRunner,
+    pub storage: ScriptStorage,
 }
 
 /// History and session are written at most this often (and on exit).
@@ -44,9 +56,14 @@ impl BrowserApp {
         events: Receiver<EngineEvent>,
         mut updates: Updates,
         sync: SyncRunner,
-        extensions: ExtensionsRunner,
+        add_ons: AddOns,
         exit_slot: ExitSlot,
     ) -> Self {
+        let AddOns {
+            extensions,
+            user_scripts,
+            storage: script_storage,
+        } = add_ons;
         updates.check_if_due();
         Self {
             browser,
@@ -54,6 +71,8 @@ impl BrowserApp {
             updates,
             sync,
             extensions,
+            user_scripts,
+            script_storage,
             exit_slot,
             omnibox: Omnibox::default(),
             library: Library::default(),
@@ -111,6 +130,22 @@ impl BrowserApp {
             }
             Command::RemoveExtension(id) => {
                 let r = self.extensions.remove(&id, self.browser.engine_mut());
+                self.script_storage.forget(&format!("ext:{id}"));
+                return self.report_err(r);
+            }
+            Command::InstallUserScript(url) => {
+                self.user_scripts.install(&url);
+                Ok(())
+            }
+            Command::SetUserScriptEnabled(id, enabled) => {
+                let r = self
+                    .user_scripts
+                    .set_enabled(&id, enabled, self.browser.engine_mut());
+                return self.report_err(r);
+            }
+            Command::RemoveUserScript(id) => {
+                let r = self.user_scripts.remove(&id, self.browser.engine_mut());
+                self.script_storage.forget(&format!("us:{id}"));
                 return self.report_err(r);
             }
             other => {
@@ -181,7 +216,10 @@ impl BrowserApp {
             | Command::SyncNow
             | Command::InstallExtension(_)
             | Command::SetExtensionEnabled(..)
-            | Command::RemoveExtension(_) => unreachable!("handled by run"),
+            | Command::RemoveExtension(_)
+            | Command::InstallUserScript(_)
+            | Command::SetUserScriptEnabled(..)
+            | Command::RemoveUserScript(_) => unreachable!("handled by run"),
         }
     }
 
@@ -194,6 +232,12 @@ impl BrowserApp {
 
     fn drain_engine_events(&mut self) {
         while let Ok(event) = self.events.try_recv() {
+            if let EngineEvent::PageMessage { tab, body } = &event {
+                if let Some(reply) = self.script_storage.handle(body) {
+                    self.browser.engine_mut().reply_to_page(*tab, &reply);
+                }
+                continue;
+            }
             if let Err(e) = self.browser.handle(event) {
                 self.report(e);
             }
@@ -238,6 +282,7 @@ impl eframe::App for BrowserApp {
         self.drain_engine_events();
         self.drive_sync(ctx);
         self.extensions.poll(self.browser.engine_mut());
+        self.user_scripts.poll(self.browser.engine_mut());
         if let Some(notice) = self.updates.poll() {
             self.notice = Some(notice);
         }
@@ -279,6 +324,7 @@ impl eframe::App for BrowserApp {
                 extensions: ExtensionsView {
                     support: self.browser.engine().extension_support(),
                     runner: &self.extensions,
+                    user_scripts: &self.user_scripts,
                 },
             },
             &mut commands,

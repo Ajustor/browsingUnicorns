@@ -80,6 +80,91 @@ pub fn read(dir: &Path) -> Result<ManifestInfo, String> {
     })
 }
 
+/// A `content_scripts` entry of the manifest.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContentScript {
+    pub matches: Vec<domain::UrlPattern>,
+    pub excludes: Vec<domain::UrlPattern>,
+    /// Paths relative to the extension's root.
+    pub js: Vec<String>,
+    pub css: Vec<String>,
+    pub run_at: domain::RunAt,
+    pub all_frames: bool,
+}
+
+fn strings(value: Option<&Value>) -> Vec<String> {
+    value
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The manifest's content scripts (those declared statically).
+pub fn content_scripts(dir: &Path) -> Vec<ContentScript> {
+    let Ok(m) = load(dir) else {
+        return Vec::new();
+    };
+    let Some(entries) = m.get("content_scripts").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    entries
+        .iter()
+        .filter_map(|e| {
+            let matches: Vec<_> = strings(e.get("matches"))
+                .iter()
+                .filter_map(|p| domain::UrlPattern::parse_match(p))
+                .collect();
+            if matches.is_empty() {
+                return None;
+            }
+            let mut excludes: Vec<_> = strings(e.get("exclude_matches"))
+                .iter()
+                .filter_map(|p| domain::UrlPattern::parse_match(p))
+                .collect();
+            excludes.extend(
+                strings(e.get("exclude_globs"))
+                    .iter()
+                    .filter_map(|p| domain::UrlPattern::parse_include(p)),
+            );
+            Some(ContentScript {
+                matches,
+                excludes,
+                js: strings(e.get("js")),
+                css: strings(e.get("css")),
+                run_at: e
+                    .get("run_at")
+                    .and_then(Value::as_str)
+                    .and_then(domain::RunAt::parse)
+                    .unwrap_or_default(),
+                all_frames: e
+                    .get("all_frames")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+            })
+        })
+        .collect()
+}
+
+/// The default locale's `messages.json`, keys in lower case
+/// (`chrome.i18n.getMessage`).
+pub fn messages(dir: &Path) -> Map<String, Value> {
+    let locale = load(dir)
+        .ok()
+        .and_then(|m| text(&m, &["default_locale"]).map(str::to_owned))
+        .unwrap_or_else(|| "en".into());
+    fs::read_to_string(dir.join("_locales").join(locale).join("messages.json"))
+        .ok()
+        .and_then(|t| {
+            serde_json::from_str::<Map<String, Value>>(t.trim_start_matches('\u{feff}')).ok()
+        })
+        .map(|m| m.into_iter().map(|(k, v)| (k.to_lowercase(), v)).collect())
+        .unwrap_or_default()
+}
+
 /// Writes the publisher's public key (base64 DER) into the manifest: an
 /// unpacked extension then has the same id as in the Web Store.
 pub fn set_key(dir: &Path, key_base64: &str) -> Result<(), String> {
@@ -136,5 +221,31 @@ mod tests {
         let info = read(dir.path()).unwrap();
         assert_eq!(info.popup.as_deref(), Some("p.html"));
         assert_eq!(info.options.as_deref(), Some("o.html"));
+    }
+
+    #[test]
+    fn content_scripts_and_messages() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("manifest.json"),
+            r#"{"name":"x","default_locale":"en","content_scripts":[
+                {"matches":["*://*.example.com/*"],"exclude_matches":["*://example.com/admin/*"],
+                 "js":["a.js","b.js"],"css":["s.css"],"run_at":"document_start","all_frames":true},
+                {"matches":["chrome://*/*"],"js":["never.js"]}]}"#,
+        )
+        .unwrap();
+        fs::create_dir_all(dir.path().join("_locales/en")).unwrap();
+        fs::write(
+            dir.path().join("_locales/en/messages.json"),
+            r#"{"Hello":{"message":"Hi $1"}}"#,
+        )
+        .unwrap();
+        let scripts = content_scripts(dir.path());
+        assert_eq!(scripts.len(), 1, "unsupported schemes are left out");
+        assert_eq!(scripts[0].js, vec!["a.js", "b.js"]);
+        assert_eq!(scripts[0].run_at, domain::RunAt::DocumentStart);
+        assert!(scripts[0].all_frames);
+        assert_eq!(scripts[0].excludes.len(), 1);
+        assert_eq!(messages(dir.path())["hello"]["message"], "Hi $1");
     }
 }

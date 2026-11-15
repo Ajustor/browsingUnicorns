@@ -9,7 +9,9 @@ mod error;
 pub mod extensions;
 pub mod ports;
 pub mod sync;
+pub mod user_scripts;
 
 pub use browser::{Browser, Target};
 pub use error::BrowserError;
 pub use extensions::ExtensionManager;
+pub use user_scripts::UserScriptManager;

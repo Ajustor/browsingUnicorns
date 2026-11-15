@@ -5,15 +5,21 @@ use std::sync::mpsc;
 
 use anyhow::Context as _;
 use application::ports::{Repository, WebEngine as _};
-use application::{Browser, ExtensionManager, Target};
+use application::{Browser, ExtensionManager, Target, UserScriptManager};
 use domain::Settings;
 use infrastructure::extensions::ExtensionFolder;
-use infrastructure::{JsonRepository, ParentWindow, TomlSettingsRepository, WryEngine};
+use infrastructure::script_storage::{ScriptStorage, new_token};
+use infrastructure::user_scripts::{UserScriptFolder, UserScriptRepository};
+use infrastructure::{
+    EngineFiles, JsonRepository, ParentWindow, TomlSettingsRepository, WryEngine,
+};
 use updater::{UpdateMemory, Updater};
 
 use infrastructure::sync::SyncConfigFile;
 
-use crate::ui::{BrowserApp, ExitSlot, ExtensionsRunner, SyncRunner, Updates};
+use crate::ui::{
+    AddOns, BrowserApp, ExitSlot, ExtensionsRunner, SyncRunner, Updates, UserScriptsRunner,
+};
 
 pub fn build(
     cc: &eframe::CreationContext<'_>,
@@ -36,10 +42,15 @@ pub fn build(
     let parent = unsafe { ParentWindow::new(cc) }.context("no native window to embed pages in")?;
     let (sender, receiver) = mpsc::channel();
     let ctx = cc.egui_ctx.clone();
+    let page_token = new_token();
     let engine = WryEngine::new(
         parent,
-        profile_dir.join("webview"),
-        profile_dir.join("extensions"),
+        EngineFiles {
+            data_dir: profile_dir.join("webview"),
+            extensions_dir: profile_dir.join("extensions"),
+            user_scripts_dir: profile_dir.join("userscripts"),
+            page_token: page_token.clone(),
+        },
         sender,
         Arc::new(move || ctx.request_repaint()),
     );
@@ -62,6 +73,21 @@ pub fn build(
     )
     .context("could not read the extensions")?;
     browser.engine_mut().set_extensions(extensions.extensions());
+    let user_scripts = UserScriptManager::load(
+        Box::new(UserScriptRepository::new(
+            profile_dir.join("userscripts.json"),
+            profile_dir.join("userscripts"),
+        )),
+        Arc::new(UserScriptFolder::new(
+            profile_dir.join("userscripts"),
+            infrastructure::extensions::ureq_download(),
+        )),
+    )
+    .context("could not read the user scripts")?;
+    browser
+        .engine_mut()
+        .set_user_scripts(user_scripts.scripts());
+    let script_storage = ScriptStorage::new(profile_dir.join("script-storage"), page_token);
     browser
         .restore_session()
         .context("could not open the first tab")?;
@@ -84,7 +110,18 @@ pub fn build(
     );
     let ctx = cc.egui_ctx.clone();
     let extensions = ExtensionsRunner::new(extensions, move || ctx.request_repaint());
+    let ctx = cc.egui_ctx.clone();
+    let user_scripts = UserScriptsRunner::new(user_scripts, move || ctx.request_repaint());
     Ok(BrowserApp::new(
-        browser, receiver, updates, sync, extensions, exit_slot,
+        browser,
+        receiver,
+        updates,
+        sync,
+        AddOns {
+            extensions,
+            user_scripts,
+            storage: script_storage,
+        },
+        exit_slot,
     ))
 }

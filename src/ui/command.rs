@@ -1,5 +1,5 @@
 use application::Target;
-use domain::{ExtensionId, TabId, WebAddress};
+use domain::{ExtensionId, TabId, UserScriptId, WebAddress};
 
 use super::library::LibraryView;
 
@@ -37,4 +37,8 @@ pub enum Command {
     InstallExtension(String),
     SetExtensionEnabled(ExtensionId, bool),
     RemoveExtension(ExtensionId),
+    /// The address of a `.user.js`.
+    InstallUserScript(String),
+    SetUserScriptEnabled(UserScriptId, bool),
+    RemoveUserScript(UserScriptId),
 }

@@ -7,7 +7,7 @@
 
 mod crx;
 mod dnr;
-mod manifest;
+pub mod manifest;
 pub mod safari;
 
 use std::fs;

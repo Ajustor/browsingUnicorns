@@ -9,6 +9,7 @@ mod content_rules;
 mod extensions;
 mod history;
 mod omnibox;
+mod page_scripts;
 mod search;
 mod session;
 mod settings;
@@ -24,6 +25,7 @@ pub use content_rules::{
 pub use extensions::{Extension, ExtensionId, Extensions};
 pub use history::History;
 pub use omnibox::resolve_omnibox;
+pub use page_scripts::{RunAt, UrlPattern, UserScript, UserScriptId, UserScriptMeta, UserScripts};
 pub use search::SearchEngine;
 pub use session::{Session, SessionSnapshot};
 pub use settings::Settings;

@@ -72,7 +72,7 @@ impl WebEngine for HostEngine {
     fn set_viewport(&mut self, _viewport: Viewport) {}
 
     fn extension_support(&self) -> ExtensionSupport {
-        ExtensionSupport::NetworkRules
+        ExtensionSupport::Partial
     }
 
     fn set_extensions(&mut self, extensions: &Extensions) {

@@ -13,12 +13,14 @@ mod sync_panel;
 mod tab_strip;
 mod toolbar;
 mod updates;
+mod user_scripts;
 
 pub use extensions::ExtensionsRunner;
 pub use sync::SyncRunner;
 pub use updates::Updates;
+pub use user_scripts::UserScriptsRunner;
 
-pub use app::{BrowserApp, ExitSlot};
+pub use app::{AddOns, BrowserApp, ExitSlot};
 
 pub const APP_NAME: &str = "Browsing Unicorns";
 

@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use domain::{
     Bookmarks, BrowsingHistory, DeviceId, DeviceRecord, Extension, ExtensionId, Extensions,
-    SessionSnapshot, Settings, TabId, Timestamp, WebAddress,
+    SessionSnapshot, Settings, TabId, Timestamp, UserScript, UserScriptId, UserScripts, WebAddress,
 };
 
 /// Where pages are drawn, in physical pixels relative to the window's client
@@ -51,6 +51,10 @@ pub trait WebEngine {
     }
     /// The extensions to run from now on (installed, enabled or disabled).
     fn set_extensions(&mut self, _extensions: &Extensions) {}
+    /// The user scripts to run in pages from now on.
+    fn set_user_scripts(&mut self, _scripts: &UserScripts) {}
+    /// Answers a [`EngineEvent::PageMessage`] of `tab`'s page scripts.
+    fn reply_to_page(&mut self, _tab: TabId, _reply: &str) {}
 }
 
 /// What an engine does with extensions.
@@ -59,8 +63,9 @@ pub enum ExtensionSupport {
     None,
     /// The web view runs them itself (WebView2).
     Full,
-    /// Only their network rules (blocking), applied by the browser.
-    NetworkRules,
+    /// What the browser applies itself: their network rules (blocking)
+    /// and content scripts; no background pages.
+    Partial,
 }
 
 /// Something that happened in a view.
@@ -81,6 +86,12 @@ pub enum EngineEvent {
     /// A page asked for a new window (`target="_blank"`, `window.open`).
     NewTabRequested {
         address: WebAddress,
+    },
+    /// A message of the scripts the browser runs in `tab`'s page (extension
+    /// storage...), for the presentation to answer.
+    PageMessage {
+        tab: TabId,
+        body: String,
     },
 }
 
@@ -166,4 +177,13 @@ pub trait ExtensionPackages: Send + Sync {
     /// Deletes the files of extensions that are not in `keep` (left over by
     /// a removal that could not finish).
     fn prune(&self, keep: &Extensions);
+}
+
+/// User scripts' files: downloads a `.user.js` (and what it `@require`s),
+/// keeps its code, removes it. Installing downloads: off the UI thread.
+pub trait UserScriptPackages: Send + Sync {
+    fn install(&self, url: &str) -> Result<UserScript, ExtensionError>;
+    fn remove(&self, id: &UserScriptId) -> Result<(), ExtensionError>;
+    /// Deletes the code of scripts that are not in `keep`.
+    fn prune(&self, keep: &UserScripts);
 }
