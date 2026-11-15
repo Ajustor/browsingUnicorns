@@ -17,7 +17,9 @@ use super::sync_panel::SyncView;
 use super::updates::{Notice, Updates};
 use super::user_scripts::UserScriptsRunner;
 use super::{APP_NAME, bookmarks_bar, tab_strip, toolbar};
-use infrastructure::script_storage::ScriptStorage;
+use application::ports::PageSource;
+use domain::{ExtensionId, Extensions, TabId};
+use infrastructure::extension_hub::{Hub, HubHost, TabState};
 
 /// What `main` runs once the window is gone (apply an update).
 pub type ExitSlot = Arc<Mutex<Option<ExitAction>>>;
@@ -29,8 +31,7 @@ pub struct BrowserApp {
     sync: SyncRunner,
     extensions: ExtensionsRunner,
     user_scripts: UserScriptsRunner,
-    /// Storage of the page scripts (chrome.storage, GM_setValue).
-    script_storage: ScriptStorage,
+    hub: Hub,
     exit_slot: ExitSlot,
     omnibox: Omnibox,
     library: Library,
@@ -44,7 +45,73 @@ pub struct BrowserApp {
 pub struct AddOns {
     pub extensions: ExtensionsRunner,
     pub user_scripts: UserScriptsRunner,
-    pub storage: ScriptStorage,
+    /// The browser side of the extension APIs (storage, messages, tabs...).
+    pub hub: Hub,
+}
+
+/// What the hub sees of the browser.
+struct HubBridge<'a> {
+    browser: &'a mut Browser<WryEngine>,
+    extensions: &'a Extensions,
+}
+
+impl HubHost for HubBridge<'_> {
+    fn tabs(&self) -> Vec<TabState> {
+        let session = self.browser.session();
+        let active = session.active_id();
+        session
+            .tabs()
+            .iter()
+            .map(|t| TabState {
+                id: t.id(),
+                url: t
+                    .address()
+                    .map_or_else(|| "about:blank".to_owned(), |a| a.to_string()),
+                title: t.title().to_owned(),
+                active: Some(t.id()) == active,
+                loading: t.is_loading(),
+            })
+            .collect()
+    }
+
+    fn create_tab(&mut self, url: Option<&str>, active: bool) -> Option<TabId> {
+        let previous = self.browser.session().active_id();
+        let address = url.and_then(|u| domain::WebAddress::parse(u).ok());
+        let tab = self.browser.open_tab(address).ok()?;
+        if !active && let Some(previous) = previous {
+            self.browser.activate(previous);
+        }
+        Some(tab)
+    }
+
+    fn update_tab(&mut self, tab: TabId, url: Option<&str>, active: bool) {
+        if let Some(address) = url.and_then(|u| domain::WebAddress::parse(u).ok()) {
+            let _ = self.browser.engine_mut().navigate(tab, &address);
+        }
+        if active {
+            self.browser.activate(tab);
+        }
+    }
+
+    fn remove_tab(&mut self, tab: TabId) {
+        self.browser.close_tab(tab);
+    }
+
+    fn reload_tab(&mut self, tab: TabId) {
+        self.browser.engine_mut().reload(tab);
+    }
+
+    fn deliver(&mut self, to: &PageSource, message: &str) {
+        self.browser.engine_mut().reply_to_page(to, message);
+    }
+
+    fn run_in_tab(&mut self, tab: TabId, script: &str) {
+        self.browser.engine_mut().run_in_tab(tab, script);
+    }
+
+    fn extension_changed(&mut self, _id: &ExtensionId) {
+        self.browser.engine_mut().set_extensions(self.extensions);
+    }
 }
 
 /// History and session are written at most this often (and on exit).
@@ -62,7 +129,7 @@ impl BrowserApp {
         let AddOns {
             extensions,
             user_scripts,
-            storage: script_storage,
+            hub,
         } = add_ons;
         updates.check_if_due();
         Self {
@@ -72,7 +139,7 @@ impl BrowserApp {
             sync,
             extensions,
             user_scripts,
-            script_storage,
+            hub,
             exit_slot,
             omnibox: Omnibox::default(),
             library: Library::default(),
@@ -130,8 +197,13 @@ impl BrowserApp {
             }
             Command::RemoveExtension(id) => {
                 let r = self.extensions.remove(&id, self.browser.engine_mut());
-                self.script_storage.forget(&format!("ext:{id}"));
+                self.hub.forget(&format!("ext:{id}"));
                 return self.report_err(r);
+            }
+            Command::ShowExtensionPopup { name, url } => {
+                self.library.popup = Some((name, url));
+                self.library.open = Some(super::library::LibraryView::Popup);
+                Ok(())
             }
             Command::InstallUserScript(url) => {
                 self.user_scripts.install(&url);
@@ -145,7 +217,7 @@ impl BrowserApp {
             }
             Command::RemoveUserScript(id) => {
                 let r = self.user_scripts.remove(&id, self.browser.engine_mut());
-                self.script_storage.forget(&format!("us:{id}"));
+                self.hub.forget(&format!("us:{id}"));
                 return self.report_err(r);
             }
             other => {
@@ -219,7 +291,33 @@ impl BrowserApp {
             | Command::RemoveExtension(_)
             | Command::InstallUserScript(_)
             | Command::SetUserScriptEnabled(..)
-            | Command::RemoveUserScript(_) => unreachable!("handled by run"),
+            | Command::RemoveUserScript(_)
+            | Command::ShowExtensionPopup { .. } => unreachable!("handled by run"),
+        }
+    }
+
+    /// Lays the extension popup's page over its side panel area, or
+    /// removes it.
+    fn place_popup(&mut self, ctx: &egui::Context) {
+        let shown = self.library.open == Some(super::library::LibraryView::Popup);
+        match (&self.library.popup, self.library.popup_area) {
+            (Some((_, url)), Some(rect)) if shown => {
+                let ppp = ctx.pixels_per_point();
+                let area = Viewport {
+                    x: (rect.min.x * ppp).round() as i32,
+                    y: (rect.min.y * ppp).round() as i32,
+                    width: (rect.width() * ppp).round().max(1.0) as u32,
+                    height: (rect.height() * ppp).round().max(1.0) as u32,
+                };
+                let url = url.clone();
+                self.browser.engine_mut().show_panel_page(Some(&url), area);
+            }
+            _ => {
+                self.browser
+                    .engine_mut()
+                    .show_panel_page(None, Viewport::default());
+                self.hub.panel_closed();
+            }
         }
     }
 
@@ -232,10 +330,12 @@ impl BrowserApp {
 
     fn drain_engine_events(&mut self) {
         while let Ok(event) = self.events.try_recv() {
-            if let EngineEvent::PageMessage { tab, body } = &event {
-                if let Some(reply) = self.script_storage.handle(body) {
-                    self.browser.engine_mut().reply_to_page(*tab, &reply);
-                }
+            if let EngineEvent::PageMessage { from, body } = &event {
+                let mut host = HubBridge {
+                    browser: &mut self.browser,
+                    extensions: self.extensions.extensions(),
+                };
+                self.hub.handle(from, body, &mut host);
                 continue;
             }
             if let Err(e) = self.browser.handle(event) {
@@ -283,6 +383,11 @@ impl eframe::App for BrowserApp {
         self.drive_sync(ctx);
         self.extensions.poll(self.browser.engine_mut());
         self.user_scripts.poll(self.browser.engine_mut());
+        let mut host = HubBridge {
+            browser: &mut self.browser,
+            extensions: self.extensions.extensions(),
+        };
+        self.hub.tabs_changed(&mut host);
         if let Some(notice) = self.updates.poll() {
             self.notice = Some(notice);
         }
@@ -323,6 +428,8 @@ impl eframe::App for BrowserApp {
                 },
                 extensions: ExtensionsView {
                     support: self.browser.engine().extension_support(),
+                    origins: infrastructure::builtin_extensions()
+                        .then(infrastructure::extension_server::Origins::desktop),
                     runner: &self.extensions,
                     user_scripts: &self.user_scripts,
                 },
@@ -344,6 +451,7 @@ impl eframe::App for BrowserApp {
         for command in commands {
             self.run(command);
         }
+        self.place_popup(ctx);
 
         if self.close_requested || self.browser.session().is_empty() {
             ctx.send_viewport_cmd(ViewportCommand::Close);

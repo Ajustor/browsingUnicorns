@@ -53,8 +53,12 @@ pub trait WebEngine {
     fn set_extensions(&mut self, _extensions: &Extensions) {}
     /// The user scripts to run in pages from now on.
     fn set_user_scripts(&mut self, _scripts: &UserScripts) {}
-    /// Answers a [`EngineEvent::PageMessage`] of `tab`'s page scripts.
-    fn reply_to_page(&mut self, _tab: TabId, _reply: &str) {}
+    /// Sends a message to the page scripts of `to` (answer or event).
+    fn reply_to_page(&mut self, _to: &PageSource, _message: &str) {}
+    /// Runs `script` in `tab`'s page (an extension's `executeScript`).
+    fn run_in_tab(&mut self, _tab: TabId, _script: &str) {}
+    /// Shows `url` (an extension's popup) in the side panel area, or hides it.
+    fn show_panel_page(&mut self, _url: Option<&str>, _area: Viewport) {}
 }
 
 /// What an engine does with extensions.
@@ -87,12 +91,21 @@ pub enum EngineEvent {
     NewTabRequested {
         address: WebAddress,
     },
-    /// A message of the scripts the browser runs in `tab`'s page (extension
-    /// storage...), for the presentation to answer.
+    /// A message of the scripts the browser runs in pages (extension
+    /// storage, messages...), for the presentation to answer.
     PageMessage {
-        tab: TabId,
+        from: PageSource,
         body: String,
     },
+}
+
+/// Where page scripts run: a tab, an extension's background page, the
+/// extension popup shown in the side panel.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum PageSource {
+    Tab(TabId),
+    Background(ExtensionId),
+    Panel,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

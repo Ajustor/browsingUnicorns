@@ -149,6 +149,31 @@ pub fn content_scripts(dir: &Path) -> Vec<ContentScript> {
         .collect()
 }
 
+/// The `background` of a manifest: MV3's service worker (run as a page
+/// script here), MV2's scripts or page.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Background {
+    pub scripts: Vec<String>,
+    pub page: Option<String>,
+    /// `"type": "module"` (MV3).
+    pub module: bool,
+}
+
+pub fn background(dir: &Path) -> Option<Background> {
+    let m = load(dir).ok()?;
+    let bg = m.get("background")?.as_object()?;
+    let mut scripts = strings(bg.get("scripts"));
+    if let Some(worker) = bg.get("service_worker").and_then(Value::as_str) {
+        scripts.push(worker.to_owned());
+    }
+    let page = bg.get("page").and_then(Value::as_str).map(str::to_owned);
+    (!scripts.is_empty() || page.is_some()).then(|| Background {
+        scripts,
+        page,
+        module: bg.get("type").and_then(Value::as_str) == Some("module"),
+    })
+}
+
 /// The default locale's `messages.json`, keys in lower case
 /// (`chrome.i18n.getMessage`).
 pub fn messages(dir: &Path) -> Map<String, Value> {

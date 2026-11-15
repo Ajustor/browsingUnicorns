@@ -27,6 +27,7 @@ enum State {
 
 pub struct RuleLists {
     extensions_dir: PathBuf,
+    state_dir: PathBuf,
     store_dir: PathBuf,
     generation: u64,
     tx: Sender<(u64, Option<String>)>,
@@ -41,12 +42,14 @@ pub struct RuleLists {
 impl RuleLists {
     pub fn new(
         extensions_dir: PathBuf,
+        state_dir: PathBuf,
         store_dir: PathBuf,
         waker: crate::wry_engine::Waker,
     ) -> Self {
         let (tx, rx) = mpsc::channel();
         Self {
             extensions_dir,
+            state_dir,
             store_dir,
             generation: 0,
             tx,
@@ -60,15 +63,16 @@ impl RuleLists {
     /// Converts the rules of `extensions` in the background.
     pub fn update(&mut self, extensions: &Extensions) {
         self.generation += 1;
-        let (generation, dir, extensions, tx, waker) = (
+        let (generation, dir, state_dir, extensions, tx, waker) = (
             self.generation,
             self.extensions_dir.clone(),
+            self.state_dir.clone(),
             extensions.clone(),
             self.tx.clone(),
             self.waker.clone(),
         );
         std::thread::spawn(move || {
-            let rules = rule_set(&dir, &extensions);
+            let rules = rule_set(&dir, Some(&state_dir), &extensions);
             let json = (!rules.is_empty()).then(|| {
                 let (json, count) = safari::content_rule_list(&rules);
                 log::info!("extensions: {count} WebKit rules");

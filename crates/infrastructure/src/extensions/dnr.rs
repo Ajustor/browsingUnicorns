@@ -11,8 +11,49 @@ use serde_json::Value;
 #[derive(Deserialize)]
 struct Ruleset {
     #[serde(default)]
+    id: String,
+    #[serde(default)]
     enabled: bool,
     path: String,
+}
+
+/// The ids of the manifest's rulesets enabled by default.
+pub fn default_rulesets(dir: &Path) -> Vec<String> {
+    rulesets(dir)
+        .into_iter()
+        .filter(|r| r.enabled)
+        .map(|r| r.id)
+        .collect()
+}
+
+/// The ids of all the manifest's rulesets.
+pub fn all_rulesets(dir: &Path) -> Vec<String> {
+    rulesets(dir).into_iter().map(|r| r.id).collect()
+}
+
+fn rulesets(dir: &Path) -> Vec<Ruleset> {
+    fs::read_to_string(dir.join("manifest.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str::<Value>(t.trim_start_matches('\u{feff}')).ok())
+        .and_then(|m| {
+            m.pointer("/declarative_net_request/rule_resources")
+                .cloned()
+        })
+        .and_then(|r| serde_json::from_value(r).ok())
+        .unwrap_or_default()
+}
+
+/// Rules given as JSON (dynamic, session), and how many were left out.
+pub fn convert_rules(rules: &[Value]) -> (Vec<NetworkRule>, usize) {
+    let mut out = Vec::new();
+    let mut skipped = 0;
+    for r in rules {
+        match serde_json::from_value(r.clone()).ok().and_then(convert) {
+            Some(rule) => out.push(rule),
+            None => skipped += 1,
+        }
+    }
+    (out, skipped)
 }
 
 #[derive(Deserialize)]
@@ -118,21 +159,21 @@ fn convert(dto: RuleDto) -> Option<NetworkRule> {
 
 /// The rules of the extension unpacked in `dir`: its rulesets enabled by
 /// default. Also returns how many rules were left out.
-pub fn read_rules(dir: &Path) -> Result<(Vec<NetworkRule>, usize), String> {
+/// `enabled`: the rulesets to use instead of the manifest's defaults.
+pub fn read_rules(
+    dir: &Path,
+    enabled: Option<&[String]>,
+) -> Result<(Vec<NetworkRule>, usize), String> {
     let text =
         fs::read_to_string(dir.join("manifest.json")).map_err(|e| format!("manifest.json: {e}"))?;
-    let manifest: Value = serde_json::from_str(text.trim_start_matches('\u{feff}'))
+    let _: Value = serde_json::from_str(text.trim_start_matches('\u{feff}'))
         .map_err(|e| format!("manifest.json: {e}"))?;
-    let Some(resources) = manifest
-        .pointer("/declarative_net_request/rule_resources")
-        .cloned()
-    else {
-        return Ok((Vec::new(), 0));
-    };
-    let rulesets: Vec<Ruleset> = serde_json::from_value(resources).map_err(|e| e.to_string())?;
     let mut rules = Vec::new();
     let mut skipped = 0;
-    for set in rulesets.into_iter().filter(|r| r.enabled) {
+    for set in rulesets(dir).into_iter().filter(|r| match enabled {
+        Some(ids) => ids.contains(&r.id),
+        None => r.enabled,
+    }) {
         let path = dir.join(set.path.trim_start_matches('/'));
         let text = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", set.path))?;
         let dtos: Vec<Value> =
@@ -175,7 +216,9 @@ mod tests {
             ]"#,
         )
         .unwrap();
-        let (rules, skipped) = read_rules(dir.path()).unwrap();
+        let (rules, skipped) = read_rules(dir.path(), None).unwrap();
+        assert_eq!(default_rulesets(dir.path()), vec!["a"]);
+        assert_eq!(all_rulesets(dir.path()), vec!["a", "b"]);
         assert_eq!(skipped, 2);
         assert_eq!(rules.len(), 2);
         assert_eq!(rules[0].priority, 2);
@@ -189,6 +232,6 @@ mod tests {
     fn no_rules_without_dnr() {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("manifest.json"), r#"{"name":"x"}"#).unwrap();
-        assert_eq!(read_rules(dir.path()).unwrap(), (Vec::new(), 0));
+        assert_eq!(read_rules(dir.path(), None).unwrap(), (Vec::new(), 0));
     }
 }

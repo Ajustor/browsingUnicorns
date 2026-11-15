@@ -6,9 +6,10 @@
 //! browser applies the extensions' network rules itself: [`rule_set`].
 
 mod crx;
-mod dnr;
+pub mod dnr;
 pub mod manifest;
 pub mod safari;
+pub mod state;
 
 use std::fs;
 use std::io::{Cursor, Read};
@@ -42,24 +43,42 @@ pub fn store_package_url(id: &ExtensionId) -> String {
     )
 }
 
-/// The network rules of the enabled `extensions` unpacked in `dir`.
-pub fn rule_set(dir: &Path, extensions: &Extensions) -> RuleSet {
+/// The network rules of the enabled `extensions` unpacked in `dir`, with
+/// what they changed at run time (kept in `state_dir`).
+pub fn rule_set(dir: &Path, state_dir: Option<&Path>, extensions: &Extensions) -> RuleSet {
     let per_extension = extensions
         .items()
         .iter()
         .filter(|e| e.enabled)
-        .filter_map(|e| match dnr::read_rules(&extension_dir(dir, &e.id)) {
-            Ok((rules, skipped)) => {
-                log::info!(
-                    "extensions: {} network rules from {} ({skipped} left out)",
-                    rules.len(),
-                    e.name
-                );
-                Some((e.id.clone(), rules))
-            }
-            Err(err) => {
-                log::warn!("extensions: rules of {}: {err}", e.name);
-                None
+        .filter_map(|e| {
+            let state = state_dir
+                .map(|s| state::ExtensionState::load(s, &e.id))
+                .unwrap_or_default();
+            let read = dnr::read_rules(
+                &extension_dir(dir, &e.id),
+                state.enabled_rulesets.as_deref(),
+            )
+            .map(|(mut rules, mut skipped)| {
+                for list in [&state.dynamic_rules, &state.session_rules] {
+                    let (more, left) = dnr::convert_rules(list);
+                    rules.extend(more);
+                    skipped += left;
+                }
+                (rules, skipped)
+            });
+            match read {
+                Ok((rules, skipped)) => {
+                    log::info!(
+                        "extensions: {} network rules from {} ({skipped} left out)",
+                        rules.len(),
+                        e.name
+                    );
+                    Some((e.id.clone(), rules))
+                }
+                Err(err) => {
+                    log::warn!("extensions: rules of {}: {err}", e.name);
+                    None
+                }
             }
         })
         .collect();
@@ -331,7 +350,7 @@ mod tests {
         );
 
         // Its network rules, and how long a decision takes.
-        let set = rule_set(folder.dir(), &Extensions::from_items(vec![ext]));
+        let set = rule_set(folder.dir(), None, &Extensions::from_items(vec![ext]));
         println!("{} rules", set.len());
         assert!(set.len() > 1000);
         let (webkit, count) = safari::content_rule_list(&set);

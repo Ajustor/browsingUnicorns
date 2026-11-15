@@ -26,20 +26,20 @@ pub struct ScriptStorage {
 }
 
 #[derive(Deserialize)]
-struct Message {
-    t: String,
+pub struct Message {
+    pub t: String,
     /// The script's channel, echoed in the reply.
     #[serde(default)]
-    ch: Option<String>,
-    id: u64,
-    owner: String,
-    op: String,
+    pub ch: Option<String>,
+    pub id: u64,
+    pub owner: String,
+    pub op: String,
     #[serde(default)]
-    area: Option<String>,
+    pub area: Option<String>,
     #[serde(default)]
-    keys: Option<Value>,
+    pub keys: Option<Value>,
     #[serde(default)]
-    items: Option<Map<String, Value>>,
+    pub items: Option<Map<String, Value>>,
 }
 
 /// A new random token for this run of the browser.
@@ -50,7 +50,7 @@ pub fn new_token() -> String {
     data_encoding::HEXLOWER.encode(&bytes)
 }
 
-fn valid_owner(owner: &str) -> bool {
+pub fn valid_owner(owner: &str) -> bool {
     let (kind, id) = match owner.split_once(':') {
         Some(parts) => parts,
         None => return false,
@@ -105,7 +105,7 @@ impl ScriptStorage {
         }
         let (id, ch) = (message.id, message.ch.clone());
         let mut reply = match self.apply(message) {
-            Ok(result) => json!({"id": id, "result": result}),
+            Ok((result, _)) => json!({"id": id, "result": result}),
             Err(e) => json!({"id": id, "error": e}),
         };
         if let Some(ch) = ch {
@@ -114,7 +114,14 @@ impl ScriptStorage {
         Some(reply.to_string())
     }
 
-    fn apply(&mut self, m: Message) -> Result<Value, String> {
+    /// Whether `op` is a storage operation.
+    pub fn is_storage_op(op: &str) -> bool {
+        matches!(op, "get" | "set" | "remove" | "clear")
+    }
+
+    /// Runs a storage operation (token already checked). Returns the result
+    /// and, for a change, `chrome.storage.onChanged`'s argument and the area.
+    pub fn apply(&mut self, m: Message) -> Result<(Value, Option<(Value, String)>), String> {
         let area = match m.area.as_deref().unwrap_or("local") {
             a @ ("local" | "sync" | "session") => a,
             other => return Err(format!("unknown storage area {other}")),
@@ -122,6 +129,34 @@ impl ScriptStorage {
         let file = format!("{}.{area}.json", m.owner.replace(':', "-"));
         // `session` is kept in memory only.
         let persist = area != "session";
+        let before = |store: &Store, keys: &[String]| -> Map<String, Value> {
+            keys.iter()
+                .filter_map(|k| store.get(k).map(|v| (k.clone(), v.clone())))
+                .collect()
+        };
+        let changes = |old: Map<String, Value>, new: &Store, keys: &[String]| -> Value {
+            let mut out = Map::new();
+            for k in keys {
+                let (o, n) = (old.get(k), new.get(k));
+                if o == n {
+                    continue;
+                }
+                let mut change = Map::new();
+                if let Some(o) = o {
+                    change.insert("oldValue".into(), o.clone());
+                }
+                if let Some(n) = n {
+                    change.insert("newValue".into(), n.clone());
+                }
+                out.insert(k.clone(), Value::Object(change));
+            }
+            Value::Object(out)
+        };
+        let area_name = area.to_owned();
+        let changed = |c: Value| match &c {
+            Value::Object(m) if m.is_empty() => None,
+            _ => Some((c, area_name.clone())),
+        };
         match m.op.as_str() {
             "get" => {
                 let store = self.store(&file);
@@ -145,17 +180,21 @@ impl ScriptStorage {
                         .collect(),
                     Some(_) => return Err("bad keys".into()),
                 }))
+                .map(|v| (v, None))
             }
             "set" => {
                 let items = m.items.ok_or("nothing to set")?;
+                let keys: Vec<String> = items.keys().cloned().collect();
                 let store = self.store(&file);
+                let old = before(store, &keys);
                 for (k, v) in items {
                     store.insert(k, v);
                 }
+                let diff = changes(old, store, &keys);
                 if persist {
                     self.save(&file)?;
                 }
-                Ok(Value::Null)
+                Ok((Value::Null, changed(diff)))
             }
             "remove" => {
                 let keys: Vec<String> = match m.keys {
@@ -167,20 +206,26 @@ impl ScriptStorage {
                     _ => return Err("bad keys".into()),
                 };
                 let store = self.store(&file);
-                for k in keys {
-                    store.remove(&k);
+                let old = before(store, &keys);
+                for k in &keys {
+                    store.remove(k);
                 }
+                let diff = changes(old, store, &keys);
                 if persist {
                     self.save(&file)?;
                 }
-                Ok(Value::Null)
+                Ok((Value::Null, changed(diff)))
             }
             "clear" => {
-                self.store(&file).clear();
+                let store = self.store(&file);
+                let keys: Vec<String> = store.keys().cloned().collect();
+                let old = before(store, &keys);
+                store.clear();
+                let diff = changes(old, store, &keys);
                 if persist {
                     self.save(&file)?;
                 }
-                Ok(Value::Null)
+                Ok((Value::Null, changed(diff)))
             }
             other => Err(format!("unknown operation {other}")),
         }

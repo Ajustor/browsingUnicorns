@@ -7,7 +7,9 @@ use anyhow::Context as _;
 use application::ports::{Repository, WebEngine as _};
 use application::{Browser, ExtensionManager, Target, UserScriptManager};
 use domain::Settings;
+use infrastructure::extension_hub::Hub;
 use infrastructure::extensions::ExtensionFolder;
+use infrastructure::page_scripts::Bridge;
 use infrastructure::script_storage::{ScriptStorage, new_token};
 use infrastructure::user_scripts::{UserScriptFolder, UserScriptRepository};
 use infrastructure::{
@@ -49,6 +51,7 @@ pub fn build(
             data_dir: profile_dir.join("webview"),
             extensions_dir: profile_dir.join("extensions"),
             user_scripts_dir: profile_dir.join("userscripts"),
+            state_dir: profile_dir.join("extension-state"),
             page_token: page_token.clone(),
         },
         sender,
@@ -120,7 +123,12 @@ pub fn build(
         AddOns {
             extensions,
             user_scripts,
-            storage: script_storage,
+            hub: Hub::new(
+                script_storage,
+                Bridge::Ipc,
+                profile_dir.join("extensions"),
+                profile_dir.join("extension-state"),
+            ),
         },
         exit_slot,
     ))

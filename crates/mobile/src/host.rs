@@ -47,6 +47,8 @@ pub struct HostEngine {
     pub host: Arc<dyn WebViewHost>,
     pub rules: Arc<RwLock<RuleSet>>,
     pub extensions_dir: PathBuf,
+    /// What extensions change at run time (rules, registered scripts).
+    pub state_dir: PathBuf,
     pub user_scripts_dir: PathBuf,
     /// Written into the page scripts, checked by the script storage.
     pub page_token: String,
@@ -63,6 +65,8 @@ impl HostEngine {
             user_scripts: &self.user_scripts,
             token: &self.page_token,
             bridge: Bridge::Android,
+            origins: infrastructure::extension_server::Origins::Android,
+            state_dir: Some(&self.state_dir),
         });
         self.host.set_page_scripts(scripts);
     }
@@ -100,7 +104,11 @@ impl WebEngine for HostEngine {
     }
 
     fn set_extensions(&mut self, extensions: &Extensions) {
-        let rules = infrastructure::extensions::rule_set(&self.extensions_dir, extensions);
+        let rules = infrastructure::extensions::rule_set(
+            &self.extensions_dir,
+            Some(&self.state_dir),
+            extensions,
+        );
         *self.rules.write().unwrap_or_else(|p| p.into_inner()) = rules;
         self.extensions = extensions.clone();
         self.send_page_scripts();

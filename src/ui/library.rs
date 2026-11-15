@@ -21,6 +21,8 @@ pub enum LibraryView {
     Sync,
     Extensions,
     About,
+    /// An extension's popup (see [`Library::popup`]).
+    Popup,
 }
 
 /// What the panel shows, borrowed for one frame.
@@ -39,6 +41,10 @@ pub struct Library {
     filter: String,
     sync: SyncPanel,
     extensions: ExtensionsPanel,
+    /// The extension popup shown: its name and address.
+    pub popup: Option<(String, String)>,
+    /// Where the popup's page goes, in points (set while it shows).
+    pub popup_area: Option<egui::Rect>,
 }
 
 impl Library {
@@ -56,9 +62,39 @@ impl Library {
         data: LibraryData<'_>,
         commands: &mut Vec<Command>,
     ) {
+        self.popup_area = None;
         let Some(view) = self.open else {
             return;
         };
+        if view == LibraryView::Popup {
+            let Some((name, _)) = self.popup.clone() else {
+                self.open = None;
+                return;
+            };
+            SidePanel::right("library")
+                .resizable(true)
+                .default_width(360.0)
+                .min_width(220.0)
+                .show(ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        if ui
+                            .add(
+                                Button::new(format!("{} Extensions", icon::ARROW_LEFT))
+                                    .frame(false),
+                            )
+                            .clicked()
+                        {
+                            commands.push(Command::ToggleLibrary(LibraryView::Extensions));
+                        }
+                        ui.add(egui::Label::new(RichText::new(&name).strong()).truncate());
+                    });
+                    ui.separator();
+                    // The popup's own page is laid over the rest.
+                    self.popup_area = Some(ui.available_rect_before_wrap());
+                    ui.allocate_space(ui.available_size());
+                });
+            return;
+        }
         let LibraryData {
             history,
             bookmarks,
@@ -140,7 +176,10 @@ impl Library {
                 match view {
                     LibraryView::History => self.history(ui, history, now, commands),
                     LibraryView::Bookmarks => self.bookmarks(ui, bookmarks, commands),
-                    LibraryView::About | LibraryView::Sync | LibraryView::Extensions => {}
+                    LibraryView::About
+                    | LibraryView::Sync
+                    | LibraryView::Extensions
+                    | LibraryView::Popup => {}
                 }
             });
     }

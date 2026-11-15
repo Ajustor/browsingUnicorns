@@ -228,6 +228,7 @@ impl MobileBrowser {
             host,
             rules: rules.clone(),
             extensions_dir: extensions_dir.clone(),
+            state_dir: dir.join("extension-state"),
             user_scripts_dir: user_scripts_dir.clone(),
             page_token: page_token.clone(),
             extensions: Default::default(),

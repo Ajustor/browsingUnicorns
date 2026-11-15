@@ -5,6 +5,8 @@
 
 mod clock;
 mod dto;
+pub mod extension_hub;
+pub mod extension_server;
 pub mod extensions;
 mod files;
 mod json_store;
@@ -34,7 +36,7 @@ pub use json_store::JsonRepository;
 pub use parent_window::ParentWindow;
 pub use settings_store::TomlSettingsRepository;
 #[cfg(feature = "desktop")]
-pub use wry_engine::{EngineFiles, WryEngine};
+pub use wry_engine::{EngineFiles, WryEngine, builtin_extensions};
 
 /// `<data dir>/browsing-unicorns`, where history, bookmarks and the session
 /// are kept. `BU_PROFILE_DIR` replaces it (tests, a second profile).

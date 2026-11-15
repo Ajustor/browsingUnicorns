@@ -41,4 +41,9 @@ pub enum Command {
     InstallUserScript(String),
     SetUserScriptEnabled(UserScriptId, bool),
     RemoveUserScript(UserScriptId),
+    /// An extension's popup, shown in the side panel.
+    ShowExtensionPopup {
+        name: String,
+        url: String,
+    },
 }

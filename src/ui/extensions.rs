@@ -7,7 +7,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use application::ExtensionManager;
 use application::Target;
 use application::ports::{ExtensionError, ExtensionSource, ExtensionSupport, WebEngine};
-use domain::{Extension, ExtensionId, Extensions};
+use domain::{Extension, ExtensionId, Extensions, WebAddress};
 use egui::{Button, RichText, ScrollArea, TextEdit};
 use egui_phosphor::regular as icon;
 
@@ -113,6 +113,8 @@ impl ExtensionsRunner {
 /// What the view shows, borrowed for one frame.
 pub struct ExtensionsView<'a> {
     pub support: ExtensionSupport,
+    /// Where the browser serves the extensions' pages (it runs them itself).
+    pub origins: Option<infrastructure::extension_server::Origins>,
     pub runner: &'a ExtensionsRunner,
     pub user_scripts: &'a super::user_scripts::UserScriptsRunner,
 }
@@ -213,21 +215,27 @@ impl ExtensionsPanel {
             ui.weak("No extensions.");
             return;
         }
-        let full = view.support == ExtensionSupport::Full;
         for e in extensions.items() {
-            extension_row(ui, e, full, commands);
+            extension_row(ui, e, view.origins, commands);
             ui.add_space(6.0);
         }
-        ui.weak(if full {
+        ui.weak(if view.origins.is_some() {
+            "Pages already open see a change after a reload. There is no toolbar \
+             button: Popup shows the extension's popup here, Options opens its \
+             settings in a tab."
+        } else {
             "Pages already open see a change after a reload. Toolbar buttons do \
              not exist here: Popup and Options open the extension's pages in a tab."
-        } else {
-            "Pages already open see a change after a reload."
         });
     }
 }
 
-fn extension_row(ui: &mut egui::Ui, e: &Extension, pages: bool, commands: &mut Vec<Command>) {
+fn extension_row(
+    ui: &mut egui::Ui,
+    e: &Extension,
+    origins: Option<infrastructure::extension_server::Origins>,
+    commands: &mut Vec<Command>,
+) {
     ui.horizontal(|ui| {
         let mut enabled = e.enabled;
         if ui
@@ -244,18 +252,39 @@ fn extension_row(ui: &mut egui::Ui, e: &Extension, pages: bool, commands: &mut V
         ui.add(egui::Label::new(RichText::new(&e.description).small().weak()).wrap());
     }
     ui.horizontal(|ui| {
-        let pages = if pages {
-            vec![("Popup", e.popup_page()), ("Options", e.options_page())]
-        } else {
-            Vec::new()
-        };
-        for (label, page) in pages {
-            if let Some(page) = page
-                && ui
-                    .add_enabled(e.enabled, Button::new(label).small())
-                    .clicked()
-            {
-                commands.push(Command::Open(page, Target::NewTab));
+        match origins {
+            // The browser serves the pages: the popup goes in this panel.
+            Some(origins) => {
+                if let Some(popup) = &e.popup
+                    && ui
+                        .add_enabled(e.enabled, Button::new("Popup").small())
+                        .clicked()
+                {
+                    commands.push(Command::ShowExtensionPopup {
+                        name: e.name.clone(),
+                        url: origins.url(&e.id, popup),
+                    });
+                }
+                if let Some(options) = &e.options
+                    && let Ok(page) = WebAddress::parse(&origins.url(&e.id, options))
+                    && ui
+                        .add_enabled(e.enabled, Button::new("Options").small())
+                        .clicked()
+                {
+                    commands.push(Command::Open(page, Target::NewTab));
+                }
+            }
+            // WebView2's own: its pages in a tab.
+            None => {
+                for (label, page) in [("Popup", e.popup_page()), ("Options", e.options_page())] {
+                    if let Some(page) = page
+                        && ui
+                            .add_enabled(e.enabled, Button::new(label).small())
+                            .clicked()
+                    {
+                        commands.push(Command::Open(page, Target::NewTab));
+                    }
+                }
             }
         }
         if ui

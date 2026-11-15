@@ -13,6 +13,8 @@ use std::path::Path;
 use domain::{Extensions, UrlPattern, UserScripts};
 use serde_json::{Value, json};
 
+use crate::extension_server::Origins;
+use crate::extensions::state::ExtensionState;
 use crate::extensions::{extension_dir, manifest};
 use crate::script_storage::new_token;
 use crate::user_scripts::read_code;
@@ -48,6 +50,10 @@ pub struct Sources<'a> {
     pub user_scripts: &'a UserScripts,
     pub token: &'a str,
     pub bridge: Bridge,
+    /// Where the extensions' files are served (`runtime.getURL`).
+    pub origins: Origins,
+    /// What extensions registered at run time.
+    pub state_dir: Option<&'a Path>,
 }
 
 /// `re("source", "flags")` of a pattern.
@@ -74,6 +80,13 @@ fn wrap(token: &str, bridge: Bridge, call: &str) -> String {
 }
 
 /// The files' contents, one after the other, `separator` between them.
+/// The runtime of an extension page (background, popup, options), with
+/// its configuration (`owner`, `context`, `origin`, `messages`, `manifest`,
+/// `installReason`) as JSON.
+pub fn extension_page_runtime(token: &str, bridge: Bridge, config: &str) -> String {
+    wrap(token, bridge, &format!("extensionPage({config});"))
+}
+
 fn read_files(root: &Path, files: &[String], separator: &str) -> Option<String> {
     let mut out = String::new();
     for f in files {
@@ -98,7 +111,10 @@ pub fn page_scripts(sources: &Sources<'_>) -> Vec<String> {
         .filter(|e| e.enabled)
     {
         let dir = extension_dir(sources.extensions_dir, &e.id);
-        let entries = manifest::content_scripts(&dir);
+        let mut entries = manifest::content_scripts(&dir);
+        if let Some(state_dir) = sources.state_dir {
+            entries.extend(ExtensionState::load(state_dir, &e.id).registered_scripts());
+        }
         if entries.is_empty() {
             continue;
         }
@@ -117,8 +133,9 @@ pub fn page_scripts(sources: &Sources<'_>) -> Vec<String> {
                 vec![css_text]
             };
             let config = format!(
-                "{{owner: {}, match: {}, exclude: {}, runAt: {}, allFrames: {}, css: {}, messages: {}, manifest: {}}}",
+                "{{owner: {}, origin: {}, match: {}, exclude: {}, runAt: {}, allFrames: {}, css: {}, messages: {}, manifest: {}}}",
                 json!(format!("ext:{}", e.id)),
+                json!(sources.origins.origin(&e.id)),
                 regexes(&cs.matches),
                 regexes(&cs.excludes),
                 json!(cs.run_at.as_str()),
@@ -229,6 +246,8 @@ mod tests {
             user_scripts: &user_scripts,
             token: "tok",
             bridge: Bridge::Ipc,
+            origins: Origins::CustomScheme,
+            state_dir: None,
         };
         let scripts = page_scripts(&sources(true));
         // `node --check` them: BU_DUMP_PAGE_SCRIPTS=<dir> cargo test …

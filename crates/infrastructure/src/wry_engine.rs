@@ -1,14 +1,19 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc::Sender;
 
-use application::ports::{EngineError, EngineEvent, ExtensionSupport, Viewport, WebEngine};
-use domain::{Extensions, TabId, UserScripts, WebAddress};
+use application::ports::{
+    EngineError, EngineEvent, ExtensionSupport, PageSource, Viewport, WebEngine,
+};
+use domain::{ExtensionId, Extensions, TabId, UserScripts, WebAddress};
 use wry::dpi::{PhysicalPosition, PhysicalSize};
+use wry::http::Response;
 use wry::{NewWindowResponse, PageLoadEvent, Rect, WebContext, WebView, WebViewBuilder};
 
 use crate::ParentWindow;
+use crate::extension_server::{ExtensionServer, Origins, SCHEME};
 use crate::page_injection::{self, Handles};
 use crate::page_scripts::{Bridge, Sources, page_scripts};
 
@@ -25,12 +30,23 @@ pub struct EngineFiles {
     pub extensions_dir: PathBuf,
     /// The user scripts' code.
     pub user_scripts_dir: PathBuf,
+    /// What extensions change at run time (rules, registered scripts).
+    pub state_dir: PathBuf,
     /// Written into the page scripts, checked by the script storage.
     pub page_token: String,
 }
 
+/// Whether the browser runs extensions itself on Windows instead of
+/// WebView2 (`BU_EXTENSIONS=builtin`): to try on Windows what macOS and
+/// Linux do.
+pub fn builtin_extensions() -> bool {
+    !cfg!(windows) || std::env::var("BU_EXTENSIONS").is_ok_and(|v| v == "builtin")
+}
+
 /// [`WebEngine`] backed by the system web view (WebView2 on Windows,
-/// WKWebView on macOS, WebKitGTK on Linux), one child view per tab.
+/// WKWebView on macOS, WebKitGTK on Linux), one child view per tab, plus
+/// hidden views for the extensions' background pages and one for the popup
+/// shown in the side panel.
 ///
 /// Must live on the UI thread, like the window it is embedded in.
 pub struct WryEngine {
@@ -43,12 +59,18 @@ pub struct WryEngine {
     /// Where the web views keep cookies, cache and storage.
     context: WebContext,
     files: EngineFiles,
+    /// Serves the extensions' files where the browser runs them itself.
+    server: Option<Arc<ExtensionServer>>,
     /// Installed extensions and user scripts, for the page scripts.
     extensions: Extensions,
     user_scripts: UserScripts,
     /// The scripts injected into every page, and each view's handles.
     page_scripts: Vec<String>,
     injected: HashMap<TabId, Handles>,
+    /// Background pages, by extension.
+    backgrounds: HashMap<ExtensionId, WebView>,
+    /// The popup in the side panel, and its address.
+    panel: Option<(String, WebView)>,
     /// Extensions to hand to the web view profile once a view exists.
     #[cfg_attr(not(windows), allow(dead_code))]
     pending_extensions: Option<Extensions>,
@@ -72,6 +94,54 @@ fn bounds(v: Viewport) -> Rect {
     }
 }
 
+/// The parts every view shares: the profile, the extensions' files, the
+/// page scripts' bridge.
+fn base_builder<'a>(
+    context: &'a mut WebContext,
+    server: Option<&Arc<ExtensionServer>>,
+    source: PageSource,
+    emit: impl Fn(EngineEvent) + 'static,
+) -> WebViewBuilder<'a> {
+    // WebKitGTK registers schemes once per context.
+    #[cfg(target_os = "linux")]
+    let register = !context.is_custom_protocol_registered(SCHEME);
+    #[cfg(not(target_os = "linux"))]
+    let register = true;
+    let builder = WebViewBuilder::new_with_web_context(context);
+    #[cfg(windows)]
+    let builder = {
+        use wry::WebViewBuilderExtWindows as _;
+        builder.with_browser_extensions_enabled(!builtin_extensions())
+    };
+    let builder = builder
+        .with_devtools(cfg!(debug_assertions))
+        .with_ipc_handler(move |request| {
+            emit(EngineEvent::PageMessage {
+                from: source.clone(),
+                body: request.into_body(),
+            });
+        });
+    match server {
+        Some(server) if register => {
+            let server = server.clone();
+            builder.with_custom_protocol(SCHEME.into(), move |_id, request| {
+                let url = request.uri().to_string();
+                match server.serve(&url) {
+                    Some(resource) => Response::builder()
+                        .header("Content-Type", resource.mime)
+                        .header("Access-Control-Allow-Origin", "*")
+                        .body(Cow::Owned(resource.body)),
+                    None => Response::builder()
+                        .status(404)
+                        .body(Cow::Borrowed(&b"not found"[..])),
+                }
+                .unwrap_or_else(|_| Response::new(Cow::Borrowed(&b""[..])))
+            })
+        }
+        _ => builder,
+    }
+}
+
 impl WryEngine {
     pub fn new(
         parent: ParentWindow,
@@ -83,6 +153,15 @@ impl WryEngine {
         if let Err(e) = gtk::init() {
             log::error!("GTK initialisation failed: {e}");
         }
+        let server = builtin_extensions().then(|| {
+            ExtensionServer::new(
+                files.extensions_dir.clone(),
+                files.state_dir.join("versions.json"),
+                files.page_token.clone(),
+                Origins::desktop(),
+                Bridge::Ipc,
+            )
+        });
         Self {
             parent,
             views: HashMap::new(),
@@ -92,16 +171,20 @@ impl WryEngine {
             #[cfg(any(target_os = "macos", target_os = "linux"))]
             rule_lists: crate::webkit_rules::RuleLists::new(
                 files.extensions_dir.clone(),
+                files.state_dir.clone(),
                 files.data_dir.join("content-filters"),
                 waker.clone(),
             ),
             waker,
             context: WebContext::new(Some(files.data_dir.clone())),
             files,
+            server,
             extensions: Extensions::default(),
             user_scripts: UserScripts::default(),
             page_scripts: Vec::new(),
             injected: HashMap::new(),
+            backgrounds: HashMap::new(),
+            panel: None,
             pending_extensions: None,
             #[cfg(windows)]
             managed_extensions: Default::default(),
@@ -140,6 +223,9 @@ impl WryEngine {
     fn apply_extensions(&mut self) {
         use wry::WebViewExtWindows as _;
 
+        if builtin_extensions() {
+            return;
+        }
         let Some(view) = self.views.values().next() else {
             return;
         };
@@ -177,11 +263,52 @@ impl WryEngine {
             user_scripts: &self.user_scripts,
             token: &self.files.page_token,
             bridge: Bridge::Ipc,
+            origins: Origins::desktop(),
+            state_dir: Some(&self.files.state_dir),
         };
         self.page_scripts = page_scripts(&sources);
         for (tab, view) in &self.views {
             let handles = self.injected.entry(*tab).or_default();
             page_injection::replace(view, &self.page_scripts, handles);
+        }
+    }
+
+    /// Starts the background pages of the enabled extensions, stops the
+    /// others.
+    fn sync_backgrounds(&mut self) {
+        let Some(server) = self.server.clone() else {
+            return;
+        };
+        let wanted: HashMap<ExtensionId, String> = self
+            .extensions
+            .items()
+            .iter()
+            .filter(|e| e.enabled)
+            .filter_map(|e| Some((e.id.clone(), server.background_url(&e.id)?)))
+            .collect();
+        self.backgrounds.retain(|id, _| wanted.contains_key(id));
+        for (id, url) in wanted {
+            if self.backgrounds.contains_key(&id) {
+                continue;
+            }
+            let emit = self.emitter();
+            let view = base_builder(
+                &mut self.context,
+                self.server.as_ref(),
+                PageSource::Background(id.clone()),
+                emit,
+            )
+            .with_bounds(bounds(Viewport::default()))
+            .with_visible(false)
+            .with_url(&url)
+            .build_as_child(&self.parent);
+            match view {
+                Ok(view) => {
+                    log::info!("extensions: background page of {id} started");
+                    self.backgrounds.insert(id, view);
+                }
+                Err(e) => log::warn!("extensions: background page of {id}: {e}"),
+            }
         }
     }
 
@@ -192,6 +319,19 @@ impl WryEngine {
             log::warn!("{action} in tab {tab}: {e}");
         }
     }
+
+    fn view_of(&self, source: &PageSource) -> Option<&WebView> {
+        match source {
+            PageSource::Tab(tab) => self.views.get(tab),
+            PageSource::Background(id) => self.backgrounds.get(id),
+            PageSource::Panel => self.panel.as_ref().map(|(_, v)| v),
+        }
+    }
+
+    /// The address of `path` of extension `id`, where its files are served.
+    pub fn extension_url(&self, id: &ExtensionId, path: &str) -> Option<String> {
+        self.server.as_ref().map(|s| s.origins().url(id, path))
+    }
 }
 
 impl WebEngine for WryEngine {
@@ -200,45 +340,35 @@ impl WebEngine for WryEngine {
         let on_load = emit.clone();
         let on_title = emit.clone();
         let on_message = emit.clone();
-        let builder = WebViewBuilder::new_with_web_context(&mut self.context);
-        // Every view shares the profile, and its extensions.
-        #[cfg(windows)]
-        let builder = {
-            use wry::WebViewBuilderExtWindows as _;
-            builder.with_browser_extensions_enabled(true)
-        };
         // No address yet: the page scripts must be in before the first load.
-        let view = builder
-            .with_bounds(bounds(self.viewport))
-            .with_visible(false)
-            .with_devtools(cfg!(debug_assertions))
-            .with_on_page_load_handler(move |event, url| {
-                let Ok(address) = WebAddress::parse(&url) else {
-                    return;
-                };
-                on_load(match event {
-                    PageLoadEvent::Started => EngineEvent::LoadStarted { tab, address },
-                    PageLoadEvent::Finished => EngineEvent::LoadFinished { tab, address },
-                });
-            })
-            .with_document_title_changed_handler(move |title| {
-                on_title(EngineEvent::TitleChanged { tab, title });
-            })
-            // The page scripts' bridge (extension storage...).
-            .with_ipc_handler(move |request| {
-                on_message(EngineEvent::PageMessage {
-                    tab,
-                    body: request.into_body(),
-                });
-            })
-            .with_new_window_req_handler(move |url, _features| {
-                if let Ok(address) = WebAddress::parse(&url) {
-                    emit(EngineEvent::NewTabRequested { address });
-                }
-                NewWindowResponse::Deny
-            })
-            .build_as_child(&self.parent)
-            .map_err(engine_error)?;
+        let view = base_builder(
+            &mut self.context,
+            self.server.as_ref(),
+            PageSource::Tab(tab),
+            on_message,
+        )
+        .with_bounds(bounds(self.viewport))
+        .with_visible(false)
+        .with_on_page_load_handler(move |event, url| {
+            let Ok(address) = WebAddress::parse(&url) else {
+                return;
+            };
+            on_load(match event {
+                PageLoadEvent::Started => EngineEvent::LoadStarted { tab, address },
+                PageLoadEvent::Finished => EngineEvent::LoadFinished { tab, address },
+            });
+        })
+        .with_document_title_changed_handler(move |title| {
+            on_title(EngineEvent::TitleChanged { tab, title });
+        })
+        .with_new_window_req_handler(move |url, _features| {
+            if let Ok(address) = WebAddress::parse(&url) {
+                emit(EngineEvent::NewTabRequested { address });
+            }
+            NewWindowResponse::Deny
+        })
+        .build_as_child(&self.parent)
+        .map_err(engine_error)?;
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         self.rule_lists.attach(&view);
         let mut handles = Handles::default();
@@ -308,9 +438,9 @@ impl WebEngine for WryEngine {
     }
 
     fn extension_support(&self) -> ExtensionSupport {
-        if cfg!(windows) {
+        if !builtin_extensions() {
             ExtensionSupport::Full
-        } else if cfg!(any(target_os = "macos", target_os = "linux")) {
+        } else if cfg!(any(windows, target_os = "macos", target_os = "linux")) {
             ExtensionSupport::Partial
         } else {
             ExtensionSupport::None
@@ -327,8 +457,12 @@ impl WebEngine for WryEngine {
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         self.rule_lists.update(extensions);
         self.extensions = extensions.clone();
+        if let Some(server) = &self.server {
+            server.set_extensions(extensions);
+        }
         if self.extension_support() == ExtensionSupport::Partial {
             self.rebuild_page_scripts();
+            self.sync_backgrounds();
         }
     }
 
@@ -337,8 +471,45 @@ impl WebEngine for WryEngine {
         self.rebuild_page_scripts();
     }
 
-    fn reply_to_page(&mut self, tab: TabId, reply: &str) {
-        let script = format!("window.__buReply && window.__buReply({reply})");
-        self.with_view(tab, "page reply", |v| v.evaluate_script(&script));
+    fn reply_to_page(&mut self, to: &PageSource, message: &str) {
+        let script = format!("window.__buReply && window.__buReply({message})");
+        if let Some(view) = self.view_of(to)
+            && let Err(e) = view.evaluate_script(&script)
+        {
+            log::warn!("page message to {to:?}: {e}");
+        }
+    }
+
+    fn run_in_tab(&mut self, tab: TabId, script: &str) {
+        self.with_view(tab, "script", |v| v.evaluate_script(script));
+    }
+
+    fn show_panel_page(&mut self, url: Option<&str>, area: Viewport) {
+        let Some(url) = url else {
+            self.panel = None;
+            return;
+        };
+        if let Some((current, view)) = &self.panel
+            && current == url
+        {
+            if let Err(e) = view.set_bounds(bounds(area)) {
+                log::warn!("panel: {e}");
+            }
+            return;
+        }
+        let emit = self.emitter();
+        let view = base_builder(
+            &mut self.context,
+            self.server.as_ref(),
+            PageSource::Panel,
+            emit,
+        )
+        .with_bounds(bounds(area))
+        .with_url(url)
+        .build_as_child(&self.parent);
+        match view {
+            Ok(view) => self.panel = Some((url.to_owned(), view)),
+            Err(e) => log::warn!("panel: {e}"),
+        }
     }
 }
