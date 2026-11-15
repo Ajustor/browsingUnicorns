@@ -5,9 +5,9 @@ use data_encoding::BASE64;
 
 use super::*;
 
-/// Records what Rust asks of the WebViews.
+/// Records what Rust asks of the WebViews; the page scripts apart.
 #[derive(Default)]
-struct FakeHost(Mutex<Vec<String>>);
+struct FakeHost(Mutex<Vec<String>>, Mutex<Vec<String>>);
 
 impl WebViewHost for FakeHost {
     fn open_view(&self, tab: u64, url: String) {
@@ -30,6 +30,9 @@ impl WebViewHost for FakeHost {
     }
     fn reload(&self, tab: u64) {
         self.0.lock().unwrap().push(format!("reload {tab}"));
+    }
+    fn set_page_scripts(&self, scripts: Vec<String>) {
+        *self.1.lock().unwrap() = scripts;
     }
 }
 
@@ -334,4 +337,48 @@ fn extensions_block_requests() {
         ),
         Interception::Allow
     );
+}
+
+#[test]
+fn user_scripts_run_in_pages_with_their_storage() {
+    let dir = tempfile::tempdir().unwrap();
+    let http = Arc::new(FakeHttp::default());
+    let url = "https://greasyfork.test/counter.user.js";
+    http.0.lock().unwrap().insert(
+        url.into(),
+        b"// ==UserScript==\n// @name Counter\n// @version 2\n// @match https://*/*\n\
+          // @grant GM_setValue\n// ==/UserScript==\nGM_setValue('n', 1);"
+            .to_vec(),
+    );
+    let (b, host) = browser(&dir, "phone", &http);
+    assert!(host.1.lock().unwrap().is_empty());
+
+    assert!(b.install_user_script("not a url".into()).is_err());
+    assert_eq!(b.install_user_script(url.into()).unwrap(), "Counter 2");
+    let scripts = host.1.lock().unwrap().clone();
+    assert_eq!(scripts.len(), 1);
+    assert!(scripts[0].contains("GM_setValue('n', 1);"));
+    assert!(scripts[0].contains("const BRIDGE = \"android\";"));
+
+    // The page script's storage goes through `page_message`, with its token.
+    let token = scripts[0]
+        .split("const TOKEN = \"")
+        .nth(1)
+        .and_then(|rest| rest.split('"').next())
+        .unwrap()
+        .to_owned();
+    let id = b.user_scripts()[0].id.clone();
+    let set = format!(r#"{{"t":"{token}","id":1,"owner":"us:{id}","op":"set","items":{{"n":1}}}}"#);
+    assert_eq!(b.page_message(set), r#"{"id":1,"result":null}"#);
+    let get = format!(r#"{{"t":"{token}","id":2,"owner":"us:{id}","op":"get"}}"#);
+    assert_eq!(b.page_message(get), r#"{"id":2,"result":{"n":1}}"#);
+    assert_eq!(
+        b.page_message(r#"{"t":"guess","id":3,"owner":"us:x","op":"get"}"#.into()),
+        ""
+    );
+
+    b.set_user_script_enabled(id.clone(), false).unwrap();
+    assert!(host.1.lock().unwrap().is_empty());
+    b.remove_user_script(id).unwrap();
+    assert!(b.user_scripts().is_empty());
 }

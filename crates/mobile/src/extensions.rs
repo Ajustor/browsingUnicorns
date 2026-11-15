@@ -5,13 +5,22 @@
 use std::path::{Component, Path, PathBuf};
 
 use application::ports::ExtensionSource;
-use domain::{ExtensionId, Request, ResourceType, Verdict};
+use domain::{ExtensionId, Request, ResourceType, UserScriptId, Verdict};
 use infrastructure::extensions::extension_dir;
 
 use crate::{MobileBrowser, MobileError};
 
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct ExtensionInfo {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub description: String,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct UserScriptInfo {
     pub id: String,
     pub name: String,
     pub version: String,
@@ -66,6 +75,10 @@ fn served_file(dir: &Path, id: &ExtensionId, path: &str) -> Option<PathBuf> {
     file.is_file().then_some(file)
 }
 
+fn script_id(id: &str) -> Result<UserScriptId, MobileError> {
+    UserScriptId::parse(id).ok_or_else(|| MobileError::new("not a user script id"))
+}
+
 fn id(id: &str) -> Result<ExtensionId, MobileError> {
     ExtensionId::parse(id).ok_or_else(|| MobileError::new("not an extension id"))
 }
@@ -117,7 +130,61 @@ impl MobileBrowser {
         let mut manager = self.extensions_lock();
         manager
             .remove(&id, self.lock().browser.engine_mut())
+            .map_err(MobileError::new)?;
+        self.storage_lock().forget(&format!("ext:{id}"));
+        Ok(())
+    }
+
+    pub fn user_scripts(&self) -> Vec<UserScriptInfo> {
+        self.user_scripts_lock()
+            .scripts()
+            .items()
+            .iter()
+            .map(|s| UserScriptInfo {
+                id: s.id.to_string(),
+                name: s.meta.name.clone(),
+                version: s.meta.version.clone(),
+                description: s.meta.description.clone(),
+                enabled: s.enabled,
+            })
+            .collect()
+    }
+
+    /// Downloads and installs a user script (`.user.js` address). Blocking:
+    /// call it off the main thread. Returns its name.
+    pub fn install_user_script(&self, url: String) -> Result<String, MobileError> {
+        let packages = self.user_scripts_lock().packages();
+        let script = packages.install(&url).map_err(MobileError::new)?;
+        let name = format!("{} {}", script.meta.name, script.meta.version);
+        let mut manager = self.user_scripts_lock();
+        manager
+            .installed(script, self.lock().browser.engine_mut())
+            .map_err(MobileError::new)?;
+        Ok(name)
+    }
+
+    pub fn set_user_script_enabled(&self, id: String, enabled: bool) -> Result<(), MobileError> {
+        let id = script_id(&id)?;
+        let mut manager = self.user_scripts_lock();
+        manager
+            .set_enabled(&id, enabled, self.lock().browser.engine_mut())
             .map_err(MobileError::new)
+    }
+
+    pub fn remove_user_script(&self, id: String) -> Result<(), MobileError> {
+        let id = script_id(&id)?;
+        let mut manager = self.user_scripts_lock();
+        manager
+            .remove(&id, self.lock().browser.engine_mut())
+            .map_err(MobileError::new)?;
+        self.storage_lock().forget(&format!("us:{id}"));
+        Ok(())
+    }
+
+    /// A message of the page scripts (`BUBridge.call`); the reply, or an
+    /// empty string for a message that is not theirs.
+    pub fn page_message(&self, message: String) -> String {
+        self.storage_lock().handle(&message).unwrap_or_default()
     }
 
     /// What to do with a request of a WebView (`shouldInterceptRequest`):

@@ -35,8 +35,13 @@ binaire reste petit et le moteur profite des mises à jour de sécurité de l'OS
   - Android, macOS, Linux : le navigateur applique leurs règles de blocage
     (`declarativeNetRequest`) : bloqueurs de pub et de pistage. Sur WebKit
     elles sont converties au format des *content blockers* de Safari.
+  - Android, macOS, Linux : leurs scripts de page (`content_scripts`) tournent
+    aussi, avec `chrome.storage`, `chrome.i18n` et `chrome.runtime`.
   - La suite (un moteur d'extensions complet pour toutes les plateformes) est
     décrite dans [`docs/extensions.md`](docs/extensions.md)
+- 📜 Scripts utilisateur (Greasemonkey / Tampermonkey) partout : adresse d'un
+  `.user.js` dans l'onglet *Extensions*, `GM_*` et `GM.*` (valeurs gardées
+  dans le profil)
 - 💾 Profil dans `<data>/browsing-unicorns/` (`history.json`,
   `bookmarks.json`, `session.json`, `extensions.json`, `webview/` pour les
   données des pages), écrit au plus toutes les 5 s et à la fermeture, par

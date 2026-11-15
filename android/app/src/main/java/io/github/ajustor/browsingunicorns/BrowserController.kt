@@ -14,6 +14,7 @@ import uniffi.mobile.ExtensionInfo
 import uniffi.mobile.MobileBrowser
 import uniffi.mobile.MobileException
 import uniffi.mobile.SyncInfo
+import uniffi.mobile.UserScriptInfo
 
 enum class Screen { Browser, Tabs, History, Bookmarks, Sync, Extensions }
 
@@ -35,6 +36,8 @@ class BrowserController(val browser: MobileBrowser, val views: WebViews, private
     var extensions by mutableStateOf<List<ExtensionInfo>>(emptyList())
         private set
     var installing by mutableStateOf(false)
+        private set
+    var userScripts by mutableStateOf<List<UserScriptInfo>>(emptyList())
         private set
 
     private var lastSync = 0L
@@ -74,6 +77,35 @@ class BrowserController(val browser: MobileBrowser, val views: WebViews, private
 
     fun refreshExtensions() {
         extensions = browser.extensions()
+        userScripts = browser.userScripts()
+    }
+
+    /** Downloads and installs a user script from its `.user.js` address. */
+    fun installUserScript(url: String) {
+        if (installing) return
+        installing = true
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                try {
+                    "${browser.installUserScript(url)} installed: it runs from the next page load."
+                } catch (e: MobileException) {
+                    reason(e)
+                }
+            }
+            installing = false
+            refreshExtensions()
+            message = result
+        }
+    }
+
+    fun setUserScriptEnabled(id: String, enabled: Boolean) {
+        act { setUserScriptEnabled(id, enabled) }
+        refreshExtensions()
+    }
+
+    fun removeUserScript(id: String) {
+        act { removeUserScript(id) }
+        refreshExtensions()
     }
 
     /** Downloads and installs from a Chrome Web Store link or id. */

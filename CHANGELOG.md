@@ -4,6 +4,24 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [Unreleased]
+
+### Ajouté
+
+- Scripts utilisateur (format Greasemonkey / Tampermonkey) sur toutes les
+  plateformes : installation depuis l'adresse d'un `.user.js` (Greasy Fork…)
+  dans l'onglet *Extensions*, `@match` / `@include` / `@exclude`, `@run-at`,
+  `@require`, `GM_addStyle`, `GM_getValue` / `GM_setValue` (gardés dans le
+  profil), `GM.*`, `GM_xmlhttpRequest` (limité par CORS).
+- Scripts de page des extensions (`content_scripts` : JS, CSS, `run_at`,
+  `all_frames`) sur Android, macOS et Linux, avec `chrome.storage`,
+  `chrome.i18n` et `chrome.runtime` ; sous Windows, WebView2 les exécute
+  lui-même.
+
+### Corrigé
+
+- Les scripts injectés manquaient la première page d'un nouvel onglet.
+
 ## [0.3.1] - 2026-11-15
 
 ### Ajouté

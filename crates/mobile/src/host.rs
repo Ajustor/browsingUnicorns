@@ -5,7 +5,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 use application::ports::{EngineError, ExtensionSupport, SyncError, Viewport, WebEngine};
-use domain::{Extensions, RuleSet, TabId, WebAddress};
+use domain::{Extensions, RuleSet, TabId, UserScripts, WebAddress};
+use infrastructure::page_scripts::{Bridge, Sources, page_scripts};
 use infrastructure::sync::BlobTransport;
 use infrastructure::sync::relay_api::{decode_group, device_url, group_url};
 
@@ -22,6 +23,10 @@ pub trait WebViewHost: Send + Sync {
     fn go_back(&self, tab: u64);
     fn go_forward(&self, tab: u64);
     fn reload(&self, tab: u64);
+    /// The scripts to inject at document start into every page of every
+    /// WebView from now on (they replace the previous ones). May be called
+    /// from any thread.
+    fn set_page_scripts(&self, scripts: Vec<String>);
 }
 
 /// HTTP for the sync relay. Blocking: called from a background thread.
@@ -42,6 +47,25 @@ pub struct HostEngine {
     pub host: Arc<dyn WebViewHost>,
     pub rules: Arc<RwLock<RuleSet>>,
     pub extensions_dir: PathBuf,
+    pub user_scripts_dir: PathBuf,
+    /// Written into the page scripts, checked by the script storage.
+    pub page_token: String,
+    pub extensions: Extensions,
+    pub user_scripts: UserScripts,
+}
+
+impl HostEngine {
+    fn send_page_scripts(&self) {
+        let scripts = page_scripts(&Sources {
+            extensions_dir: &self.extensions_dir,
+            extensions: Some(&self.extensions),
+            user_scripts_dir: &self.user_scripts_dir,
+            user_scripts: &self.user_scripts,
+            token: &self.page_token,
+            bridge: Bridge::Android,
+        });
+        self.host.set_page_scripts(scripts);
+    }
 }
 
 impl WebEngine for HostEngine {
@@ -78,6 +102,13 @@ impl WebEngine for HostEngine {
     fn set_extensions(&mut self, extensions: &Extensions) {
         let rules = infrastructure::extensions::rule_set(&self.extensions_dir, extensions);
         *self.rules.write().unwrap_or_else(|p| p.into_inner()) = rules;
+        self.extensions = extensions.clone();
+        self.send_page_scripts();
+    }
+
+    fn set_user_scripts(&mut self, scripts: &UserScripts) {
+        self.user_scripts = scripts.clone();
+        self.send_page_scripts();
     }
 }
 

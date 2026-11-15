@@ -68,6 +68,8 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
+    // Page scripts injected at document start (WebViewCompat.addDocumentStartJavaScript).
+    implementation("androidx.webkit:webkit:1.13.0")
     // UniFFI's Kotlin bindings call the Rust library through JNA.
     implementation("net.java.dev.jna:jna:5.19.1@aar")
     // Pairing: the code as a QR code, and scanning one (no camera permission:

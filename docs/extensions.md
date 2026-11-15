@@ -137,8 +137,17 @@ afficher correctement.
    via `shouldInterceptRequest`. Limites : pas de `regexFilter` ni de
    `modifyHeaders` ; sur WebKit, pas de redirection vers les scripts de
    remplacement (ces règles sont ignorées pour ne pas casser les pages).
-2. **Content scripts + CSS + `storage` + messages** : les extensions « de
-   page » et les scripts utilisateur (format Greasemonkey en prime).
+2. ✅ **Content scripts + CSS + `storage` + scripts utilisateur**
+   (`domain::page_scripts`, `infrastructure::{page_scripts, page_injection,
+   script_storage, user_scripts}`) : chaque script est injecté à part au
+   début du document, dans toutes les frames, avec sa copie d'un petit
+   runtime (motifs d'URL, `run_at`, `chrome.storage` / `i18n` / `runtime`,
+   `GM_*` / `GM.*`). Le stockage passe par Rust (IPC de wry, `BUBridge` sur
+   Android), protégé par un jeton tiré à chaque lancement et un canal
+   aléatoire par script. Limites : pas de monde isolé (les scripts partagent
+   le monde de la page), `runtime.sendMessage` sans réponse tant qu'il n'y a
+   pas de page de fond, `runtime.getURL` sans fichiers servis hors Windows,
+   pas de stockage depuis les iframes sous Windows.
 3. **Fond et popup/options dans le panneau** : web views cachées, protocole
    `bu-ext://`, polyfill complet.
 4. **Rapport de compatibilité** à l'installation, **synchro** des extensions

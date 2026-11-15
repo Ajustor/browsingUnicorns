@@ -8,6 +8,7 @@ import android.graphics.Bitmap
 import android.os.Message
 import android.view.View
 import android.view.ViewGroup
+import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -18,6 +19,9 @@ import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.FileInputStream
 import java.util.concurrent.ConcurrentHashMap
+import androidx.webkit.ScriptHandler
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import uniffi.mobile.Interception
 import uniffi.mobile.MobileBrowser
 import uniffi.mobile.WebViewHost
@@ -34,6 +38,32 @@ class WebViews(private val context: Context) : WebViewHost {
     /** Each tab's page, readable from the WebView's IO thread (blocking rules). */
     private val pages = ConcurrentHashMap<ULong, String>()
 
+    /** The scripts injected into every page (extensions' content scripts, user scripts). */
+    private var pageScripts: List<String> = emptyList()
+    private val injected = HashMap<ULong, List<ScriptHandler>>()
+    private val documentStart = WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
+
+    /** The page scripts' bridge to the Rust core (their storage); guarded by a token. */
+    private inner class Bridge {
+        @JavascriptInterface
+        fun call(message: String): String = runCatching { browser.pageMessage(message) }.getOrDefault("")
+    }
+
+    override fun setPageScripts(scripts: List<String>) {
+        // Called from any thread: WebViews are touched on the main one.
+        container.post {
+            pageScripts = scripts
+            for ((tab, view) in views) inject(tab, view)
+        }
+    }
+
+    /** Replaces the scripts of [view]; they run from its next page load. */
+    private fun inject(tab: ULong, view: WebView) {
+        if (!documentStart) return
+        injected.remove(tab)?.forEach { it.remove() }
+        injected[tab] = pageScripts.map { WebViewCompat.addDocumentStartJavaScript(view, it, setOf("*")) }
+    }
+
     lateinit var browser: MobileBrowser
 
     /** Called after each page event, to refresh the screen. */
@@ -47,6 +77,7 @@ class WebViews(private val context: Context) : WebViewHost {
     override fun openView(tab: ULong, url: String) {
         val view = create(tab)
         views[tab] = view
+        inject(tab, view)
         view.visibility = View.GONE
         container.addView(
             view,
@@ -57,6 +88,7 @@ class WebViews(private val context: Context) : WebViewHost {
 
     override fun closeView(tab: ULong) {
         pages.remove(tab)
+        injected.remove(tab)
         views.remove(tab)?.let {
             container.removeView(it)
             it.destroy()
@@ -101,9 +133,12 @@ class WebViews(private val context: Context) : WebViewHost {
         settings.setSupportMultipleWindows(true)
         settings.builtInZoomControls = true
         settings.displayZoomControls = false
+        addJavascriptInterface(Bridge(), "BUBridge")
         webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
                 pages[tab] = url
+                // Older WebViews: the scripts run as early as the app can.
+                if (!documentStart) pageScripts.forEach { view.evaluateJavascript(it, null) }
                 browser.onLoadStarted(tab, url)
                 onChange()
             }

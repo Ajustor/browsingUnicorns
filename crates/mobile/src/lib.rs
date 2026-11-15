@@ -16,15 +16,17 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 
 use application::sync::sync_round;
-use application::{Browser, ExtensionManager, Target};
+use application::{Browser, ExtensionManager, Target, UserScriptManager};
 use domain::{RuleSet, TabId, WebAddress};
 use infrastructure::extensions::ExtensionFolder;
+use infrastructure::script_storage::{ScriptStorage, new_token};
 use infrastructure::sync::{
     EncryptedSyncStore, SyncConfig, SyncConfigFile, SyncKey, new_device_id,
 };
+use infrastructure::user_scripts::{UserScriptFolder, UserScriptRepository};
 use infrastructure::{JsonRepository, SystemClock, TomlSettingsRepository};
 
-pub use extensions::{ExtensionInfo, Interception};
+pub use extensions::{ExtensionInfo, Interception, UserScriptInfo};
 use host::{HostEngine, HostTransport};
 pub use host::{SyncHttp, WebViewHost};
 
@@ -127,6 +129,10 @@ pub struct MobileBrowser {
     inner: Mutex<Inner>,
     /// Locked before `inner` when both are.
     extensions: Mutex<ExtensionManager>,
+    /// Locked before `inner` when both are.
+    user_scripts: Mutex<UserScriptManager>,
+    /// Storage of the page scripts (chrome.storage, GM_setValue).
+    script_storage: Mutex<ScriptStorage>,
     /// The extensions' network rules, read for every request.
     rules: Arc<RwLock<RuleSet>>,
     extensions_dir: PathBuf,
@@ -153,6 +159,16 @@ impl MobileBrowser {
 
     fn extensions_lock(&self) -> MutexGuard<'_, ExtensionManager> {
         self.extensions.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    fn user_scripts_lock(&self) -> MutexGuard<'_, UserScriptManager> {
+        self.user_scripts.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    fn storage_lock(&self) -> MutexGuard<'_, ScriptStorage> {
+        self.script_storage
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
     }
 
     fn store(&self, config: &SyncConfig) -> EncryptedSyncStore<HostTransport> {
@@ -206,10 +222,16 @@ impl MobileBrowser {
         let initial = application::ports::Repository::load(&settings).unwrap_or_default();
         let rules = Arc::new(RwLock::new(RuleSet::default()));
         let extensions_dir = dir.join("extensions");
+        let user_scripts_dir = dir.join("userscripts");
+        let page_token = new_token();
         let engine = HostEngine {
             host,
             rules: rules.clone(),
             extensions_dir: extensions_dir.clone(),
+            user_scripts_dir: user_scripts_dir.clone(),
+            page_token: page_token.clone(),
+            extensions: Default::default(),
+            user_scripts: Default::default(),
         };
         let mut browser = Browser::new(engine, initial, profile);
         let _ = browser.load_profile();
@@ -235,6 +257,38 @@ impl MobileBrowser {
             browser.engine_mut(),
             extensions.extensions(),
         );
+        let download_scripts = http.clone();
+        let script_packages = Arc::new(UserScriptFolder::new(
+            user_scripts_dir.clone(),
+            Arc::new(move |url: &str| {
+                download_scripts
+                    .download(url.to_owned())
+                    .map_err(|e| e.to_string())
+            }),
+        ));
+        let script_list = || {
+            Box::new(UserScriptRepository::new(
+                dir.join("userscripts.json"),
+                user_scripts_dir.clone(),
+            ))
+        };
+        let user_scripts = UserScriptManager::load(script_list(), script_packages.clone())
+            .unwrap_or_else(|e| {
+                eprintln!("user scripts: {e}");
+                UserScriptManager::load(
+                    Box::new(UserScriptRepository::new(
+                        dir.join("userscripts.json.unreadable"),
+                        user_scripts_dir.clone(),
+                    )),
+                    script_packages,
+                )
+                .expect("an empty list loads")
+            });
+        application::ports::WebEngine::set_user_scripts(
+            browser.engine_mut(),
+            user_scripts.scripts(),
+        );
+        let script_storage = ScriptStorage::new(dir.join("script-storage"), page_token);
         let sync_file = SyncConfigFile::new(dir.join("sync.json"));
         let sync = sync_file.load();
         Arc::new(Self {
@@ -245,6 +299,8 @@ impl MobileBrowser {
                 last_error: None,
             }),
             extensions: Mutex::new(extensions),
+            user_scripts: Mutex::new(user_scripts),
+            script_storage: Mutex::new(script_storage),
             rules,
             extensions_dir,
             sync_file,

@@ -38,81 +38,125 @@ import androidx.compose.ui.unit.dp
 import io.github.ajustor.browsingunicorns.BrowserController
 
 /**
- * Extensions from the Chrome Web Store. Android's WebView cannot run them:
- * the browser applies their network rules (ad and tracker blocking).
+ * Extensions from the Chrome Web Store and user scripts. Android's WebView
+ * has no extension engine: the browser applies the extensions' blocking
+ * rules and runs their content scripts and the user scripts in pages.
  */
 @Composable
 fun ExtensionsScreen(c: BrowserController) {
-    var input by remember { mutableStateOf("") }
     Column(Modifier.fillMaxSize()) {
         Header(c, "Extensions")
-        Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                "Ad and tracker blockers from the Chrome Web Store (uBlock Origin Lite, AdGuard…): " +
-                    "their blocking rules apply to every page. Other features of extensions do not run here.",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            OutlinedTextField(
-                value = input,
-                onValueChange = { input = it },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                label = { Text("Chrome Web Store link or extension id") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = {
-                    if (input.isNotBlank()) c.installExtension(input.trim())
-                }),
-            )
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = {
-                        c.installExtension(input.trim())
-                        input = ""
-                    },
-                    enabled = input.isNotBlank() && !c.installing,
-                ) { Text("Install") }
-                TextButton(onClick = { c.open("https://chromewebstore.google.com/", newTab = true) }) {
-                    Text("Chrome Web Store")
-                }
-                if (c.installing) CircularProgressIndicator(Modifier.size(24.dp))
-            }
-        }
-        HorizontalDivider(Modifier.padding(top = 8.dp))
-        if (c.extensions.isEmpty()) {
-            Text(
-                "No extensions.",
-                modifier = Modifier.padding(16.dp),
-                style = MaterialTheme.typography.bodyMedium,
-            )
-        }
         LazyColumn(Modifier.fillMaxSize()) {
-            items(c.extensions, key = { it.id }) { e ->
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            "${e.name} ${e.version}",
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        if (e.description.isNotEmpty()) {
-                            Text(
-                                e.description,
-                                style = MaterialTheme.typography.bodySmall,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
-                    Switch(checked = e.enabled, onCheckedChange = { c.setExtensionEnabled(e.id, it) })
-                    IconButton(onClick = { c.removeExtension(e.id) }) {
-                        Icon(Icons.Filled.Delete, contentDescription = "Remove ${e.name}")
-                    }
-                }
+            item {
+                InstallField(
+                    c,
+                    intro = "From the Chrome Web Store: their blocking rules (ad and tracker blockers) and " +
+                        "page scripts run here; their popups and background pages do not.",
+                    label = "Chrome Web Store link or extension id",
+                    siteLabel = "Chrome Web Store",
+                    site = "https://chromewebstore.google.com/",
+                    install = c::installExtension,
+                )
             }
+            if (c.extensions.isEmpty()) item { Empty("No extensions.") }
+            items(c.extensions, key = { "ext:" + it.id }) { e ->
+                AddOnRow(e.name, e.version, e.description, e.enabled,
+                    onEnabled = { c.setExtensionEnabled(e.id, it) },
+                    onRemove = { c.removeExtension(e.id) })
+            }
+            item {
+                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                Text(
+                    "User scripts",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+                InstallField(
+                    c,
+                    intro = "Greasemonkey / Tampermonkey scripts: paste the address of a .user.js file.",
+                    label = "Address of a .user.js script",
+                    siteLabel = "Greasy Fork",
+                    site = "https://greasyfork.org/",
+                    install = c::installUserScript,
+                )
+            }
+            if (c.userScripts.isEmpty()) item { Empty("No user scripts.") }
+            items(c.userScripts, key = { "us:" + it.id }) { s ->
+                AddOnRow(s.name, s.version, s.description, s.enabled,
+                    onEnabled = { c.setUserScriptEnabled(s.id, it) },
+                    onRemove = { c.removeUserScript(s.id) })
+            }
+        }
+    }
+}
+
+@Composable
+private fun InstallField(
+    c: BrowserController,
+    intro: String,
+    label: String,
+    siteLabel: String,
+    site: String,
+    install: (String) -> Unit,
+) {
+    var input by remember { mutableStateOf("") }
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(intro, style = MaterialTheme.typography.bodyMedium)
+        OutlinedTextField(
+            value = input,
+            onValueChange = { input = it },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            label = { Text(label) },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = {
+                if (input.isNotBlank() && !c.installing) {
+                    install(input.trim())
+                    input = ""
+                }
+            }),
+        )
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = {
+                    install(input.trim())
+                    input = ""
+                },
+                enabled = input.isNotBlank() && !c.installing,
+            ) { Text("Install") }
+            TextButton(onClick = { c.open(site, newTab = true) }) { Text(siteLabel) }
+            if (c.installing) CircularProgressIndicator(Modifier.size(24.dp))
+        }
+    }
+}
+
+@Composable
+private fun Empty(text: String) {
+    Text(text, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodyMedium)
+}
+
+@Composable
+private fun AddOnRow(
+    name: String,
+    version: String,
+    description: String,
+    enabled: Boolean,
+    onEnabled: (Boolean) -> Unit,
+    onRemove: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("$name $version", fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (description.isNotEmpty()) {
+                Text(description, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        Switch(checked = enabled, onCheckedChange = onEnabled)
+        IconButton(onClick = onRemove) {
+            Icon(Icons.Filled.Delete, contentDescription = "Remove $name")
         }
     }
 }
