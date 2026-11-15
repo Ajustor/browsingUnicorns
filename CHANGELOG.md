@@ -4,6 +4,24 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [Unreleased]
+
+### Ajouté
+
+- Les extensions qui ont un popup ont un bouton à côté de l'étoile des
+  favoris ; leur popup s'ouvre dessous, à la taille de son contenu, voit
+  l'onglet actif et se ferme d'un clic ailleurs.
+
+### Modifié
+
+- Sous Windows aussi, le navigateur fait tourner les extensions lui-même (le
+  blocage passe par WebView2), ce qui permet leurs popups.
+  `BU_EXTENSIONS=native` revient au moteur de WebView2.
+
+### Corrigé
+
+- Une entrée de l'historique occupait toute la hauteur du panneau.
+
 ## [0.4.0] - 2026-11-15
 
 ### Ajouté

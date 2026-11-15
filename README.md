@@ -30,17 +30,16 @@ binaire reste petit et le moteur profite des mises à jour de sécurité de l'OS
 - 🧩 Extensions Chrome : onglet *Extensions* du panneau latéral (menu
   *Extensions* sur Android), installation par lien du Chrome Web Store, id ou
   fichier `.crx`, activation, suppression.
-  - Windows : elles tournent dans WebView2 ; popup et options s'ouvrent dans
-    un onglet (WebView2 n'affiche pas de bouton d'extension).
-  - Android, macOS, Linux : le navigateur applique leurs règles de blocage
-    (`declarativeNetRequest`) : bloqueurs de pub et de pistage. Sur WebKit
-    elles sont converties au format des *content blockers* de Safari.
-  - Android, macOS, Linux : leurs scripts de page, leur page de fond et leur
-    popup tournent aussi ; le navigateur fournit une grande partie des API
-    `chrome.*` (`storage`, `runtime`, `tabs`, `scripting`,
-    `declarativeNetRequest`, `alarms`, `i18n`…). Le popup s'ouvre dans le
-    panneau latéral et voit l'onglet actif. `BU_EXTENSIONS=builtin` fait de
-    même sous Windows à la place de WebView2.
+  - Le navigateur les fait tourner lui-même sur toutes les plateformes :
+    règles de blocage (`declarativeNetRequest`, converties au format des
+    *content blockers* de Safari sur WebKit, appliquées par
+    `WebResourceRequested` sous WebView2), scripts de page, page de fond.
+  - Un bouton par extension à popup, à côté de l'étoile des favoris ; le
+    popup s'ouvre dessous et voit l'onglet actif.
+  - Le navigateur fournit une grande partie des API `chrome.*` (`storage`,
+    `runtime`, `tabs`, `scripting`, `declarativeNetRequest`, `alarms`,
+    `i18n`…). Sous Windows, `BU_EXTENSIONS=native` confie les extensions au
+    moteur de WebView2 à la place (pas de popup à côté de la page).
   - La suite (un moteur d'extensions complet pour toutes les plateformes) est
     décrite dans [`docs/extensions.md`](docs/extensions.md)
 - 📜 Scripts utilisateur (Greasemonkey / Tampermonkey) partout : adresse d'un

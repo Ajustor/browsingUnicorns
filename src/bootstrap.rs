@@ -20,7 +20,8 @@ use updater::{UpdateMemory, Updater};
 use infrastructure::sync::SyncConfigFile;
 
 use crate::ui::{
-    AddOns, BrowserApp, ExitSlot, ExtensionsRunner, SyncRunner, Updates, UserScriptsRunner,
+    AddOns, BrowserApp, ExitSlot, ExtensionBar, ExtensionsRunner, SyncRunner, Updates,
+    UserScriptsRunner,
 };
 
 pub fn build(
@@ -122,6 +123,7 @@ pub fn build(
         sync,
         AddOns {
             extensions,
+            bar: ExtensionBar::new(profile_dir.join("extensions")),
             user_scripts,
             hub: Hub::new(
                 script_storage,

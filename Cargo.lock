@@ -690,6 +690,7 @@ dependencies = [
  "egui",
  "egui-phosphor",
  "env_logger",
+ "image",
  "infrastructure",
  "log",
  "qrcode",

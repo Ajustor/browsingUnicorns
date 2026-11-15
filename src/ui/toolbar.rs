@@ -4,6 +4,7 @@ use egui_phosphor::regular as icon;
 use domain::Tab;
 
 use super::command::Command;
+use super::extension_bar::{self, Action};
 use super::library::LibraryView;
 use super::omnibox::Omnibox;
 
@@ -12,6 +13,7 @@ pub fn show(
     active: Option<&Tab>,
     bookmarked: bool,
     omnibox: &mut Omnibox,
+    actions: &[Action],
     commands: &mut Vec<Command>,
 ) {
     let history = active.map(Tab::history);
@@ -53,6 +55,7 @@ pub fn show(
             if button(ui, icon::BOOKS, "History and bookmarks (Ctrl+H)", true) {
                 commands.push(Command::ToggleLibrary(LibraryView::History));
             }
+            extension_bar::show(ui, actions, commands);
             let (star, tip) = if bookmarked {
                 (
                     RichText::new(icon::STAR)

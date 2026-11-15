@@ -580,6 +580,15 @@ function extensionPage(entry) {
     window.skipWaiting = () => Promise.resolve();
   }
   send(entry.owner, "hello", {}).catch(() => {});
+  if (context === "page") {
+    // A click outside the popup closes it, as in other browsers (only the
+    // popup's blur counts, on the browser side).
+    window.addEventListener("blur", () =>
+      setTimeout(() => {
+        if (!document.hasFocus()) send(entry.owner, "blur", {}).catch(() => {});
+      }, 50),
+    );
+  }
   if (context === "background") {
     // Once the extension's scripts ran: installed or started.
     window.addEventListener("load", () =>

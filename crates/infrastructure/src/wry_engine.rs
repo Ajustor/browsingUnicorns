@@ -70,8 +70,11 @@ pub struct WryEngine {
     injected: HashMap<TabId, Handles>,
     /// Background pages, by extension.
     backgrounds: HashMap<ExtensionId, WebView>,
-    /// The popup in the side panel, and its address.
+    /// The extension popup, and its address.
     panel: Option<(String, WebView)>,
+    /// Its content's size in physical pixels, as last measured.
+    panel_size: Arc<std::sync::Mutex<Option<(u32, u32)>>>,
+    panel_measured: Option<std::time::Instant>,
     /// Extensions to hand to the web view profile once a view exists.
     #[cfg_attr(not(windows), allow(dead_code))]
     pending_extensions: Option<Extensions>,
@@ -192,6 +195,8 @@ impl WryEngine {
             injected: HashMap::new(),
             backgrounds: HashMap::new(),
             panel: None,
+            panel_size: Arc::default(),
+            panel_measured: None,
             pending_extensions: None,
             #[cfg(windows)]
             managed_extensions: Default::default(),
@@ -216,6 +221,47 @@ impl WryEngine {
                 crate::webkit_rules::RuleLists::apply(view, list);
             }
         }
+        self.measure_panel();
+    }
+
+    /// Measures the popup's content now and then (popups change size).
+    fn measure_panel(&mut self) {
+        let Some((_, view)) = &self.panel else {
+            return;
+        };
+        if self
+            .panel_measured
+            .is_some_and(|at| at.elapsed() < std::time::Duration::from_millis(400))
+        {
+            return;
+        }
+        self.panel_measured = Some(std::time::Instant::now());
+        // The width the content wants (no wrapping), its height at the
+        // current width; in physical pixels.
+        const MEASURE: &str = "(() => { const d = document.documentElement; if (!d) return '';\
+            const old = d.style.width; d.style.width = 'max-content';\
+            const w = Math.ceil(d.getBoundingClientRect().width); d.style.width = old;\
+            const h = Math.ceil(Math.max(d.scrollHeight, document.body ? document.body.scrollHeight : 0));\
+            const r = window.devicePixelRatio || 1;\
+            return [Math.min(Math.max(w, 120), 800) * r, Math.min(Math.max(h, 40), 600) * r].map(Math.round).join(','); })()";
+        let size = self.panel_size.clone();
+        let waker = self.waker.clone();
+        let _ = view.evaluate_script_with_callback(MEASURE, move |result| {
+            let text = result.trim_matches('"');
+            let mut parts = text.split(',').filter_map(|p| p.parse::<u32>().ok());
+            if let (Some(w), Some(h)) = (parts.next(), parts.next()) {
+                let mut slot = size.lock().unwrap_or_else(|p| p.into_inner());
+                if *slot != Some((w, h)) {
+                    *slot = Some((w, h));
+                    waker();
+                }
+            }
+        });
+    }
+
+    /// The popup's content size in physical pixels, once measured.
+    pub fn panel_size(&self) -> Option<(u32, u32)> {
+        *self.panel_size.lock().unwrap_or_else(|p| p.into_inner())
     }
 
     fn emitter(&self) -> impl Fn(EngineEvent) + Clone + 'static {
@@ -540,6 +586,8 @@ impl WebEngine for WryEngine {
             self.panel = None;
             return;
         };
+        *self.panel_size.lock().unwrap_or_else(|p| p.into_inner()) = None;
+        self.panel_measured = None;
         if let Some((current, view)) = &self.panel
             && current == url
         {
@@ -559,7 +607,11 @@ impl WebEngine for WryEngine {
         .with_url(url)
         .build_as_child(&self.parent);
         match view {
-            Ok(view) => self.panel = Some((url.to_owned(), view)),
+            Ok(view) => {
+                // Its blur (a click elsewhere) closes it.
+                let _ = view.focus();
+                self.panel = Some((url.to_owned(), view));
+            }
             Err(e) => log::warn!("panel: {e}"),
         }
     }

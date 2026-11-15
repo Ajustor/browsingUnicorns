@@ -5,7 +5,7 @@ use super::library::LibraryView;
 
 /// What the user asked for, collected from widgets and shortcuts and run
 /// once per frame by [`super::BrowserApp`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Command {
     NewTab,
     CloseTab(TabId),
@@ -41,9 +41,10 @@ pub enum Command {
     InstallUserScript(String),
     SetUserScriptEnabled(UserScriptId, bool),
     RemoveUserScript(UserScriptId),
-    /// An extension's popup, shown in the side panel.
-    ShowExtensionPopup {
-        name: String,
-        url: String,
+    /// Opens an extension's popup under `anchor` (its button), or
+    /// closes it.
+    ToggleExtensionPopup {
+        id: ExtensionId,
+        anchor: egui::Rect,
     },
 }

@@ -9,6 +9,7 @@ use infrastructure::WryEngine;
 use updater::ExitAction;
 
 use super::command::Command;
+use super::extension_bar::{DEFAULT_POPUP, ExtensionBar};
 use super::extensions::{ExtensionsRunner, ExtensionsView};
 use super::library::{Library, LibraryData};
 use super::omnibox::Omnibox;
@@ -30,6 +31,7 @@ pub struct BrowserApp {
     extensions: ExtensionsRunner,
     user_scripts: UserScriptsRunner,
     hub: Hub,
+    bar: ExtensionBar,
     exit_slot: ExitSlot,
     omnibox: Omnibox,
     library: Library,
@@ -42,6 +44,8 @@ pub struct BrowserApp {
 /// Extensions, user scripts and the storage of their page scripts.
 pub struct AddOns {
     pub extensions: ExtensionsRunner,
+    /// The extensions' toolbar buttons and popups.
+    pub bar: ExtensionBar,
     pub user_scripts: UserScriptsRunner,
     /// The browser side of the extension APIs (storage, messages, tabs...).
     pub hub: Hub,
@@ -61,6 +65,7 @@ impl BrowserApp {
     ) -> Self {
         let AddOns {
             extensions,
+            bar,
             user_scripts,
             hub,
         } = add_ons;
@@ -73,6 +78,7 @@ impl BrowserApp {
             extensions,
             user_scripts,
             hub,
+            bar,
             exit_slot,
             omnibox: Omnibox::default(),
             library: Library::default(),
@@ -133,9 +139,18 @@ impl BrowserApp {
                 self.hub.forget(&format!("ext:{id}"));
                 return self.report_err(r);
             }
-            Command::ShowExtensionPopup { name, url } => {
-                self.library.popup = Some((name, url));
-                self.library.open = Some(super::library::LibraryView::Popup);
+            Command::ToggleExtensionPopup { id, anchor } => {
+                // Served by the browser: only where it runs the extensions.
+                let url = self
+                    .extensions
+                    .extensions()
+                    .get(&id)
+                    .and_then(|e| e.popup.as_deref())
+                    .and_then(|page| self.browser.engine().extension_url(&id, page));
+                if let Some(url) = url {
+                    let tab = self.browser.session().active_id();
+                    self.bar.toggle(id, url, anchor, tab);
+                }
                 Ok(())
             }
             Command::InstallUserScript(url) => {
@@ -225,33 +240,42 @@ impl BrowserApp {
             | Command::InstallUserScript(_)
             | Command::SetUserScriptEnabled(..)
             | Command::RemoveUserScript(_)
-            | Command::ShowExtensionPopup { .. } => unreachable!("handled by run"),
+            | Command::ToggleExtensionPopup { .. } => unreachable!("handled by run"),
         }
     }
 
-    /// Lays the extension popup's page over its side panel area, or
-    /// removes it.
+    /// Lays the extension popup over the page, under its button; closes it
+    /// when it lost the focus or another tab shows.
     fn place_popup(&mut self, ctx: &egui::Context) {
-        let shown = self.library.open == Some(super::library::LibraryView::Popup);
-        match (&self.library.popup, self.library.popup_area) {
-            (Some((_, url)), Some(rect)) if shown => {
-                let ppp = ctx.pixels_per_point();
-                let area = Viewport {
-                    x: (rect.min.x * ppp).round() as i32,
-                    y: (rect.min.y * ppp).round() as i32,
-                    width: (rect.width() * ppp).round().max(1.0) as u32,
-                    height: (rect.height() * ppp).round().max(1.0) as u32,
-                };
-                let url = url.clone();
-                self.browser.engine_mut().show_panel_page(Some(&url), area);
-            }
-            _ => {
-                self.browser
-                    .engine_mut()
-                    .show_panel_page(None, Viewport::default());
-                self.hub.panel_closed();
-            }
+        if self.hub.take_panel_blur() {
+            self.bar.closed_by_page();
         }
+        let active = self.browser.session().active_id();
+        if self.bar.popup.as_ref().is_some_and(|p| p.tab != active) {
+            self.bar.popup = None;
+        }
+        let Some(popup) = &self.bar.popup else {
+            self.browser
+                .engine_mut()
+                .show_panel_page(None, Viewport::default());
+            self.hub.panel_closed();
+            return;
+        };
+        let ppp = ctx.pixels_per_point();
+        let (width, height) = self.browser.engine().panel_size().unwrap_or((
+            (DEFAULT_POPUP.x * ppp) as u32,
+            (DEFAULT_POPUP.y * ppp) as u32,
+        ));
+        let screen = ctx.screen_rect();
+        let right = (popup.anchor.right() * ppp).min(screen.right() * ppp);
+        let area = Viewport {
+            x: (right - width as f32).max(0.0).round() as i32,
+            y: ((popup.anchor.bottom() + 2.0) * ppp).round() as i32,
+            width,
+            height,
+        };
+        let url = popup.url.clone();
+        self.browser.engine_mut().show_panel_page(Some(&url), area);
     }
 
     fn persist(&mut self) {
@@ -331,12 +355,18 @@ impl eframe::App for BrowserApp {
         TopBottomPanel::top("tabs").show(ctx, |ui| {
             tab_strip::show(ui, self.browser.session(), &mut commands);
         });
+        let actions = if infrastructure::builtin_extensions() {
+            self.bar.actions(ctx, self.extensions.extensions())
+        } else {
+            Vec::new()
+        };
         TopBottomPanel::top("toolbar").show(ctx, |ui| {
             toolbar::show(
                 ui,
                 self.browser.session().active(),
                 self.browser.is_active_bookmarked(),
                 &mut self.omnibox,
+                &actions,
                 &mut commands,
             );
         });

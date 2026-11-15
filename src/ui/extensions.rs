@@ -220,8 +220,8 @@ impl ExtensionsPanel {
             ui.add_space(6.0);
         }
         ui.weak(if view.origins.is_some() {
-            "Pages already open see a change after a reload. There is no toolbar \
-             button: Popup shows the extension's popup here, Options opens its \
+            "Pages already open see a change after a reload. Extensions with a \
+             popup have a button next to the bookmark star; Options opens their \
              settings in a tab."
         } else {
             "Pages already open see a change after a reload. Toolbar buttons do \
@@ -255,15 +255,14 @@ fn extension_row(
         match origins {
             // The browser serves the pages: the popup goes in this panel.
             Some(origins) => {
-                if let Some(popup) = &e.popup
-                    && ui
-                        .add_enabled(e.enabled, Button::new("Popup").small())
-                        .clicked()
-                {
-                    commands.push(Command::ShowExtensionPopup {
-                        name: e.name.clone(),
-                        url: origins.url(&e.id, popup),
-                    });
+                if e.popup.is_some() {
+                    let response = ui.add_enabled(e.enabled, Button::new("Popup").small());
+                    if response.clicked() {
+                        commands.push(Command::ToggleExtensionPopup {
+                            id: e.id.clone(),
+                            anchor: response.rect,
+                        });
+                    }
                 }
                 if let Some(options) = &e.options
                     && let Ok(page) = WebAddress::parse(&origins.url(&e.id, options))

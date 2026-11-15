@@ -131,6 +131,8 @@ pub struct Hub {
     tab_owners: HashMap<TabId, HashSet<String>>,
     backgrounds: HashSet<String>,
     panel: Option<String>,
+    /// The popup lost the focus: the user clicked elsewhere.
+    panel_blurred: bool,
     /// The tabs as last seen, for `tabs.on*` events.
     last_tabs: Vec<TabState>,
 }
@@ -182,6 +184,7 @@ impl Hub {
             tab_owners: HashMap::new(),
             backgrounds: HashSet::new(),
             panel: None,
+            panel_blurred: false,
             last_tabs: Vec::new(),
         }
     }
@@ -200,9 +203,15 @@ impl Hub {
         self.backgrounds.remove(&format!("ext:{id}"));
     }
 
-    /// The popup in the side panel closed.
+    /// The popup closed.
     pub fn panel_closed(&mut self) {
         self.panel = None;
+        self.panel_blurred = false;
+    }
+
+    /// Whether the popup lost the focus since the last call (it closes).
+    pub fn take_panel_blur(&mut self) -> bool {
+        std::mem::take(&mut self.panel_blurred)
     }
 
     fn reply(
@@ -327,6 +336,12 @@ impl Hub {
                     }
                     (PageSource::Panel, _) => self.panel = Some(owner.to_owned()),
                     _ => {}
+                }
+                Some(Ok(Value::Null))
+            }
+            "blur" => {
+                if from == &PageSource::Panel {
+                    self.panel_blurred = true;
                 }
                 Some(Ok(Value::Null))
             }

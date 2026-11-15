@@ -4,6 +4,7 @@
 mod app;
 mod bookmarks_bar;
 mod command;
+mod extension_bar;
 mod extensions;
 mod library;
 mod omnibox;
@@ -15,6 +16,7 @@ mod toolbar;
 mod updates;
 mod user_scripts;
 
+pub use extension_bar::ExtensionBar;
 pub use extensions::ExtensionsRunner;
 pub use sync::SyncRunner;
 pub use updates::Updates;

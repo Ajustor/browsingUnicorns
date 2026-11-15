@@ -149,6 +149,33 @@ pub fn content_scripts(dir: &Path) -> Vec<ContentScript> {
         .collect()
 }
 
+/// The extension's toolbar icon (relative path), the size closest above
+/// 32 px: `action.default_icon`, `browser_action.default_icon`, `icons`.
+pub fn action_icon(dir: &Path) -> Option<String> {
+    let m = load(dir).ok()?;
+    let candidates = [
+        m.get("action").and_then(|a| a.get("default_icon")),
+        m.get("browser_action").and_then(|a| a.get("default_icon")),
+        m.get("page_action").and_then(|a| a.get("default_icon")),
+        m.get("icons"),
+    ];
+    candidates
+        .into_iter()
+        .flatten()
+        .find_map(|icon| match icon {
+            Value::String(path) => Some(path.clone()),
+            Value::Object(sizes) => {
+                let mut sized: Vec<(u32, &str)> = sizes
+                    .iter()
+                    .filter_map(|(k, v)| Some((k.parse().ok()?, v.as_str()?)))
+                    .collect();
+                sized.sort_by_key(|(size, _)| (*size < 32, size.abs_diff(32)));
+                sized.first().map(|(_, p)| (*p).to_owned())
+            }
+            _ => None,
+        })
+}
+
 /// The `background` of a manifest: MV3's service worker (run as a page
 /// script here), MV2's scripts or page.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -272,5 +299,21 @@ mod tests {
         assert!(scripts[0].all_frames);
         assert_eq!(scripts[0].excludes.len(), 1);
         assert_eq!(messages(dir.path())["hello"]["message"], "Hi $1");
+    }
+
+    #[test]
+    fn toolbar_icons() {
+        let dir = tempfile::tempdir().unwrap();
+        let write = |m: &str| fs::write(dir.path().join("manifest.json"), m).unwrap();
+        write(
+            r#"{"name":"x","action":{"default_icon":{"16":"16.png","32":"32.png","64":"64.png"}}}"#,
+        );
+        assert_eq!(action_icon(dir.path()).as_deref(), Some("32.png"));
+        write(r#"{"name":"x","browser_action":{"default_icon":"b.png"}}"#);
+        assert_eq!(action_icon(dir.path()).as_deref(), Some("b.png"));
+        write(r#"{"name":"x","icons":{"16":"16.png","48":"48.png","128":"128.png"}}"#);
+        assert_eq!(action_icon(dir.path()).as_deref(), Some("48.png"));
+        write(r#"{"name":"x"}"#);
+        assert_eq!(action_icon(dir.path()), None);
     }
 }
