@@ -4,7 +4,11 @@
 //! cd relay/sync && npx wrangler dev --local --port 8787
 //! BU_TEST_RELAY=http://127.0.0.1:8787 cargo test -p infrastructure --test relay -- --ignored
 //! ```
+//!
+//! Cloudflare KV lists new keys after up to a minute, so the checks retry.
 #![cfg(feature = "desktop")]
+
+use std::time::{Duration, Instant};
 
 use application::ports::SyncStore;
 use application::sync::sync_round;
@@ -25,6 +29,23 @@ fn record(name: &str, bookmark: &str) -> DeviceRecord {
     }
 }
 
+/// Runs rounds until they return `expected` (or gives up after 90 s).
+fn eventually(
+    store: &EncryptedSyncStore<HttpTransport>,
+    mine: &DeviceRecord,
+    expected: &[DeviceRecord],
+) {
+    let start = Instant::now();
+    loop {
+        let seen = sync_round(store, mine).unwrap();
+        if seen == expected || start.elapsed() > Duration::from_secs(90) {
+            assert_eq!(seen, expected);
+            return;
+        }
+        std::thread::sleep(Duration::from_secs(3));
+    }
+}
+
 #[test]
 #[ignore = "needs a relay: set BU_TEST_RELAY"]
 fn two_devices_sync_through_the_relay() {
@@ -36,16 +57,18 @@ fn two_devices_sync_through_the_relay() {
     let desktop_record = record("Desktop", "https://desktop.test/");
     let phone_record = record("Phone", "https://phone.test/");
     assert!(sync_round(&desktop, &desktop_record).unwrap().is_empty());
-    let seen_by_phone = sync_round(&phone, &phone_record).unwrap();
-    assert_eq!(seen_by_phone, vec![desktop_record.clone()]);
-    let seen_by_desktop = sync_round(&desktop, &desktop_record).unwrap();
-    assert_eq!(seen_by_desktop, vec![phone_record.clone()]);
+    eventually(&phone, &phone_record, std::slice::from_ref(&desktop_record));
+    eventually(
+        &desktop,
+        &desktop_record,
+        std::slice::from_ref(&phone_record),
+    );
 
     // Another group, same relay: refused (its token does not match).
     let intruder = EncryptedSyncStore::new(SyncKey::generate(), HttpTransport::new(&relay));
     assert!(intruder.pull().unwrap().is_empty(), "its own, empty group");
 
     phone.leave(&phone_record.device).unwrap();
-    assert!(sync_round(&desktop, &desktop_record).unwrap().is_empty());
+    eventually(&desktop, &desktop_record, &[]);
     desktop.leave(&desktop_record.device).unwrap();
 }
