@@ -1,4 +1,5 @@
 use std::sync::mpsc::Receiver;
+use std::time::{Duration, Instant};
 
 use application::Browser;
 use application::ports::{EngineEvent, Viewport};
@@ -6,16 +7,22 @@ use egui::{CentralPanel, Frame, TopBottomPanel, ViewportCommand};
 use infrastructure::WryEngine;
 
 use super::command::Command;
+use super::library::Library;
 use super::omnibox::Omnibox;
-use super::{APP_NAME, tab_strip, toolbar};
+use super::{APP_NAME, bookmarks_bar, tab_strip, toolbar};
 
 pub struct BrowserApp {
     browser: Browser<WryEngine>,
     events: Receiver<EngineEvent>,
     omnibox: Omnibox,
+    library: Library,
     error: Option<String>,
     window_title: String,
+    last_persist: Instant,
 }
+
+/// History and session are written at most this often (and on exit).
+const PERSIST_EVERY: Duration = Duration::from_secs(5);
 
 impl BrowserApp {
     pub fn new(browser: Browser<WryEngine>, events: Receiver<EngineEvent>) -> Self {
@@ -23,8 +30,10 @@ impl BrowserApp {
             browser,
             events,
             omnibox: Omnibox::default(),
+            library: Library::default(),
             error: None,
             window_title: String::new(),
+            last_persist: Instant::now(),
         }
     }
 
@@ -72,8 +81,23 @@ impl BrowserApp {
                 self.omnibox.request_focus();
                 Ok(())
             }
+            Command::Open(address, target) => self.browser.load(address, target),
+            Command::ToggleBookmark => self.browser.toggle_bookmark().map(|_| ()),
+            Command::RemoveBookmark(address) => self.browser.remove_bookmark(&address),
+            Command::ClearHistory => self.browser.clear_history(),
+            Command::ToggleLibrary(view) => {
+                self.library.toggle(view);
+                Ok(())
+            }
         };
         if let Err(e) = result {
+            self.report(e);
+        }
+    }
+
+    fn persist(&mut self) {
+        self.last_persist = Instant::now();
+        if let Err(e) = self.browser.persist() {
             self.report(e);
         }
     }
@@ -113,10 +137,16 @@ impl eframe::App for BrowserApp {
             toolbar::show(
                 ui,
                 self.browser.session().active(),
+                self.browser.is_active_bookmarked(),
                 &mut self.omnibox,
                 &mut commands,
             );
         });
+        if !self.browser.bookmarks().is_empty() {
+            TopBottomPanel::top("bookmarks").show(ctx, |ui| {
+                bookmarks_bar::show(ui, self.browser.bookmarks(), &mut commands);
+            });
+        }
         if let Some(error) = self.error.clone() {
             TopBottomPanel::bottom("error").show(ctx, |ui| {
                 ui.horizontal(|ui| {
@@ -127,6 +157,13 @@ impl eframe::App for BrowserApp {
                 });
             });
         }
+        self.library.show(
+            ctx,
+            self.browser.history(),
+            self.browser.bookmarks(),
+            self.browser.now(),
+            &mut commands,
+        );
         CentralPanel::default().frame(Frame::NONE).show(ctx, |ui| {
             // The active page's native view is laid over this area.
             let rect = ui.max_rect();
@@ -147,10 +184,20 @@ impl eframe::App for BrowserApp {
             ctx.send_viewport_cmd(ViewportCommand::Close);
         }
         self.sync_window_title(ctx);
+        if self.browser.has_unsaved_changes() {
+            match PERSIST_EVERY.checked_sub(self.last_persist.elapsed()) {
+                Some(wait) if !wait.is_zero() => ctx.request_repaint_after(wait),
+                _ => self.persist(),
+            }
+        }
 
         // GTK's loop only advances when we pump it.
         if cfg!(target_os = "linux") {
-            ctx.request_repaint_after(std::time::Duration::from_millis(16));
+            ctx.request_repaint_after(Duration::from_millis(16));
         }
+    }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.persist();
     }
 }

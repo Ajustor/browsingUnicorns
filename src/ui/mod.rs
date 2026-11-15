@@ -2,7 +2,9 @@
 //! are native child views laid over the central area.
 
 mod app;
+mod bookmarks_bar;
 mod command;
+mod library;
 mod omnibox;
 mod shortcuts;
 mod tab_strip;

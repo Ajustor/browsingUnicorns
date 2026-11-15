@@ -1,4 +1,19 @@
-use crate::{Tab, TabId};
+use crate::{Tab, TabId, WebAddress};
+
+/// What is needed to reopen a window's tabs: their pages and which one was
+/// shown.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SessionSnapshot {
+    pub tabs: Vec<WebAddress>,
+    /// Index into `tabs`.
+    pub active: Option<usize>,
+}
+
+impl SessionSnapshot {
+    pub fn is_empty(&self) -> bool {
+        self.tabs.is_empty()
+    }
+}
 
 /// The open tabs of a window and which one is shown.
 #[derive(Debug, Clone, Default)]
@@ -83,6 +98,21 @@ impl Session {
         known
     }
 
+    /// The tabs that show a page, in order. Tabs that have not loaded
+    /// anything yet are left out.
+    pub fn snapshot(&self) -> SessionSnapshot {
+        let mut snapshot = SessionSnapshot::default();
+        for tab in &self.tabs {
+            if let Some(address) = tab.address() {
+                if Some(tab.id()) == self.active {
+                    snapshot.active = Some(snapshot.tabs.len());
+                }
+                snapshot.tabs.push(address.clone());
+            }
+        }
+        snapshot
+    }
+
     /// The tab `offset` places away from the active one, wrapping around.
     pub fn neighbour(&self, offset: isize) -> Option<TabId> {
         let index = self.active.and_then(|a| self.position(a))?;
@@ -143,6 +173,21 @@ mod tests {
         let a = s.open_tab();
         s.close_tab(a);
         assert_ne!(s.open_tab(), a);
+    }
+
+    #[test]
+    fn snapshot_keeps_loaded_tabs_and_the_active_index() {
+        let mut s = Session::new();
+        let a = s.open_tab();
+        let _blank = s.open_tab();
+        let c = s.open_tab();
+        let page = |p: &str| WebAddress::parse(&format!("https://x.com/{p}")).unwrap();
+        s.tab_mut(a).unwrap().load_started(page("a"));
+        s.tab_mut(c).unwrap().load_started(page("c"));
+        let snap = s.snapshot();
+        assert_eq!(snap.tabs, vec![page("a"), page("c")]);
+        assert_eq!(snap.active, Some(1));
+        assert!(Session::new().snapshot().is_empty());
     }
 
     #[test]

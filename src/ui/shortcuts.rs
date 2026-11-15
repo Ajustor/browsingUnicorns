@@ -1,6 +1,7 @@
 use egui::{Key, KeyboardShortcut, Modifiers};
 
 use super::command::Command;
+use super::library::LibraryView;
 
 /// Browser shortcuts. They only reach egui while the chrome has the keyboard
 /// focus: a page that has it keeps its keys.
@@ -20,6 +21,17 @@ const SHORTCUTS: &[(Modifiers, Key, Command)] = &[
     (Modifiers::ALT, Key::ArrowLeft, Command::Back),
     (Modifiers::ALT, Key::ArrowRight, Command::Forward),
     (Modifiers::ALT, Key::Home, Command::Home),
+    (Modifiers::COMMAND, Key::D, Command::ToggleBookmark),
+    (
+        Modifiers::COMMAND,
+        Key::H,
+        Command::ToggleLibrary(LibraryView::History),
+    ),
+    (
+        Modifiers::COMMAND.plus(Modifiers::SHIFT),
+        Key::O,
+        Command::ToggleLibrary(LibraryView::Bookmarks),
+    ),
 ];
 
 pub fn collect(ctx: &egui::Context, commands: &mut Vec<Command>) {

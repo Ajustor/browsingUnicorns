@@ -20,7 +20,7 @@ pub fn show(ui: &mut egui::Ui, session: &Session, commands: &mut Vec<Command>) {
                             if tab.is_loading() {
                                 ui.add(Spinner::new().size(12.0));
                             }
-                            let title = truncate(tab.display_title());
+                            let title = truncate(tab.display_title(), TITLE_CHARS);
                             let label = ui
                                 .selectable_label(active, title)
                                 .interact(Sense::click())
@@ -50,11 +50,11 @@ pub fn show(ui: &mut egui::Ui, session: &Session, commands: &mut Vec<Command>) {
     });
 }
 
-fn truncate(title: &str) -> String {
-    if title.chars().count() <= TITLE_CHARS {
+pub fn truncate(title: &str, max: usize) -> String {
+    if title.chars().count() <= max {
         return title.to_owned();
     }
-    let mut short: String = title.chars().take(TITLE_CHARS - 1).collect();
+    let mut short: String = title.chars().take(max - 1).collect();
     short.push('…');
     short
 }
@@ -65,9 +65,9 @@ mod tests {
 
     #[test]
     fn long_titles_are_cut() {
-        assert_eq!(truncate("short"), "short");
+        assert_eq!(truncate("short", TITLE_CHARS), "short");
         let long = "a".repeat(40);
-        assert_eq!(truncate(&long).chars().count(), TITLE_CHARS);
-        assert!(truncate(&long).ends_with('…'));
+        assert_eq!(truncate(&long, TITLE_CHARS).chars().count(), TITLE_CHARS);
+        assert!(truncate(&long, TITLE_CHARS).ends_with('…'));
     }
 }

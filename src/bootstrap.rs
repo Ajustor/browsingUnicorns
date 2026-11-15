@@ -5,7 +5,7 @@ use std::sync::mpsc;
 
 use anyhow::Context as _;
 use application::Browser;
-use application::ports::SettingsRepository;
+use application::ports::Repository;
 use domain::Settings;
 use infrastructure::{ParentWindow, TomlSettingsRepository, WryEngine};
 
@@ -15,6 +15,8 @@ pub fn build(cc: &eframe::CreationContext<'_>) -> anyhow::Result<BrowserApp> {
     crate::ui::install_fonts(&cc.egui_ctx);
 
     let settings = load_settings();
+    let profile_dir = infrastructure::profile_dir()
+        .context("no data directory to keep history and bookmarks in")?;
 
     // Safety: the web views live in the app, which eframe drops before the
     // window.
@@ -23,9 +25,12 @@ pub fn build(cc: &eframe::CreationContext<'_>) -> anyhow::Result<BrowserApp> {
     let ctx = cc.egui_ctx.clone();
     let engine = WryEngine::new(parent, sender, Arc::new(move || ctx.request_repaint()));
 
-    let mut browser = Browser::new(engine, settings);
+    let mut browser = Browser::new(engine, settings, infrastructure::json_profile(profile_dir));
+    for e in browser.load_profile() {
+        log::warn!("profile: {e}");
+    }
     browser
-        .open_tab(None)
+        .restore_session()
         .context("could not open the first tab")?;
     Ok(BrowserApp::new(browser, receiver))
 }

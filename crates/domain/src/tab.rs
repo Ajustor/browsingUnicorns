@@ -79,6 +79,11 @@ impl Tab {
             .unwrap_or(Self::UNTITLED)
     }
 
+    /// The title the page gave itself (may be empty).
+    pub fn title(&self) -> &str {
+        self.title.trim()
+    }
+
     pub fn set_title(&mut self, title: impl Into<String>) {
         self.title = title.into();
     }

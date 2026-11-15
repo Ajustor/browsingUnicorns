@@ -18,6 +18,14 @@ binaire reste petit et le moteur profite des mises à jour de sécurité de l'OS
 - ⬅️ Précédent / suivant (Alt+←/→), recharger (F5 / Ctrl+R), accueil (Alt+Home)
 - 🪟 Les liens `target="_blank"` et `window.open` s'ouvrent dans un nouvel onglet
 - 🔒 Indicateur HTTPS, titre de la page dans l'onglet et la fenêtre
+- ⭐ Favoris : étoile dans la barre d'adresse (Ctrl+D), barre de favoris sous
+  la barre d'outils (clic molette : nouvel onglet)
+- 🕘 Historique avec recherche (Ctrl+H) ; favoris (Ctrl+Shift+O) dans le même
+  panneau latéral
+- ♻️ Les onglets ouverts sont rouverts au démarrage
+- 💾 Profil dans `<data>/browsing-unicorns/` (`history.json`,
+  `bookmarks.json`, `session.json`), écrit au plus toutes les 5 s et à la
+  fermeture, par remplacement atomique
 - ⚙️ Page d'accueil et moteur de recherche réglables dans
   `<config>/browsing-unicorns/settings.toml`
 
@@ -41,13 +49,14 @@ domaine, jamais l'inverse.
 browsing-unicorns (src/)      présentation egui + composition root (bootstrap.rs)
    │
    ├── infrastructure          adaptateurs : WryEngine (WebView système),
-   │      │                    TomlSettingsRepository
+   │      │                    TomlSettingsRepository, JsonRepository, SystemClock
    │      ▼
    ├── application             cas d'usage (Browser) + ports :
-   │      │                    WebEngine, EngineEvent, SettingsRepository
+   │      │                    WebEngine, EngineEvent, Repository<T>, Clock
    │      ▼
    └── domain                  règles métier pures : WebAddress, omnibox,
-                               History, Tab, Session, Settings
+                               History, Tab, Session, BrowsingHistory,
+                               Bookmarks, Settings
 ```
 
 | Couche | Crate | Dépend de | Rôle |
@@ -92,7 +101,6 @@ python scripts/draw-icon.py assets/icon.png 256
 
 ## Pistes
 
-- Historique et favoris persistants, restauration de session
 - Page de réglages dans l'interface
 - Navigation privée, bloqueur de contenu
 - Téléchargements

@@ -8,5 +8,5 @@ mod browser;
 mod error;
 pub mod ports;
 
-pub use browser::Browser;
+pub use browser::{Browser, Target};
 pub use error::BrowserError;

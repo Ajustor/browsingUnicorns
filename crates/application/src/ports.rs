@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use domain::{Settings, TabId, WebAddress};
+use domain::{Bookmarks, BrowsingHistory, SessionSnapshot, TabId, Timestamp, WebAddress};
 
 /// Where pages are drawn, in physical pixels relative to the window's client
 /// area.
@@ -74,8 +74,21 @@ impl fmt::Display for RepositoryError {
 
 impl std::error::Error for RepositoryError {}
 
-pub trait SettingsRepository {
-    /// The saved settings, or the defaults when none were saved yet.
-    fn load(&self) -> Result<Settings, RepositoryError>;
-    fn save(&self, settings: &Settings) -> Result<(), RepositoryError>;
+/// Keeps one value across runs (settings, history, bookmarks, session).
+pub trait Repository<T> {
+    /// The saved value, or the default one when nothing was saved yet.
+    fn load(&self) -> Result<T, RepositoryError>;
+    fn save(&self, value: &T) -> Result<(), RepositoryError>;
+}
+
+pub trait Clock {
+    fn now(&self) -> Timestamp;
+}
+
+/// Where the user's data lives.
+pub struct Profile {
+    pub history: Box<dyn Repository<BrowsingHistory>>,
+    pub bookmarks: Box<dyn Repository<Bookmarks>>,
+    pub session: Box<dyn Repository<SessionSnapshot>>,
+    pub clock: Box<dyn Clock>,
 }

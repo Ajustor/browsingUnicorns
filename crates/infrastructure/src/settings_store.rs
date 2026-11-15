@@ -1,10 +1,10 @@
-use std::fs;
-use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
-use application::ports::{RepositoryError, SettingsRepository};
+use application::ports::{Repository, RepositoryError};
 use domain::{SearchEngine, Settings, WebAddress};
 use serde::{Deserialize, Serialize};
+
+use crate::files;
 
 /// Settings saved as TOML. A missing file or key falls back to the default.
 pub struct TomlSettingsRepository {
@@ -69,26 +69,20 @@ impl TomlSettingsRepository {
     }
 }
 
-impl SettingsRepository for TomlSettingsRepository {
+impl Repository<Settings> for TomlSettingsRepository {
     fn load(&self) -> Result<Settings, RepositoryError> {
-        let text = match fs::read_to_string(&self.path) {
-            Ok(text) => text,
-            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Settings::default()),
-            Err(e) => return Err(RepositoryError(format!("{}: {e}", self.path.display()))),
+        let Some(text) = files::read(&self.path)? else {
+            return Ok(Settings::default());
         };
         toml::from_str::<SettingsFile>(&text)
-            .map_err(|e| RepositoryError(format!("{}: {e}", self.path.display())))?
+            .map_err(|e| files::error(&self.path, e))?
             .into_settings()
     }
 
     fn save(&self, settings: &Settings) -> Result<(), RepositoryError> {
-        let err =
-            |e: &dyn std::fmt::Display| RepositoryError(format!("{}: {e}", self.path.display()));
-        if let Some(dir) = self.path.parent() {
-            fs::create_dir_all(dir).map_err(|e| err(&e))?;
-        }
-        let text = toml::to_string_pretty(&SettingsFile::from(settings)).map_err(|e| err(&e))?;
-        fs::write(&self.path, text).map_err(|e| err(&e))
+        let text = toml::to_string_pretty(&SettingsFile::from(settings))
+            .map_err(|e| files::error(&self.path, e))?;
+        files::write(&self.path, &text)
     }
 }
 
@@ -121,8 +115,7 @@ mod tests {
     fn missing_keys_fall_back_to_defaults() {
         let dir = tempfile::tempdir().unwrap();
         let repo = repo(&dir);
-        fs::create_dir_all(repo.path().parent().unwrap()).unwrap();
-        fs::write(repo.path(), "home_page = \"https://example.com/\"\n").unwrap();
+        files::write(repo.path(), "home_page = \"https://example.com/\"\n").unwrap();
         let loaded = repo.load().unwrap();
         assert_eq!(loaded.home_page.as_str(), "https://example.com/");
         assert_eq!(loaded.search_engine, SearchEngine::default());
@@ -132,8 +125,7 @@ mod tests {
     fn invalid_home_page_is_an_error() {
         let dir = tempfile::tempdir().unwrap();
         let repo = repo(&dir);
-        fs::create_dir_all(repo.path().parent().unwrap()).unwrap();
-        fs::write(repo.path(), "home_page = \"javascript:void(0)\"\n").unwrap();
+        files::write(repo.path(), "home_page = \"javascript:void(0)\"\n").unwrap();
         assert!(repo.load().is_err());
     }
 }
