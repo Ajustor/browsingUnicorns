@@ -623,7 +623,7 @@
         <a class="bouton principal" id="cta" href="#telecharger">Télécharger v{{version}}</a>
         <a class="bouton secondaire" href="#installer">Installer en une ligne</a>
       </div>
-      <p class="petit">Windows · Linux · macOS (Apple Silicon) — mises à jour automatiques</p>
+      <p class="petit">Windows · Linux · macOS (Apple Silicon) · Android — synchronisés entre eux</p>
     </section>
 
     <section class="chiffres" aria-labelledby="chiffres-titre">
@@ -748,7 +748,7 @@
   // Système du visiteur : met sa carte en avant et pointe le bouton principal dessus.
   (function () {
     var p = ((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || navigator.userAgent).toLowerCase();
-    var os = p.indexOf('win') >= 0 ? 'windows' : p.indexOf('mac') >= 0 ? 'macos' : p.indexOf('linux') >= 0 ? 'linux' : null;
+    var os = p.indexOf('android') >= 0 ? 'android' : p.indexOf('win') >= 0 ? 'windows' : p.indexOf('mac') >= 0 ? 'macos' : p.indexOf('linux') >= 0 ? 'linux' : null;
     if (!os) return;
     var carte = document.querySelector('.carte[data-os="' + os + '"]');
     if (!carte) return;

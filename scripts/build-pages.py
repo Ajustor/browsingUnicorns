@@ -18,11 +18,13 @@ ICONS = {
     "windows": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5.5 10.5 4.5v7H3zM11.5 4.4 21 3v8.5h-9.5zM3 12.5h7.5v7L3 18.5zM11.5 12.5H21V21l-9.5-1.4z"/></svg>',
     "linux": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c-2.2 0-3.6 1.9-3.6 4.6 0 1.3.3 2.2-.4 3.6C6.8 12.5 5 14.6 5 17.2c0 .7.2 1.2.5 1.6-.8.4-1.5.9-1.5 1.6C4 21.6 6 22 7.6 22c1.3 0 2.2-.6 2.8-1.1.5.1 1 .1 1.6.1s1.1 0 1.6-.1c.6.5 1.5 1.1 2.8 1.1 1.6 0 3.6-.4 3.6-1.6 0-.7-.7-1.2-1.5-1.6.3-.4.5-.9.5-1.6 0-2.6-1.8-4.7-3-7-.7-1.4-.4-2.3-.4-3.6C15.6 3.9 14.2 2 12 2zm-1.4 4.2a.8 1 0 1 1 0 2 .8 1 0 0 1 0-2zm2.8 0a.8 1 0 1 1 0 2 .8 1 0 0 1 0-2zM12 9.3c.9 0 1.9.5 1.9.9S12.9 11 12 11s-1.9-.4-1.9-.8.9-.9 1.9-.9z"/></svg>',
     "macos": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.4 12.6c0-2.4 2-3.5 2-3.6-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.2-2.8.8-3.5.8s-1.8-.8-3-.8C7 7.3 5.5 8.2 4.7 9.7 3 12.6 4.3 17 5.9 19.3c.8 1.1 1.7 2.4 3 2.3 1.2 0 1.6-.8 3.1-.8s1.8.8 3.1.8c1.3 0 2.1-1.2 2.9-2.3.9-1.3 1.3-2.6 1.3-2.7 0 0-2.5-1-2.9-4zM14.1 5.6c.6-.8 1.1-1.9 1-3-.9 0-2.1.6-2.7 1.4-.6.7-1.1 1.8-1 2.9 1 .1 2.1-.5 2.7-1.3z"/></svg>',
+    "android": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 3.3 8.5 5.6A8 8 0 0 0 4 12.5V13h16v-.5a8 8 0 0 0-4.5-6.9l1.3-2.3-.9-.5-1.3 2.4a8 8 0 0 0-5.2 0L8.1 2.8zM9 9.2a.9.9 0 1 1 0 1.8.9.9 0 0 1 0-1.8zm6 0a.9.9 0 1 1 0 1.8.9.9 0 0 1 0-1.8zM4 14v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5z"/></svg>',
     "autre": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h8l6 6v14H6zm8 1.5V9h5.5z"/></svg>',
 }
 
 # (substring of the asset name, os, card title, detail) — first match wins.
 KINDS = [
+    (".apk", "android", "Android", "APK — Android 8 et suivants"),
     (".msi", "windows", "Windows", "Installateur .msi — recommandé"),
     ("windows", "windows", "Windows", "Version portable .exe, sans installation"),
     (".AppImage", "linux", "Linux", "AppImage — recommandé, x86_64"),
@@ -67,8 +69,8 @@ def card(asset, files_dir):
 
 # Windows first, then Linux, then macOS; on each, the installer (the card
 # highlighted for the visitor's system) before the bare binary.
-ORDER = {"windows": 0, "linux": 1, "macos": 2, "autre": 3}
-INSTALLERS = (".msi", ".AppImage", ".dmg")
+ORDER = {"windows": 0, "linux": 1, "macos": 2, "android": 3, "autre": 4}
+INSTALLERS = (".msi", ".AppImage", ".dmg", ".apk")
 
 
 def sort_key(asset):
