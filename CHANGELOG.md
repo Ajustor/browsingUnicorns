@@ -4,6 +4,19 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.2.0] - 2026-11-15
+
+### Ajouté
+
+- Application Android (Kotlin + Jetpack Compose) sur le même cœur Rust que la
+  version de bureau : onglets, barre d'adresse, historique, favoris, ouverture
+  des liens venant des autres apps. L'APK est publié avec les autres fichiers.
+- Synchro chiffrée de bout en bout entre appareils (favoris, historique,
+  onglets ouverts, réglages) : onglet *Sync* du panneau latéral, appairage par
+  code ou QR code. Les onglets des autres appareils peuvent être rouverts.
+- Relais de synchro sur Cloudflare Workers (`relay/sync`) : il ne stocke que
+  des données chiffrées, effacées après 180 jours sans mise à jour.
+
 ## [0.1.0] - 2026-11-15
 
 Première version.
