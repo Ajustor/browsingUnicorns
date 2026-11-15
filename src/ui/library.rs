@@ -304,16 +304,34 @@ fn entry(
                 .truncate(),
         )
         .on_hover_text(address.as_str());
-    // The age goes on the right, the address is cut to what is left. Both
-    // must fit the panel's width: content wider than a resizable panel makes
-    // it grow at every frame.
-    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-        if let Some(age) = age {
-            ui.small(age);
-        }
-        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+    // One row: the address cut to what the age leaves, the age on the right.
+    // Both must fit the panel's width (content wider than a resizable panel
+    // makes it grow at every frame), and the row its own height (a layout
+    // without a row would take the whole panel).
+    ui.horizontal(|ui| {
+        let age = age.map(|a| RichText::new(a).small());
+        let age_width = age.as_ref().map_or(0.0, |a| {
+            egui::WidgetText::from(a.clone())
+                .into_galley(
+                    ui,
+                    Some(egui::TextWrapMode::Extend),
+                    f32::INFINITY,
+                    egui::TextStyle::Small,
+                )
+                .size()
+                .x
+                + ui.spacing().item_spacing.x
+        });
+        let address_width = (ui.available_width() - age_width).max(0.0);
+        ui.scope(|ui| {
+            ui.set_max_width(address_width);
             ui.add(egui::Label::new(RichText::new(address.as_str()).small().weak()).truncate());
         });
+        if let Some(age) = age {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(age);
+            });
+        }
     });
     ui.add_space(4.0);
     if response.clicked() {
