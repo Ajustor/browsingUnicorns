@@ -170,6 +170,10 @@ Comme storingUnicorns :
    vérifie le SHA-256, puis remplace l'exécutable (ou lance le `.msi` à la
    fermeture pour une installation dans Program Files). « Check for updates »
    dans l'onglet About du panneau latéral force la vérification.
+4. Android fait de même (`AppUpdates.kt`) : bandeau, téléchargement de
+   `browsingUnicorns-android.apk`, SHA-256, puis l'installateur d'Android
+   (même clé de signature : c'est une mise à jour). *Check for updates* dans
+   le menu.
 
 Le dépôt est privé : GitHub Pages (public) est publié par Actions, ce qui
 demande un compte Pro et Pages réglé sur « GitHub Actions ».

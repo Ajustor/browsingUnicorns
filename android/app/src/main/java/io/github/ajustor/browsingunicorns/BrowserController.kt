@@ -22,7 +22,12 @@ enum class Screen { Browser, Tabs, History, Bookmarks, Sync, Extensions }
  * The screen's state, refreshed from the Rust core after every action, and
  * the actions themselves. Sync rounds run on the IO dispatcher.
  */
-class BrowserController(val browser: MobileBrowser, val views: WebViews, private val scope: CoroutineScope) {
+class BrowserController(
+    val browser: MobileBrowser,
+    val views: WebViews,
+    val updates: AppUpdates,
+    private val scope: CoroutineScope,
+) {
     var state by mutableStateOf(browser.state())
         private set
     var sync by mutableStateOf(browser.syncInfo())
@@ -52,6 +57,7 @@ class BrowserController(val browser: MobileBrowser, val views: WebViews, private
         views.onChange = ::refresh
         views.onProgress = { progress = it }
         views.onPanel = { popup = it }
+        updates.onMessage = { message = it }
     }
 
     /** Shows an extension's popup; it sees the active tab. */

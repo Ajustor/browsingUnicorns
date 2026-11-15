@@ -4,6 +4,17 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [Unreleased]
+
+### Ajouté
+
+- Android : mises à jour automatiques. L'app regarde `latest.json` une fois
+  par jour, propose la nouvelle version dans un bandeau (installer, plus
+  tard, ignorer), télécharge l'APK, vérifie son SHA-256 et lance
+  l'installateur d'Android ; *Check for updates* dans le menu force la
+  vérification. Android demande une fois d'autoriser l'installation d'apps
+  depuis le navigateur.
+
 ## [0.5.0] - 2026-11-15
 
 ### Ajouté

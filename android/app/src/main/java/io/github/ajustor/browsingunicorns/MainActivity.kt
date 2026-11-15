@@ -31,7 +31,7 @@ class MainActivity : ComponentActivity() {
             http = SyncHttpClient(),
         )
         views.browser = browser
-        controller = BrowserController(browser, views, lifecycleScope)
+        controller = BrowserController(browser, views, AppUpdates(this, lifecycleScope), lifecycleScope)
         controller.act { restoreSession() }
         openFromIntent(intent)
 
@@ -54,7 +54,10 @@ class MainActivity : ComponentActivity() {
         }
 
         lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) { controller.syncLoop() }
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                controller.updates.checkIfDue()
+                controller.syncLoop()
+            }
         }
     }
 

@@ -36,6 +36,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
@@ -53,7 +54,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import io.github.ajustor.browsingunicorns.AppUpdates
 import io.github.ajustor.browsingunicorns.BrowserController
+import io.github.ajustor.browsingunicorns.UpdateState
 import io.github.ajustor.browsingunicorns.Screen
 
 @Composable
@@ -95,7 +98,37 @@ private fun BrowserScreen(c: BrowserController) {
             },
             modifier = Modifier.weight(1f).fillMaxWidth(),
         )
+        UpdateBanner(c.updates)
         BottomBar(c)
+    }
+}
+
+/** A newer version: install it, later, or skip it. */
+@Composable
+private fun UpdateBanner(u: AppUpdates) {
+    val (version, label) = when (val s = u.state) {
+        is UpdateState.Available -> s.release.version to "Install"
+        is UpdateState.Ready -> s.release.version to "Install"
+        is UpdateState.Downloading -> s.release.version to "${s.percent} %"
+        else -> return
+    }
+    Surface(tonalElevation = 6.dp, modifier = Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.padding(start = 16.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "Browsing Unicorns $version is available",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f),
+            )
+            val downloading = u.state is UpdateState.Downloading
+            if (!downloading) {
+                TextButton(onClick = { u.skip() }) { Text("Skip") }
+                TextButton(onClick = { u.later() }) { Text("Later") }
+            }
+            TextButton(onClick = { u.install() }, enabled = !downloading) { Text(label) }
+        }
     }
 }
 
@@ -204,6 +237,13 @@ private fun BottomBar(c: BrowserController) {
                         c.refreshExtensions()
                         c.screen = Screen.Extensions
                     })
+                    DropdownMenuItem(
+                        text = { Text("Check for updates (${c.updates.currentVersion})") },
+                        onClick = {
+                            menu = false
+                            c.updates.check(manual = true)
+                        },
+                    )
                     DropdownMenuItem(
                         text = { Text("Web debugging") },
                         trailingIcon = { Checkbox(checked = c.webDebugging, onCheckedChange = null) },
