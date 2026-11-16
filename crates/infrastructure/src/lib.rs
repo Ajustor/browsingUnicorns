@@ -27,6 +27,8 @@ mod webkit_rules;
 #[cfg(all(windows, feature = "desktop"))]
 mod webview2_blocking;
 #[cfg(all(windows, feature = "desktop"))]
+mod webview2_devtools;
+#[cfg(all(windows, feature = "desktop"))]
 mod webview2_extensions;
 #[cfg(all(windows, feature = "desktop"))]
 mod webview2_keys;

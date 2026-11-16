@@ -73,9 +73,22 @@ pub fn show(
             if button(ui, icon::BOOKS, "History and bookmarks (Ctrl+H)", true) {
                 commands.push(Command::ToggleLibrary(LibraryView::History));
             }
-            if button(ui, icon::CODE, "Developer tools (F12)", active.is_some()) {
+            let devtools = ui
+                .add_enabled(active.is_some(), Button::new(icon::CODE).frame(false))
+                .on_hover_text("Developer tools (F12); right-click: side panel or window");
+            if devtools.clicked() {
                 commands.push(Command::OpenDevTools);
             }
+            devtools.context_menu(|ui| {
+                if ui.button("In the side panel").clicked() {
+                    commands.push(Command::OpenDevTools);
+                    ui.close_menu();
+                }
+                if ui.button("In a window").clicked() {
+                    commands.push(Command::OpenDevToolsWindow);
+                    ui.close_menu();
+                }
+            });
             extension_bar::show(ui, actions, commands);
             let (star, tip) = if bookmarked {
                 (

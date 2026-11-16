@@ -4,7 +4,8 @@ use std::time::{Duration, Instant};
 
 use application::Browser;
 use application::ports::{EngineEvent, PageSource, Viewport, WebEngine as _};
-use egui::{CentralPanel, Frame, TopBottomPanel, ViewportCommand};
+use egui::{CentralPanel, Frame, RichText, SidePanel, TopBottomPanel, ViewportCommand};
+use egui_phosphor::regular as icon;
 use infrastructure::WryEngine;
 use updater::ExitAction;
 
@@ -41,6 +42,9 @@ pub struct BrowserApp {
     notice: Option<Notice>,
     /// The padlock's bar, when open.
     site_info: Option<SiteInfo>,
+    /// The developer tools docked beside the page (they follow the active
+    /// tab).
+    devtools_docked: bool,
     window_title: String,
     last_persist: Instant,
     close_requested: bool,
@@ -95,6 +99,7 @@ impl BrowserApp {
             library: Library::default(),
             notice: None,
             site_info: None,
+            devtools_docked: false,
             window_title: String::new(),
             last_persist: Instant::now(),
             close_requested: false,
@@ -239,8 +244,13 @@ impl BrowserApp {
                 self.browser.engine().focus_window();
                 self.omnibox.request_focus();
             }
-            Command::OpenDevTools => {
+            Command::OpenDevTools if self.browser.engine().devtools_docking() => {
+                self.devtools_docked = !self.devtools_docked;
+            }
+            Command::OpenDevTools | Command::OpenDevToolsWindow => {
                 if let Some(tab) = self.browser.session().active_id() {
+                    // One inspector per page: the window replaces the panel.
+                    self.devtools_docked = false;
                     self.browser
                         .engine_mut()
                         .open_devtools(&PageSource::Tab(tab));
@@ -280,6 +290,66 @@ impl BrowserApp {
             | Command::Profile(_)
             | Command::ToggleExtensionPopup { .. } => unreachable!("handled by run"),
         }
+    }
+
+    /// The docked developer tools, at the right of the page.
+    fn devtools_panel(&mut self, ctx: &egui::Context) {
+        let tab = self.browser.session().active_id();
+        if !self.devtools_docked || tab.is_none() {
+            self.devtools_docked = false;
+            self.browser
+                .engine_mut()
+                .show_devtools_panel(None, Viewport::default());
+            return;
+        }
+        let mut close = false;
+        let mut window = false;
+        let response = SidePanel::right("devtools")
+            .resizable(true)
+            .default_width(480.0)
+            .min_width(280.0)
+            .frame(Frame::side_top_panel(&ctx.style()).inner_margin(0.0))
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.add_space(6.0);
+                    ui.label(RichText::new("Developer tools").strong());
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        close = ui
+                            .small_button(icon::X)
+                            .on_hover_text("Close (F12)")
+                            .clicked();
+                        window = ui
+                            .small_button(icon::ARROW_SQUARE_OUT)
+                            .on_hover_text("Open in a window")
+                            .clicked();
+                    });
+                });
+                // The inspector's native view is laid over the rest.
+                ui.allocate_rect(ui.available_rect_before_wrap(), egui::Sense::hover())
+                    .rect
+            });
+        if close || window {
+            self.devtools_docked = false;
+            self.browser
+                .engine_mut()
+                .show_devtools_panel(None, Viewport::default());
+            if window {
+                self.run_ui(Command::OpenDevToolsWindow);
+            }
+            return;
+        }
+        let rect = response.inner;
+        let ppp = ctx.pixels_per_point();
+        let area = Viewport {
+            x: (rect.min.x * ppp).round() as i32,
+            y: (rect.min.y * ppp).round() as i32,
+            width: (rect.width() * ppp).round().max(1.0) as u32,
+            height: (rect.height() * ppp).round().max(1.0) as u32,
+        };
+        let page = tab.map(PageSource::Tab);
+        self.browser
+            .engine_mut()
+            .show_devtools_panel(page.as_ref(), area);
     }
 
     /// Opens the padlock's bar on the active site (asking its certificate),
@@ -502,6 +572,7 @@ impl eframe::App for BrowserApp {
             },
             &mut commands,
         );
+        self.devtools_panel(ctx);
         CentralPanel::default().frame(Frame::NONE).show(ctx, |ui| {
             // The active page's native view is laid over this area.
             let rect = ui.max_rect();

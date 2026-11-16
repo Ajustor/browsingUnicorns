@@ -111,6 +111,9 @@ pub struct WryEngine {
     shortcuts: std::rc::Rc<std::cell::RefCell<std::collections::HashSet<KeyPress>>>,
     #[cfg(windows)]
     pressed: std::rc::Rc<std::cell::RefCell<Vec<KeyPress>>>,
+    /// Windows: the developer tools docked beside the page.
+    #[cfg(windows)]
+    devtools: Option<DevtoolsPanel>,
     /// Windows: each tab's connection security, as last told.
     #[cfg(windows)]
     security: HashMap<TabId, Rc<RefCell<Option<crate::certificates::Certificates>>>>,
@@ -127,6 +130,32 @@ fn bounds(v: Viewport) -> Rect {
     }
 }
 
+/// What the runtime is started with: every view must ask the same.
+fn runtime_options(builder: WebViewBuilder<'_>) -> WebViewBuilder<'_> {
+    #[cfg(windows)]
+    let builder = {
+        use wry::WebViewBuilderExtWindows as _;
+        let builder = builder.with_browser_extensions_enabled(!builtin_extensions());
+        match crate::webview2_devtools::port() {
+            Some(port) => {
+                builder.with_additional_browser_args(crate::webview2_devtools::browser_args(port))
+            }
+            None => builder,
+        }
+    };
+    builder
+}
+
+/// The developer tools docked beside the page (Windows).
+#[cfg(windows)]
+struct DevtoolsPanel {
+    page: PageSource,
+    area: Viewport,
+    /// The page's DevTools target, once known.
+    target: Rc<RefCell<Option<Result<String, String>>>>,
+    view: Option<WebView>,
+}
+
 /// The parts every view shares: the profile, the extensions' files, the
 /// page scripts' bridge.
 fn base_builder<'a>(
@@ -141,11 +170,7 @@ fn base_builder<'a>(
     #[cfg(not(target_os = "linux"))]
     let register = true;
     let builder = WebViewBuilder::new_with_web_context(context);
-    #[cfg(windows)]
-    let builder = {
-        use wry::WebViewBuilderExtWindows as _;
-        builder.with_browser_extensions_enabled(!builtin_extensions())
-    };
+    let builder = runtime_options(builder);
     let builder = builder
         .with_devtools(true)
         .with_ipc_handler(move |request| {
@@ -233,6 +258,8 @@ impl WryEngine {
             pressed: Default::default(),
             #[cfg(windows)]
             security: HashMap::new(),
+            #[cfg(windows)]
+            devtools: None,
         }
     }
 
@@ -251,6 +278,100 @@ impl WryEngine {
             }
         }
         self.measure_panel();
+        #[cfg(windows)]
+        self.open_devtools_view();
+    }
+
+    /// Whether the developer tools can be docked beside the page (else
+    /// they open in a window).
+    pub fn devtools_docking(&self) -> bool {
+        #[cfg(windows)]
+        return crate::webview2_devtools::port().is_some();
+        #[cfg(not(windows))]
+        false
+    }
+
+    /// Docks the developer tools of `page` in `area` (physical pixels), or
+    /// closes them (`None`). Call once per frame while they show.
+    pub fn show_devtools_panel(&mut self, page: Option<&PageSource>, area: Viewport) {
+        #[cfg(windows)]
+        {
+            let Some(page) = page else {
+                self.devtools = None;
+                return;
+            };
+            if let Some(panel) = self.devtools.as_mut().filter(|d| d.page == *page) {
+                if panel.area != area {
+                    panel.area = area;
+                    if let Some(view) = &panel.view
+                        && let Err(e) = view.set_bounds(bounds(area))
+                    {
+                        log::warn!("devtools: {e}");
+                    }
+                }
+                return;
+            }
+            let target = Rc::default();
+            match self.view_of(page) {
+                Some(view) => {
+                    let waker = self.waker.clone();
+                    crate::webview2_devtools::target_id(view, Rc::clone(&target), move || waker());
+                }
+                None => *target.borrow_mut() = Some(Err(format!("no page {page:?}"))),
+            }
+            self.devtools = Some(DevtoolsPanel {
+                page: page.clone(),
+                area,
+                target,
+                view: None,
+            });
+        }
+        #[cfg(not(windows))]
+        let _ = (page, area);
+    }
+
+    /// Opens the docked developer tools once their page's target is known.
+    #[cfg(windows)]
+    fn open_devtools_view(&mut self) {
+        let Some(port) = crate::webview2_devtools::port() else {
+            return;
+        };
+        let Some(panel) = self.devtools.as_mut().filter(|d| d.view.is_none()) else {
+            return;
+        };
+        let Some(target) = panel.target.borrow_mut().take() else {
+            return;
+        };
+        let url = match target {
+            Ok(id) => crate::webview2_devtools::front_end_url(port, &id),
+            Err(e) => {
+                log::warn!("devtools: {e}");
+                self.devtools = None;
+                return;
+            }
+        };
+        let view = runtime_options(WebViewBuilder::new_with_web_context(&mut self.context))
+            .with_bounds(bounds(panel.area))
+            .with_url(&url)
+            .build_as_child(&self.parent);
+        match view {
+            Ok(view) => {
+                let waker = self.waker.clone();
+                if let Err(e) = crate::webview2_keys::attach(
+                    &view,
+                    self.shortcuts.clone(),
+                    self.pressed.clone(),
+                    move || waker(),
+                ) {
+                    log::warn!("shortcuts in the devtools: {e}");
+                }
+                panel.view = Some(view);
+            }
+            Err(e) => {
+                log::warn!("devtools: {e}");
+                self.devtools = None;
+            }
+        }
     }
 
     /// Measures the popup's content now and then (popups change size).
