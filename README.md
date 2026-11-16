@@ -43,7 +43,9 @@ binaire reste petit et le moteur profite des mises à jour de sécurité de l'OS
   *Extensions* sur Android), installation par lien du Chrome Web Store, id ou
   fichier `.crx`, activation, suppression. Sur ordinateur, *Choose .crx…*
   et *Load unpacked…* installent un paquet ou le dossier d'une extension
-  décompressée (le recharger reprend ses modifications). Sur Android, la page
+  décompressée (le recharger reprend ses modifications). Messagerie native
+  vers les programmes installés (Bitwarden Desktop, KeePassXC…) sur
+  ordinateur. Sur Android, la page
   d'une extension du Web Store propose de l'installer.
   - Le navigateur les fait tourner lui-même sur toutes les plateformes :
     règles de blocage (`declarativeNetRequest`, converties au format des

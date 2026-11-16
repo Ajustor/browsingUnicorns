@@ -4,6 +4,22 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.9.0] - 2026-11-16
+
+### Ajouté
+
+- Extensions : messagerie native (`runtime.connectNative`,
+  `runtime.sendNativeMessage`), comme dans Chrome. Une extension qui a la
+  permission `nativeMessaging` parle au programme installé qui l'accepte
+  (Bitwarden Desktop, KeePassXC…), déclaré là où Chrome, Edge ou Chromium le
+  cherchent (registre sous Windows, dossiers `NativeMessagingHosts` sur macOS
+  et Linux). Pas sur Android.
+
+### Corrigé
+
+- Les croix des onglets ne fermaient pas l'onglet.
+- Le `+` de nouvel onglet et les croix se voient au survol.
+
 ## [0.8.0] - 2026-11-16
 
 ### Modifié
