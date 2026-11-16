@@ -4,6 +4,15 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.9.3] - 2026-11-16
+
+### Corrigé
+
+- Extensions : comme dans Chrome, leurs pages joignent les sites couverts par
+  leurs permissions sans contrôle CORS (le navigateur fait la requête pour
+  elles). La connexion à Bitwarden échouait (« Failed to fetch », ou erreur
+  de déchiffrement dans la popup).
+
 ## [0.9.2] - 2026-11-16
 
 ### Corrigé
