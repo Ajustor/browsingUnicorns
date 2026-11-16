@@ -17,10 +17,8 @@ binaire reste petit et le moteur profite des mises à jour de sécurité de l'OS
   (`rust-lang.org`, `localhost:3000`) ou une recherche (Ctrl+L / F6)
 - ⬅️ Précédent / suivant (Alt+←/→), recharger (F5 / Ctrl+R), accueil (Alt+Home)
 - 🛠️ Outils de développement de l'onglet actif : F12, Ctrl+Shift+I
-  (Cmd+Option+I sur macOS) ou le bouton `</>`, dans un panneau à droite de la
-  page sous Windows (clic droit sur le bouton : dans une fenêtre), dans une
-  fenêtre ailleurs ; *Inspect* dans l'onglet *Extensions* pour la page de fond
-  d'une extension. Android : *Web debugging* dans le menu, puis
+  (Cmd+Option+I sur macOS) ou le bouton `</>`, dans leur propre fenêtre ;
+  *Inspect* dans l'onglet *Extensions* pour la page de fond d'une extension. Android : *Web debugging* dans le menu, puis
   `chrome://inspect` sur un ordinateur
 - 🪟 Les liens `target="_blank"` et `window.open` s'ouvrent dans un nouvel onglet
 - 🔒 Indicateur HTTPS ; un clic sur le cadenas montre la connexion (protocole,

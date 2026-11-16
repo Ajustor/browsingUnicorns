@@ -4,6 +4,14 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [Unreleased]
+
+### Retiré
+
+- Le panneau latéral des outils de développement (0.6.0) : il demandait au
+  moteur un port de débogage local ouvert en permanence. Les outils de
+  développement s'ouvrent de nouveau dans leur fenêtre, sans port.
+
 ## [0.7.0] - 2026-11-16
 
 ### Ajouté

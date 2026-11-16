@@ -45,11 +45,8 @@ pub enum Command {
     Profile(ProfileCommand),
     /// Shows the active site's connection and certificate, or hides them.
     ToggleSiteInfo,
-    /// The web inspector of the active tab: docked beside the page where
-    /// the engine can (shows or hides it), else in a window.
+    /// The web inspector of the active tab.
     OpenDevTools,
-    /// The web inspector of the active tab, in a window.
-    OpenDevToolsWindow,
     /// The web inspector of an extension's background page.
     InspectExtension(ExtensionId),
     /// Opens an extension's popup under `anchor` (its button), or
