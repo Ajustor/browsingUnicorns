@@ -31,6 +31,7 @@ pub fn show(ui: &mut egui::Ui, session: &Session, commands: &mut Vec<Command>) {
                     .frame(false),
             )
             .on_hover_text("New tab (Ctrl+T)");
+        hover_glow(ui, &plus);
         if plus.clicked() {
             commands.push(Command::NewTab);
         }
@@ -56,47 +57,51 @@ pub fn show(ui: &mut egui::Ui, session: &Session, commands: &mut Vec<Command>) {
                 top: 7,
                 bottom: 7,
             });
-        let response = frame
-            .show(ui, |ui| {
-                ui.set_min_width(110.0);
-                ui.set_max_width(190.0);
-                ui.horizontal(|ui| {
-                    if tab.is_loading() {
-                        ui.add(Spinner::new().size(12.0).color(text));
-                    }
-                    let title = truncate(tab.display_title(), TITLE_CHARS);
-                    let label = ui
-                        .add(
-                            egui::Label::new(RichText::new(title).color(text))
-                                .selectable(false)
-                                .sense(Sense::click()),
-                        )
-                        .on_hover_text(tab.display_title());
-                    if label.clicked() {
-                        commands.push(Command::Activate(tab.id()));
-                    }
-                    if label.middle_clicked() {
-                        commands.push(Command::CloseTab(tab.id()));
-                    }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let close = ui
+        // The whole tab is clickable; sensed before its content, so the
+        // title and the close button inside it get their own clicks.
+        let response = ui
+            .scope_builder(egui::UiBuilder::new().sense(Sense::click()), |ui| {
+                frame.show(ui, |ui| {
+                    ui.set_min_width(110.0);
+                    ui.set_max_width(190.0);
+                    ui.horizontal(|ui| {
+                        if tab.is_loading() {
+                            ui.add(Spinner::new().size(12.0).color(text));
+                        }
+                        let title = truncate(tab.display_title(), TITLE_CHARS);
+                        let label = ui
                             .add(
-                                Button::new(
-                                    RichText::new(icon::X)
-                                        .color(text.gamma_multiply(0.6))
-                                        .small(),
-                                )
-                                .frame(false),
+                                egui::Label::new(RichText::new(title).color(text))
+                                    .selectable(false)
+                                    .sense(Sense::click()),
                             )
-                            .on_hover_text("Close tab (Ctrl+W)");
-                        if close.clicked() {
+                            .on_hover_text(tab.display_title());
+                        if label.clicked() {
+                            commands.push(Command::Activate(tab.id()));
+                        }
+                        if label.middle_clicked() {
                             commands.push(Command::CloseTab(tab.id()));
                         }
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let close = ui
+                                .add(
+                                    Button::new(
+                                        RichText::new(icon::X)
+                                            .color(text.gamma_multiply(0.6))
+                                            .small(),
+                                    )
+                                    .frame(false),
+                                )
+                                .on_hover_text("Close tab (Ctrl+W)");
+                            hover_glow(ui, &close);
+                            if close.clicked() {
+                                commands.push(Command::CloseTab(tab.id()));
+                            }
+                        });
                     });
-                });
+                })
             })
             .response;
-        let response = response.interact(Sense::click());
         if !active && response.hovered() {
             ui.painter().rect_filled(
                 response.rect,
@@ -115,6 +120,20 @@ pub fn show(ui: &mut egui::Ui, session: &Session, commands: &mut Vec<Command>) {
         if response.middle_clicked() {
             commands.push(Command::CloseTab(tab.id()));
         }
+    }
+}
+
+/// A light disc under a hovered button: egui's own hover color (night)
+/// hardly shows on the gradient.
+fn hover_glow(ui: &egui::Ui, button: &egui::Response) {
+    if button.hovered() {
+        let r = button.rect;
+        ui.painter().circle_filled(
+            r.center(),
+            r.width().max(r.height()) * 0.55,
+            Color32::from_white_alpha(46),
+        );
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
 }
 
