@@ -7,16 +7,19 @@
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use adblock::Engine;
-use adblock::lists::{FilterSet, ParseOptions, parse_filter};
+use adblock::lists::{FilterSet, ParseOptions, RuleTypes, parse_filter};
 use adblock::request::Request;
 use domain::{ResourceType, Settings, WebAddress, allowlisted};
 use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 
 use crate::extensions::Download;
+use crate::extensions::safari::MAX_RULES;
 use crate::files;
 
 /// The lists: file name in the cache, address.
@@ -184,6 +187,8 @@ impl BlockerPolicy {
 #[derive(Clone, Default)]
 pub struct BlockerHandle {
     engine: Arc<RwLock<Option<Arc<Blocker>>>>,
+    /// Counts the engines set, to notice a new one.
+    generation: Arc<AtomicU64>,
     policy: Arc<RwLock<BlockerPolicy>>,
 }
 
@@ -197,6 +202,12 @@ impl BlockerHandle {
 
     pub fn set(&self, blocker: Blocker) {
         *self.engine.write().unwrap_or_else(|p| p.into_inner()) = Some(Arc::new(blocker));
+        self.generation.fetch_add(1, Ordering::AcqRel);
+    }
+
+    /// Changes each time an engine is set.
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Ordering::Acquire)
     }
 
     pub fn policy(&self) -> BlockerPolicy {
@@ -231,6 +242,94 @@ impl BlockerHandle {
             _ => String::new(),
         }
     }
+}
+
+/// Notices when the engine or the policy of a handle changed (WebKit's
+/// content rules are then made again).
+#[derive(Default)]
+pub struct BlockerChanges {
+    seen: Option<(u64, BlockerPolicy)>,
+}
+
+impl BlockerChanges {
+    /// Whether `handle` changed since the last call (true the first time).
+    pub fn changed(&mut self, handle: &BlockerHandle) -> bool {
+        let now = (handle.generation(), handle.policy());
+        if self.seen.as_ref() == Some(&now) {
+            return false;
+        }
+        self.seen = Some(now);
+        true
+    }
+}
+
+/// The lists' network rules as a WebKit content rule list (JSON), then, per
+/// allowlisted host, a rule cancelling them on its pages (and its
+/// subdomains'). Cosmetic filters are left to the page script.
+pub fn webkit_rules(lists: &[&str], allowlist: &[String]) -> String {
+    let mut set = FilterSet::new(true);
+    let options = ParseOptions {
+        rule_types: RuleTypes::NetworkOnly,
+        ..ParseOptions::default()
+    };
+    for list in lists {
+        set.add_filter_list(list.to_string(), options);
+    }
+    let hosts: Vec<String> = allowlist
+        .iter()
+        .map(|h| {
+            let h = h.trim().trim_end_matches('.').to_ascii_lowercase();
+            h.strip_prefix("www.").map(str::to_owned).unwrap_or(h)
+        })
+        .filter(|h| !h.is_empty() && h.is_ascii())
+        .collect();
+    let mut rules: Vec<Value> = set
+        .into_content_blocking()
+        .map(|(rules, _)| rules)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|r| serde_json::to_value(r).ok())
+        .collect();
+    let room = MAX_RULES.saturating_sub(hosts.len());
+    if rules.len() > room {
+        log::warn!(
+            "blocker: {} WebKit rules, only the first {room} are kept",
+            rules.len()
+        );
+        rules.truncate(room);
+    }
+    for host in hosts {
+        rules.push(json!({
+            "trigger": {"url-filter": ".*", "if-domain": [format!("*{host}")]},
+            "action": {"type": "ignore-previous-rules"},
+        }));
+    }
+    Value::Array(rules).to_string()
+}
+
+/// WebKit's rules for the lists cached in `dir` under `policy`; `None` when
+/// the blocker is off or no list is cached yet.
+pub fn webkit_rules_in(dir: &Path, policy: &BlockerPolicy) -> Option<String> {
+    if !policy.enabled {
+        return None;
+    }
+    let lists = cached_lists(dir);
+    if lists.is_empty() {
+        return None;
+    }
+    let json = webkit_rules(
+        &lists.iter().map(String::as_str).collect::<Vec<_>>(),
+        &policy.allowlist,
+    );
+    Some(json)
+}
+
+/// The lists cached in `dir`.
+fn cached_lists(dir: &Path) -> Vec<String> {
+    LISTS
+        .iter()
+        .filter_map(|(name, _)| fs::read_to_string(dir.join(name)).ok())
+        .collect()
 }
 
 /// `state.json`: when the lists were last checked and last downloaded (unix
@@ -288,10 +387,7 @@ impl BlockerLists {
 
     /// The engine from the cached lists.
     fn build(&self) -> Option<Blocker> {
-        let lists: Vec<String> = LISTS
-            .iter()
-            .filter_map(|(name, _)| fs::read_to_string(self.dir.join(name)).ok())
-            .collect();
+        let lists = cached_lists(&self.dir);
         Blocker::from_lists(&lists.iter().map(String::as_str).collect::<Vec<_>>())
     }
 
@@ -532,6 +628,65 @@ b.test##.other-ad
         fs::write(dir.path().join(ENGINE_FILE), b"garbage").unwrap();
         let b = lists.load_cached().unwrap();
         assert!(b.should_block("https://ads.test/x.js", PAGE, Some(ResourceType::Script)));
+    }
+
+    #[test]
+    fn network_rules_become_webkit_blocks() {
+        let json: Value = serde_json::from_str(&webkit_rules(&[LIST], &[])).unwrap();
+        let rules = json.as_array().unwrap();
+        assert!(rules.iter().any(|r| r["action"]["type"] == "block"
+            && r["trigger"]["url-filter"].as_str().unwrap().contains("ads")));
+        // Cosmetic filters are left to the page script.
+        assert!(
+            rules
+                .iter()
+                .all(|r| r["action"]["type"] != "css-display-none")
+        );
+    }
+
+    #[test]
+    fn allowlisted_hosts_cancel_the_rules_last() {
+        let allowlist = vec!["WWW.LeMonde.fr".to_string(), "".to_string()];
+        let json: Value = serde_json::from_str(&webkit_rules(&[LIST], &allowlist)).unwrap();
+        let last = json.as_array().unwrap().last().unwrap().clone();
+        assert_eq!(
+            last,
+            json!({
+                "trigger": {"url-filter": ".*", "if-domain": ["*lemonde.fr"]},
+                "action": {"type": "ignore-previous-rules"},
+            })
+        );
+    }
+
+    #[test]
+    fn webkit_rules_follow_the_policy_and_the_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let on = BlockerPolicy::default();
+        assert!(webkit_rules_in(dir.path(), &on).is_none());
+        fs::write(dir.path().join("easylist.txt"), LIST).unwrap();
+        assert!(webkit_rules_in(dir.path(), &on).is_some());
+        let off = BlockerPolicy {
+            enabled: false,
+            ..on
+        };
+        assert!(webkit_rules_in(dir.path(), &off).is_none());
+    }
+
+    #[test]
+    fn changes_are_noticed_once() {
+        let handle = BlockerHandle::default();
+        let mut changes = BlockerChanges::default();
+        assert!(changes.changed(&handle));
+        assert!(!changes.changed(&handle));
+        handle.set(blocker());
+        assert!(changes.changed(&handle));
+        assert!(!changes.changed(&handle));
+        handle.set_policy(BlockerPolicy {
+            enabled: true,
+            allowlist: vec!["a.test".into()],
+        });
+        assert!(changes.changed(&handle));
+        assert!(!changes.changed(&handle));
     }
 
     #[test]

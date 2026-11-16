@@ -119,8 +119,10 @@ pub struct WryEngine {
     #[cfg(windows)]
     tab_pages: HashMap<TabId, std::rc::Rc<std::cell::RefCell<String>>>,
     /// The built-in ad blocker.
-    #[cfg_attr(not(windows), allow(dead_code))]
     blocker: BlockerHandle,
+    /// macOS, Linux: when its WebKit rules must be made again.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    blocker_changes: crate::blocker::BlockerChanges,
     /// Windows: what the ad blocker stopped on each tab's page.
     #[cfg(windows)]
     blocked: HashMap<TabId, Rc<std::cell::Cell<u32>>>,
@@ -257,6 +259,8 @@ impl WryEngine {
             #[cfg(windows)]
             tab_pages: HashMap::new(),
             blocker,
+            #[cfg(any(target_os = "macos", target_os = "linux"))]
+            blocker_changes: Default::default(),
             #[cfg(windows)]
             blocked: HashMap::new(),
             #[cfg(windows)]
@@ -279,9 +283,17 @@ impl WryEngine {
             gtk::main_iteration_do(false);
         }
         #[cfg(any(target_os = "macos", target_os = "linux"))]
-        if let Some(list) = self.rule_lists.poll() {
-            for view in self.views.values() {
-                crate::webkit_rules::RuleLists::apply(view, list);
+        {
+            // New lists or settings: the ad blocker's rules again.
+            if self.blocker_changes.changed(&self.blocker) {
+                let (policy, dir) = (self.blocker.policy(), crate::blocker_dir());
+                self.rule_lists
+                    .update_blocker(move || crate::blocker::webkit_rules_in(&dir?, &policy));
+            }
+            if let Some(lists) = self.rule_lists.poll() {
+                for view in self.views.values() {
+                    crate::webkit_rules::RuleLists::apply(view, &lists);
+                }
             }
         }
         self.measure_panel();

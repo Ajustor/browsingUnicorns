@@ -1,9 +1,9 @@
-//! Extensions' network rules on WebKit (macOS, Linux): converted to a content
-//! rule list on a worker thread, compiled by WebKit, then attached to every
-//! web view.
+//! Content rule lists on WebKit (macOS, Linux): the extensions' network
+//! rules and the ad blocker's, each converted on a worker thread, compiled
+//! by WebKit, then attached to every web view.
 
 use std::cell::RefCell;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::mpsc::{self, Receiver, Sender};
 
@@ -11,9 +11,11 @@ use domain::Extensions;
 use wry::WebView;
 
 use crate::extensions::{rule_set, safari};
+use crate::wry_engine::Waker;
 
-/// The list's name in WebKit's store: compiling again replaces it.
-const IDENTIFIER: &str = "browsingunicorns-extensions";
+/// The lists' names in WebKit's store: compiling again replaces them.
+const EXTENSIONS: &str = "browsingunicorns-extensions";
+const BLOCKER: &str = "bu-blocker";
 
 type Compiled = platform::Compiled;
 
@@ -25,10 +27,9 @@ enum State {
     Ready(u64, Option<Compiled>),
 }
 
-pub struct RuleLists {
-    extensions_dir: PathBuf,
-    state_dir: PathBuf,
-    store_dir: PathBuf,
+/// One content rule list: the latest conversion asked wins.
+struct Slot {
+    identifier: &'static str,
     generation: u64,
     tx: Sender<(u64, Option<String>)>,
     rx: Receiver<(u64, Option<String>)>,
@@ -36,56 +37,35 @@ pub struct RuleLists {
     compiled: Rc<RefCell<State>>,
     /// What the web views have.
     current: Option<Compiled>,
-    waker: crate::wry_engine::Waker,
 }
 
-impl RuleLists {
-    pub fn new(
-        extensions_dir: PathBuf,
-        state_dir: PathBuf,
-        store_dir: PathBuf,
-        waker: crate::wry_engine::Waker,
-    ) -> Self {
+impl Slot {
+    fn new(identifier: &'static str) -> Self {
         let (tx, rx) = mpsc::channel();
         Self {
-            extensions_dir,
-            state_dir,
-            store_dir,
+            identifier,
             generation: 0,
             tx,
             rx,
             compiled: Rc::default(),
             current: None,
-            waker,
         }
     }
 
-    /// Converts the rules of `extensions` in the background.
-    pub fn update(&mut self, extensions: &Extensions) {
+    /// Runs `convert` (the list as JSON, `None` for no rules) in the
+    /// background.
+    fn update(&mut self, waker: &Waker, convert: impl FnOnce() -> Option<String> + Send + 'static) {
         self.generation += 1;
-        let (generation, dir, state_dir, extensions, tx, waker) = (
-            self.generation,
-            self.extensions_dir.clone(),
-            self.state_dir.clone(),
-            extensions.clone(),
-            self.tx.clone(),
-            self.waker.clone(),
-        );
+        let (generation, tx, waker) = (self.generation, self.tx.clone(), waker.clone());
         std::thread::spawn(move || {
-            let rules = rule_set(&dir, Some(&state_dir), &extensions);
-            let json = (!rules.is_empty()).then(|| {
-                let (json, count) = safari::content_rule_list(&rules);
-                log::info!("extensions: {count} WebKit rules");
-                json
-            });
+            let json = convert();
             let _ = tx.send((generation, json));
             waker();
         });
     }
 
-    /// Call once per frame. Hands converted rules to WebKit, and returns
-    /// the compiled list when the web views should change to it.
-    pub fn poll(&mut self) -> Option<Option<&Compiled>> {
+    /// Hands converted rules to WebKit; whether `current` changed.
+    fn poll(&mut self, store_dir: &Path, waker: &Waker) -> bool {
         while let Ok((generation, json)) = self.rx.try_recv() {
             if generation != self.generation {
                 continue;
@@ -94,17 +74,20 @@ impl RuleLists {
                 None => *self.compiled.borrow_mut() = State::Ready(generation, None),
                 Some(json) => {
                     let slot = self.compiled.clone();
-                    let waker = self.waker.clone();
+                    let waker = waker.clone();
+                    let identifier = self.identifier;
                     platform::compile(
-                        &self.store_dir,
-                        IDENTIFIER,
+                        store_dir,
+                        identifier,
                         json,
                         Box::new(move |result| {
                             match result {
                                 Ok(list) => {
                                     *slot.borrow_mut() = State::Ready(generation, Some(list))
                                 }
-                                Err(e) => log::warn!("extensions: WebKit refused the rules: {e}"),
+                                Err(e) => {
+                                    log::warn!("{identifier}: WebKit refused the rules: {e}")
+                                }
                             }
                             waker();
                         }),
@@ -116,21 +99,88 @@ impl RuleLists {
         match state {
             State::Ready(generation, list) if generation == self.generation => {
                 self.current = list;
-                Some(self.current.as_ref())
+                true
             }
-            _ => None,
+            _ => false,
         }
+    }
+}
+
+pub struct RuleLists {
+    extensions_dir: PathBuf,
+    state_dir: PathBuf,
+    store_dir: PathBuf,
+    extensions: Slot,
+    blocker: Slot,
+    waker: Waker,
+}
+
+impl RuleLists {
+    pub fn new(
+        extensions_dir: PathBuf,
+        state_dir: PathBuf,
+        store_dir: PathBuf,
+        waker: Waker,
+    ) -> Self {
+        Self {
+            extensions_dir,
+            state_dir,
+            store_dir,
+            extensions: Slot::new(EXTENSIONS),
+            blocker: Slot::new(BLOCKER),
+            waker,
+        }
+    }
+
+    /// Converts the rules of `extensions` in the background.
+    pub fn update(&mut self, extensions: &Extensions) {
+        let (dir, state_dir, extensions) = (
+            self.extensions_dir.clone(),
+            self.state_dir.clone(),
+            extensions.clone(),
+        );
+        self.extensions.update(&self.waker, move || {
+            let rules = rule_set(&dir, Some(&state_dir), &extensions);
+            (!rules.is_empty()).then(|| {
+                let (json, count) = safari::content_rule_list(&rules);
+                log::info!("extensions: {count} WebKit rules");
+                json
+            })
+        });
+    }
+
+    /// The ad blocker's rules, from `convert` in the background (`None`:
+    /// none).
+    pub fn update_blocker(&mut self, convert: impl FnOnce() -> Option<String> + Send + 'static) {
+        self.blocker.update(&self.waker, convert);
+    }
+
+    /// Call once per frame. Hands converted rules to WebKit, and returns
+    /// the compiled lists when the web views should change to them.
+    pub fn poll(&mut self) -> Option<Vec<&Compiled>> {
+        let extensions = self.extensions.poll(&self.store_dir, &self.waker);
+        let blocker = self.blocker.poll(&self.store_dir, &self.waker);
+        (extensions || blocker).then(|| self.lists())
+    }
+
+    fn lists(&self) -> Vec<&Compiled> {
+        self.extensions
+            .current
+            .iter()
+            .chain(self.blocker.current.iter())
+            .collect()
     }
 
     /// Gives a new web view the current rules.
     pub fn attach(&self, view: &WebView) {
-        if self.current.is_some() {
-            platform::apply(view, self.current.as_ref());
+        let lists = self.lists();
+        if !lists.is_empty() {
+            platform::apply(view, &lists);
         }
     }
 
-    pub fn apply(view: &WebView, list: Option<&Compiled>) {
-        platform::apply(view, list);
+    pub fn apply(view: &WebView, lists: &[&Compiled]) {
+        platform::apply(view, lists);
     }
 }
 
@@ -184,11 +234,11 @@ mod platform {
         }
     }
 
-    pub fn apply(view: &WebView, list: Option<&Compiled>) {
+    pub fn apply(view: &WebView, lists: &[&Compiled]) {
         let manager = view.manager();
         unsafe {
             manager.removeAllContentRuleLists();
-            if let Some(list) = list {
+            for list in lists.iter().copied() {
                 manager.addContentRuleList(list);
             }
         }
@@ -264,14 +314,14 @@ mod platform {
         }
     }
 
-    pub fn apply(view: &WebView, list: Option<&Compiled>) {
+    pub fn apply(view: &WebView, lists: &[&Compiled]) {
         let Some(manager) = view.webview().user_content_manager() else {
             return;
         };
         let manager: *mut ffi::WebKitUserContentManager = manager.to_glib_none().0;
         unsafe {
             ffi::webkit_user_content_manager_remove_all_filters(manager);
-            if let Some(list) = list {
+            for list in lists {
                 ffi::webkit_user_content_manager_add_filter(manager, list.0);
             }
         }
