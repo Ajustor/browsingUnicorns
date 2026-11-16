@@ -274,23 +274,35 @@ impl WryEngine {
             return;
         }
         self.panel_measured = Some(std::time::Instant::now());
-        // The width the content wants (no wrapping), its height at the
-        // current width; in physical pixels.
-        const MEASURE: &str = "(() => { const d = document.documentElement; if (!d) return '';\
-            const old = d.style.width; d.style.width = 'max-content';\
-            const w = Math.ceil(d.getBoundingClientRect().width); d.style.width = old;\
-            const h = Math.ceil(Math.max(d.scrollHeight, document.body ? document.body.scrollHeight : 0));\
-            const r = window.devicePixelRatio || 1;\
-            return [Math.min(Math.max(w, 120), 800) * r, Math.min(Math.max(h, 40), 600) * r].map(Math.round).join(','); })()";
+        // Once, when it opens: the width the content wants (no wrapping),
+        // found by laying the page out at `max-content` for a moment. Then
+        // only its height at that width: reading it changes nothing (doing
+        // the width trick again every time made pages relayout, and blink).
+        const MEASURE: &str = "(() => { const d = document.documentElement; if (!d) return '';            const old = d.style.width; d.style.width = 'max-content';            const w = Math.ceil(d.getBoundingClientRect().width); d.style.width = old;            const h = Math.ceil(Math.max(d.scrollHeight, document.body ? document.body.scrollHeight : 0));            const r = window.devicePixelRatio || 1;            return [Math.min(Math.max(w, 120), 800) * r, Math.min(Math.max(h, 40), 600) * r].map(Math.round).join(','); })()";
+        const HEIGHT: &str = "(() => { const d = document.documentElement; if (!d) return '';            const h = Math.ceil(Math.max(d.scrollHeight, document.body ? document.body.scrollHeight : 0));            return String(Math.round(Math.min(Math.max(h, 40), 600) * (window.devicePixelRatio || 1))); })()";
         let size = self.panel_size.clone();
+        let known_width = size
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .map(|(w, _)| w);
+        let script = if known_width.is_some() {
+            HEIGHT
+        } else {
+            MEASURE
+        };
         let waker = self.waker.clone();
-        let _ = view.evaluate_script_with_callback(MEASURE, move |result| {
+        let _ = view.evaluate_script_with_callback(script, move |result| {
             let text = result.trim_matches('"');
             let mut parts = text.split(',').filter_map(|p| p.parse::<u32>().ok());
-            if let (Some(w), Some(h)) = (parts.next(), parts.next()) {
+            let measured = match (known_width, parts.next(), parts.next()) {
+                (Some(w), Some(h), None) => Some((w, h)),
+                (None, Some(w), Some(h)) => Some((w, h)),
+                _ => None,
+            };
+            if let Some(measured) = measured {
                 let mut slot = size.lock().unwrap_or_else(|p| p.into_inner());
-                if *slot != Some((w, h)) {
-                    *slot = Some((w, h));
+                if *slot != Some(measured) {
+                    *slot = Some(measured);
                     waker();
                 }
             }
