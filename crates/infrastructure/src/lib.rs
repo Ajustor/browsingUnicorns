@@ -21,6 +21,8 @@ mod page_injection;
 pub mod page_scripts;
 #[cfg(feature = "desktop")]
 mod parent_window;
+#[cfg(feature = "desktop")]
+mod private_data;
 pub mod profiles;
 pub mod script_storage;
 mod settings_store;
@@ -47,6 +49,8 @@ pub use json_store::JsonRepository;
 pub use memory_store::{MemoryRepository, NOT_IN_PRIVATE, ReadOnlyRepository};
 #[cfg(feature = "desktop")]
 pub use parent_window::ParentWindow;
+#[cfg(feature = "desktop")]
+pub use private_data::{PrivateDataDir, clean_leftovers};
 pub use settings_store::TomlSettingsRepository;
 #[cfg(feature = "desktop")]
 pub use wry_engine::{EngineFiles, KeyPress, WryEngine, builtin_extensions};

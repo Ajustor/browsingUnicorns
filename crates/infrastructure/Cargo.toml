@@ -29,6 +29,7 @@ desktop = [
     "dep:objc2-web-kit",
     "dep:block2",
     "dep:x509-parser",
+    "dep:libc",
 ]
 
 [dependencies]
@@ -88,7 +89,12 @@ block2 = { version = "0.6", optional = true }
 webview2-com = { version = "0.39", optional = true }
 windows-core = { version = "0.62", optional = true }
 # The network rules' answers (SHCreateMemStream for a stand-in's body).
-windows = { version = "0.62", features = ["Win32_UI_Shell", "Win32_System_Com", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_Registry"], optional = true }
+# Threading: whether the process of a private window's leftover still runs.
+windows = { version = "0.62", features = ["Win32_UI_Shell", "Win32_System_Com", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_Registry", "Win32_Foundation", "Win32_System_Threading"], optional = true }
+
+# Whether the process of a private window's leftover still runs (`kill(pid, 0)`).
+[target.'cfg(unix)'.dependencies]
+libc = { version = "0.2", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
