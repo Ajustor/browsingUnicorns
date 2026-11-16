@@ -191,6 +191,25 @@ pub fn chrome_frame() -> Frame {
         .inner_margin(Margin::symmetric(8, 5))
 }
 
+/// A section pill of the side panel; the selected one is violet, the
+/// gradient's middle.
+pub fn pill(ui: &mut egui::Ui, selected: bool, text: impl Into<String>) -> egui::Response {
+    let text_color = if selected {
+        Color32::WHITE
+    } else {
+        ui.visuals().text_color()
+    };
+    let button = egui::Button::new(egui::RichText::new(text.into()).color(text_color))
+        .corner_radius(CornerRadius::same(255))
+        .fill(if selected {
+            GRADIENT[1]
+        } else {
+            ui.visuals().faint_bg_color
+        })
+        .stroke(Stroke::NONE);
+    ui.add(button)
+}
+
 /// Chrome widgets (toolbar, tab strip, bookmarks bar): always dark, lavender
 /// text, rounded hover, cyan focus. Call at the start of their `ui`.
 pub fn chrome_style(ui: &mut egui::Ui) {

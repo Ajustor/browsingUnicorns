@@ -108,7 +108,7 @@ impl Library {
                                 ),
                                 (LibraryView::About, format!("{} About", icon::INFO)),
                             ] {
-                                if ui.selectable_label(view == v, label).clicked() && view != v {
+                                if super::theme::pill(ui, view == v, label).clicked() && view != v {
                                     commands.push(Command::ToggleLibrary(v));
                                 }
                             }
