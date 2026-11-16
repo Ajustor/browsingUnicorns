@@ -34,7 +34,7 @@ import uniffi.mobile.WebViewHost
  * background pages, and one for an extension popup. The Rust core decides
  * what to open and show (WebViewHost); the WebViews report back what happens.
  */
-class WebViews(private val context: Context) : WebViewHost {
+class WebViews(private val context: Context, private val downloads: Downloads) : WebViewHost {
     val container = FrameLayout(context)
     private val views = HashMap<ULong, WebView>()
 
@@ -229,6 +229,10 @@ class WebViews(private val context: Context) : WebViewHost {
         settings.builtInZoomControls = true
         settings.displayZoomControls = false
         addJavascriptInterface(Bridge(PageTarget.Tab(tab)), "BUBridge")
+        addJavascriptInterface(downloads.Bridge(), "BUDownloads")
+        setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
+            downloads.start(this, url, userAgent, contentDisposition, mimeType, pages[tab])
+        }
         webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
                 pages[tab] = url

@@ -22,7 +22,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        val views = WebViews(this)
+        val downloads = Downloads(this)
+        val views = WebViews(this, downloads)
         val browser = MobileBrowser(
             dataDir = filesDir.absolutePath,
             deviceName = Build.MODEL ?: "Android",
@@ -32,6 +33,7 @@ class MainActivity : ComponentActivity() {
         )
         views.browser = browser
         controller = BrowserController(browser, views, AppUpdates(this, lifecycleScope), lifecycleScope)
+        downloads.onMessage = { controller.message = it }
         controller.act { restoreSession() }
         openFromIntent(intent)
 
