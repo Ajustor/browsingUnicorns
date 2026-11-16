@@ -76,4 +76,7 @@ dependencies {
     // Google's scanner UI runs in Play services).
     implementation("com.google.zxing:core:3.5.4")
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
+    // Play services bring Fragment 1.0, whose activity breaks the permission
+    // requests of the ActivityResult API (downloads on Android 8-9).
+    implementation("androidx.fragment:fragment:1.8.9")
 }
