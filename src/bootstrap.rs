@@ -53,6 +53,16 @@ pub fn private_setup(private: bool) -> Setup {
     }
 }
 
+/// A tab moved to its own window: the profile's window, still open, keeps
+/// the session, the sync, the updates and the ad blocker's lists.
+pub const TAB_WINDOW: Setup = Setup {
+    restore_session: false,
+    extensions: true,
+    sync: false,
+    updates: false,
+    blocker_refresh: false,
+};
+
 pub fn build(
     cc: &eframe::CreationContext<'_>,
     exit_slot: ExitSlot,
@@ -73,7 +83,11 @@ pub fn build(
     let profile_dir = dirs.dir(&current);
     // What crashed private windows left behind.
     infrastructure::clean_leftovers();
-    let setup = private_setup(args.private);
+    let setup = if args.tab_window && !args.private {
+        TAB_WINDOW
+    } else {
+        private_setup(args.private)
+    };
     // A private window writes nothing under the profile: what the engine
     // and the add-ons keep goes to a temporary folder, deleted at exit.
     let private_data = if args.private {
@@ -85,7 +99,7 @@ pub fn build(
         .as_ref()
         .map_or_else(|| profile_dir.clone(), |d| d.path().to_path_buf());
     // The normal window of the profile keeps its lock.
-    let lock = if args.private {
+    let lock = if args.private || args.tab_window {
         None
     } else {
         let lock = ProfileLock::acquire(&profile_dir);
@@ -136,6 +150,8 @@ pub fn build(
 
     let profile = if args.private {
         infrastructure::private_profile(&profile_dir, settings.clone())
+    } else if args.tab_window {
+        infrastructure::tab_window_profile(&profile_dir, settings_repo)
     } else {
         infrastructure::json_profile(&profile_dir, settings_repo)
     };

@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 use application::Browser;
 use application::ports::{EngineEvent, PageSource, Viewport, WebEngine as _};
+use domain::TabId;
 use egui::{CentralPanel, Frame, TopBottomPanel, ViewportCommand};
 use infrastructure::{NOT_IN_PRIVATE, PrivateDataDir, WryEngine};
 use updater::ExitAction;
@@ -230,6 +231,10 @@ impl BrowserApp {
                 settings.blocker = on;
                 self.change_blocker(settings)
             }
+            Command::DetachTab(id, geometry) => {
+                let r = self.detach_tab(id, geometry);
+                return self.report_err(r);
+            }
             Command::OpenPrivateWindow => {
                 let r = infrastructure::profiles::open_private_window(&self.profiles.current().id)
                     .map_err(|e| format!("Could not open a private window: {e}"));
@@ -243,6 +248,27 @@ impl BrowserApp {
         if let Err(e) = result {
             self.report(e);
         }
+    }
+
+    /// Opens tab `id`'s page in a window of its own and closes the tab. Not
+    /// in a private window (a new one would not share its cookies), nor for
+    /// the last tab.
+    fn detach_tab(&mut self, id: TabId, geometry: [f32; 4]) -> Result<(), String> {
+        let session = self.browser.session();
+        if self.is_private() || session.len() < 2 {
+            return Ok(());
+        }
+        let Some(address) = session.tab(id).and_then(|t| t.address()) else {
+            return Ok(());
+        };
+        infrastructure::profiles::open_tab_window(
+            &self.profiles.current().id,
+            address.as_str(),
+            geometry,
+        )
+        .map_err(|e| format!("Could not open a new window: {e}"))?;
+        self.browser.close_tab(id);
+        Ok(())
     }
 
     fn report_err(&mut self, result: Result<(), String>) {
@@ -328,6 +354,7 @@ impl BrowserApp {
             | Command::SetBlocker(_)
             | Command::Profile(_)
             | Command::OpenPrivateWindow
+            | Command::DetachTab(..)
             | Command::ToggleExtensionPopup { .. } => unreachable!("handled by run"),
         }
     }
@@ -701,7 +728,21 @@ impl eframe::App for BrowserApp {
             },
             &mut commands,
         );
-        CentralPanel::default().frame(Frame::NONE).show(ctx, |ui| {
+        // Without the system's frame, a thin border around the page is
+        // where the window is resized: the page's native view would take
+        // the pointer.
+        let border = if super::window_frame::resizable(ctx) {
+            super::window_frame::BORDER as i8
+        } else {
+            0
+        };
+        let page_frame = Frame::NONE.fill(chrome.night).inner_margin(egui::Margin {
+            left: border,
+            right: border,
+            top: 0,
+            bottom: border,
+        });
+        CentralPanel::default().frame(page_frame).show(ctx, |ui| {
             // The active page's native view is laid over this area.
             let rect = ui.max_rect();
             let ppp = ctx.pixels_per_point();
@@ -717,6 +758,7 @@ impl eframe::App for BrowserApp {
             self.run(command);
         }
         self.place_popup(ctx);
+        super::window_frame::resize_edges(ctx);
 
         if self.close_requested || self.browser.session().is_empty() {
             ctx.send_viewport_cmd(ViewportCommand::Close);

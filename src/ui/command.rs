@@ -16,6 +16,8 @@ pub enum Command {
     Activate(TabId),
     /// Moves a tab to that index of the tab strip.
     MoveTab(TabId, usize),
+    /// Moves a tab to a new window: x, y, width, height on the screen.
+    DetachTab(TabId, [f32; 4]),
     CycleTabs(isize),
     Back,
     Forward,

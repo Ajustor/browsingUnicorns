@@ -91,6 +91,24 @@ pub fn open_window(id: &ProfileId) -> std::io::Result<()> {
         .map(drop)
 }
 
+/// Where and how big a window opens, in points: x, y, width, height.
+pub type Geometry = [f32; 4];
+
+/// Opens `url` in a new window of profile `id` (its own process), at
+/// `geometry`: a tab dragged out of its window.
+pub fn open_tab_window(id: &ProfileId, url: &str, geometry: Geometry) -> std::io::Result<()> {
+    let exe = std::env::current_exe()?;
+    let [x, y, w, h] = geometry.map(|v| v.round() as i64);
+    std::process::Command::new(exe)
+        .arg("--profile")
+        .arg(id.as_str())
+        .arg("--tab-window")
+        .arg(format!("--geometry={x},{y},{w},{h}"))
+        .arg(url)
+        .spawn()
+        .map(drop)
+}
+
 /// Starts a private window on profile `id` (its own process).
 pub fn open_private_window(id: &ProfileId) -> std::io::Result<()> {
     let exe = std::env::current_exe()?;

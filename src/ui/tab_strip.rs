@@ -7,6 +7,19 @@ use super::command::Command;
 
 const TITLE_CHARS: usize = 24;
 
+/// How far under the tab strip a tab must be dropped to get its own window
+/// (outside the window works too, but a maximized one has no outside).
+const DETACH_BELOW: f32 = 90.0;
+
+/// Room left of the tabs for macOS's window buttons, drawn over the strip.
+const MACOS_BUTTONS: f32 = 72.0;
+
+/// Width of the window's buttons (Windows, Linux).
+const WINDOW_BUTTONS: f32 = 3.0 * 46.0;
+
+/// The tab strip, which is also the window's title bar: its empty space
+/// moves the window (double click: maximize), and it ends with the window's
+/// buttons (but on macOS, where the system draws them on its left).
 pub fn show(
     ui: &mut egui::Ui,
     session: &Session,
@@ -14,16 +27,25 @@ pub fn show(
     private: bool,
     commands: &mut Vec<Command>,
 ) {
+    title_bar(ui);
     ui.spacing_mut().item_spacing.x = 3.0;
     ui.horizontal(|ui| {
+        if cfg!(target_os = "macos") {
+            ui.add_space(MACOS_BUTTONS);
+        }
         if private {
             private_pill(ui, chrome);
         }
+        let controls = if cfg!(target_os = "macos") {
+            0.0
+        } else {
+            WINDOW_BUTTONS
+        };
         // As wide as the tabs: the + follows the last one (room kept for it
         // when they overflow).
         ScrollArea::horizontal()
             .auto_shrink([true, true])
-            .max_width(ui.available_width() - 32.0)
+            .max_width(ui.available_width() - 32.0 - controls)
             .drag_to_scroll(false)
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
@@ -51,6 +73,11 @@ pub fn show(
         hover_glow(ui, &plus);
         if plus.clicked() {
             commands.push(Command::NewTab);
+        }
+        if !cfg!(target_os = "macos") {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                window_buttons(ui);
+            });
         }
     });
 
@@ -132,7 +159,8 @@ pub fn show(
                 },
             )
             .response;
-        if !active && response.hovered() {
+        // Over the title or the close button too, which sit on top of it.
+        if !active && response.contains_pointer() {
             ui.painter().rect_filled(
                 response.rect,
                 egui::CornerRadius {
@@ -154,7 +182,66 @@ pub fn show(
     }
 }
 
+/// The strip's empty space, sensed under the tabs and buttons: dragged, it
+/// moves the window; double-clicked, it maximizes or restores it.
+fn title_bar(ui: &egui::Ui) {
+    let rect = ui.max_rect().expand2(egui::vec2(8.0, 6.0));
+    let bar = ui.interact(rect, ui.id().with("title bar"), Sense::click_and_drag());
+    if bar.double_clicked() {
+        let maximized = ui.ctx().input(|i| i.viewport().maximized == Some(true));
+        ui.ctx()
+            .send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
+    } else if bar.drag_started_by(egui::PointerButton::Primary) {
+        ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+    }
+}
+
+/// Close, maximize or restore, minimize (right to left), as tall as the
+/// strip.
+fn window_buttons(ui: &mut egui::Ui) {
+    let ctx = ui.ctx().clone();
+    let maximized = ctx.input(|i| i.viewport().maximized == Some(true));
+    ui.spacing_mut().item_spacing.x = 0.0;
+    let height = ui.available_height().max(30.0);
+    let mut button = |glyph: &str, tip: &str, danger: bool| {
+        let (rect, response) = ui.allocate_exact_size(egui::vec2(46.0, height), Sense::click());
+        // Up to the window's top edge.
+        let rect = egui::Rect::from_min_max(egui::pos2(rect.left(), 0.0), rect.max);
+        if response.hovered() {
+            let fill = if danger {
+                Color32::from_rgb(0xc4, 0x2b, 0x1c)
+            } else {
+                Color32::from_white_alpha(36)
+            };
+            ui.painter().rect_filled(rect, 0.0, fill);
+        }
+        ui.painter().text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            glyph,
+            egui::FontId::proportional(15.0),
+            Color32::WHITE,
+        );
+        response.on_hover_text(tip).clicked()
+    };
+    if button(icon::X, "Close", true) {
+        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+    }
+    let (glyph, tip) = if maximized {
+        (icon::COPY_SIMPLE, "Restore")
+    } else {
+        (icon::SQUARE, "Maximize")
+    };
+    if button(glyph, tip, false) {
+        ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
+    }
+    if button(icon::MINUS, "Minimize", false) {
+        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+    }
+}
+
 /// A tab being dragged: a bar where it would land; dropped, it moves there.
+/// Dropped out of the window, or well under the strip, it gets its own.
 fn drag_tab(
     ui: &egui::Ui,
     rects: &[egui::Rect],
@@ -163,9 +250,21 @@ fn drag_tab(
     dropped: bool,
     commands: &mut Vec<Command>,
 ) {
-    let Some(pointer) = ui.ctx().pointer_latest_pos() else {
+    let ctx = ui.ctx();
+    let Some(pointer) = ctx.pointer_latest_pos() else {
         return;
     };
+    if detaches(ctx.screen_rect(), rects[from], pointer) {
+        if rects.len() < 2 {
+            return;
+        }
+        if dropped {
+            commands.push(Command::DetachTab(id, new_window_at(ctx, pointer)));
+        } else {
+            ctx.set_cursor_icon(egui::CursorIcon::Move);
+        }
+        return;
+    }
     let (slot, to) = drop_slot(rects, from, pointer.x);
     if to == from {
         return;
@@ -185,6 +284,22 @@ fn drag_tab(
         r.y_range(),
         egui::Stroke::new(3.0_f32, super::theme::CYAN),
     );
+}
+
+/// Whether a tab whose place in the strip is `tab`, dropped at `pointer`,
+/// leaves the window `window`.
+fn detaches(window: egui::Rect, tab: egui::Rect, pointer: egui::Pos2) -> bool {
+    !window.contains(pointer) || pointer.y > tab.bottom() + DETACH_BELOW
+}
+
+/// The new window of a dragged tab, as big as this one, its tab strip
+/// under the pointer: x, y, width, height on the screen, in points.
+fn new_window_at(ctx: &egui::Context, pointer: egui::Pos2) -> [f32; 4] {
+    let window = ctx
+        .input(|i| i.viewport().inner_rect)
+        .unwrap_or(ctx.screen_rect());
+    let at = window.min + pointer.to_vec2() - egui::vec2(90.0, 18.0);
+    [at.x, at.y, window.width(), window.height()]
 }
 
 /// Where a tab dragged from index `from` to `x` goes: the gap it is over
@@ -256,6 +371,17 @@ mod tests {
         // Over itself: it stays.
         assert_eq!(drop_slot(&rects, 1, 120.0).1, 1);
         assert_eq!(drop_slot(&rects, 1, 180.0).1, 1);
+    }
+
+    #[test]
+    fn a_tab_dropped_out_of_the_window_or_far_under_the_strip_detaches() {
+        let window = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
+        let tab = egui::Rect::from_min_max(egui::pos2(10.0, 6.0), egui::pos2(150.0, 36.0));
+        assert!(!detaches(window, tab, egui::pos2(300.0, 20.0)));
+        assert!(!detaches(window, tab, egui::pos2(300.0, 100.0)));
+        assert!(detaches(window, tab, egui::pos2(300.0, 200.0)));
+        assert!(detaches(window, tab, egui::pos2(900.0, 20.0)));
+        assert!(detaches(window, tab, egui::pos2(300.0, -5.0)));
     }
 
     #[test]

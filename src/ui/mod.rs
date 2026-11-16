@@ -22,6 +22,7 @@ pub mod theme;
 mod toolbar;
 mod updates;
 mod user_scripts;
+mod window_frame;
 
 pub use blocker::BlockerRunner;
 pub use extension_bar::ExtensionBar;

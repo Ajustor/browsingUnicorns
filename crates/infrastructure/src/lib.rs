@@ -26,6 +26,7 @@ mod private_data;
 pub mod profiles;
 pub mod script_storage;
 mod settings_store;
+mod shared_store;
 pub mod sync;
 pub mod user_scripts;
 #[cfg(all(any(target_os = "macos", target_os = "linux"), feature = "desktop"))]
@@ -52,6 +53,7 @@ pub use parent_window::ParentWindow;
 #[cfg(feature = "desktop")]
 pub use private_data::{PrivateDataDir, clean_leftovers};
 pub use settings_store::TomlSettingsRepository;
+pub use shared_store::MergingRepository;
 #[cfg(feature = "desktop")]
 pub use wry_engine::{EngineFiles, KeyPress, WryEngine, builtin_extensions};
 
@@ -72,13 +74,29 @@ pub fn blocker_dir() -> Option<PathBuf> {
 }
 
 /// The user's profile: JSON files in `dir`, settings in `settings`.
+/// History and bookmarks are merged with the file when saved: other windows
+/// of the profile write them too.
 pub fn json_profile(dir: &Path, settings: TomlSettingsRepository) -> Profile {
     Profile {
         settings: Box::new(settings),
-        history: Box::new(JsonRepository::new(dir.join("history.json"))),
-        bookmarks: Box::new(JsonRepository::new(dir.join("bookmarks.json"))),
+        history: Box::new(MergingRepository::new(JsonRepository::new(
+            dir.join("history.json"),
+        ))),
+        bookmarks: Box::new(MergingRepository::new(JsonRepository::new(
+            dir.join("bookmarks.json"),
+        ))),
         session: Box::new(JsonRepository::new(dir.join("session.json"))),
         clock: Box::new(SystemClock),
+    }
+}
+
+/// [`json_profile`] for a window of a profile already open in another one
+/// (a tab moved to its own window): its tabs are not saved, the profile's
+/// window keeps the session.
+pub fn tab_window_profile(dir: &Path, settings: TomlSettingsRepository) -> Profile {
+    Profile {
+        session: Box::new(MemoryRepository::<SessionSnapshot>::default()),
+        ..json_profile(dir, settings)
     }
 }
 

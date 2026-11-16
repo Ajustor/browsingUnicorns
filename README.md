@@ -14,8 +14,11 @@ binaire reste petit et le moteur profite des mises à jour de sécurité de l'OS
 - 🗂️ Onglets : ouverture (Ctrl+T, bouton `+`) en dernière position,
   fermeture (Ctrl+W, `×`, clic molette), passage d'un onglet à l'autre
   (Ctrl+Tab / Ctrl+Shift+Tab), réorganisation par glisser-déposer (appui
-  long puis glisser sur Android). Un lien ouvert dans un nouvel onglet
+  long puis glisser sur Android) ; glissé hors de la fenêtre, un onglet
+  part dans une fenêtre à lui. Un lien ouvert dans un nouvel onglet
   s'ouvre en arrière-plan, juste après sa page, qui reste affichée
+- 🪟 La barre d'onglets sert de barre de titre (boutons de fenêtre, double-clic
+  pour agrandir, redimensionnement par les bords)
 - 🔎 Barre d'adresse unique : une adresse complète, un nom d'hôte
   (`rust-lang.org`, `localhost:3000`) ou une recherche (Ctrl+L / F6). En
   tapant, elle propose les recherches déjà faites et les pages de

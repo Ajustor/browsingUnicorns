@@ -4,6 +4,27 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [Unreleased]
+
+### Ajouté
+
+- Un onglet glissé hors de la fenêtre (ou lâché bien sous la barre
+  d'onglets, quand la fenêtre est agrandie) s'ouvre dans une nouvelle
+  fenêtre, à l'endroit lâché. Pas dans une fenêtre privée, ni pour le
+  dernier onglet. Cette fenêtre partage le profil (cookies, historique,
+  favoris) mais ses onglets ne sont pas rouverts au lancement suivant.
+
+### Modifié
+
+- La barre d'onglets fait office de barre de titre, dans le dégradé de
+  l'interface : plus de barre de titre système sous Windows et Linux, des
+  boutons réduire / agrandir / fermer dessinés par le navigateur ; on
+  déplace la fenêtre par l'espace vide de la barre (double-clic : agrandir)
+  et on la redimensionne par ses bords. Sous macOS, les boutons du système
+  restent, posés sur le dégradé.
+- Historique et favoris sont fusionnés avec le fichier à l'enregistrement,
+  pour que plusieurs fenêtres d'un même profil ne s'écrasent pas.
+
 ## [0.11.0] - 2026-11-16
 
 ### Ajouté
