@@ -12,6 +12,7 @@ pub mod extension_server;
 pub mod extensions;
 mod files;
 mod json_store;
+pub mod native_messaging;
 #[cfg(feature = "desktop")]
 mod page_injection;
 pub mod page_scripts;

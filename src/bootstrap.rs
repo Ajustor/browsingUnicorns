@@ -138,6 +138,14 @@ pub fn build(
     let extensions = ExtensionsRunner::new(extensions, move || ctx.request_repaint());
     let ctx = cc.egui_ctx.clone();
     let user_scripts = UserScriptsRunner::new(user_scripts, move || ctx.request_repaint());
+    let mut hub = Hub::new(
+        script_storage,
+        Bridge::Ipc,
+        profile_dir.join("extensions"),
+        profile_dir.join("extension-state"),
+    );
+    let ctx = cc.egui_ctx.clone();
+    hub.set_native_waker(move || ctx.request_repaint());
     Ok(BrowserApp::new(
         browser,
         receiver,
@@ -147,12 +155,7 @@ pub fn build(
             extensions,
             bar: ExtensionBar::new(profile_dir.join("extensions")),
             user_scripts,
-            hub: Hub::new(
-                script_storage,
-                Bridge::Ipc,
-                profile_dir.join("extensions"),
-                profile_dir.join("extension-state"),
-            ),
+            hub,
         },
         ProfilesRunner::new(profiles, lock),
         exit_slot,

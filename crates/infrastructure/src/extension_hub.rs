@@ -14,7 +14,8 @@ use domain::{ExtensionId, Extensions, TabId, UrlPattern, WebAddress};
 use serde_json::{Map, Value, json};
 
 use crate::extensions::state::ExtensionState;
-use crate::extensions::{dnr, extension_dir};
+use crate::extensions::{dnr, extension_dir, manifest};
+use crate::native_messaging::{self, FromHost, NativeMessaging};
 use crate::page_scripts::Bridge;
 use crate::script_storage::{Message, ScriptStorage, new_token, valid_owner};
 
@@ -135,6 +136,9 @@ pub struct Hub {
     panel_blurred: bool,
     /// The tabs as last seen, for `tabs.on*` events.
     last_tabs: Vec<TabState>,
+    /// Ports to native hosts (`runtime.connectNative`), and whose they are.
+    native: NativeMessaging,
+    native_ports: HashMap<u64, (PageSource, String)>,
 }
 
 fn tab_json(t: &TabState, index: usize) -> Value {
@@ -186,6 +190,47 @@ impl Hub {
             panel: None,
             panel_blurred: false,
             last_tabs: Vec::new(),
+            native: NativeMessaging::default(),
+            native_ports: HashMap::new(),
+        }
+    }
+
+    /// Called when a native host sends something: the UI then calls
+    /// [`Self::pump_native`].
+    pub fn set_native_waker(&mut self, wake: impl Fn() + Send + Sync + 'static) {
+        self.native.set_waker(wake);
+    }
+
+    /// Hands what native hosts sent to the pages holding their ports.
+    pub fn pump_native(&mut self, host: &mut dyn HubHost) {
+        for (port, event) in self.native.poll() {
+            let Some((to, owner)) = self.native_ports.get(&port).cloned() else {
+                continue;
+            };
+            let event = match event {
+                FromHost::Message(msg) => {
+                    json!({"event": "native", "owner": owner, "port": port, "msg": msg})
+                }
+                FromHost::Closed(error) => {
+                    self.native_ports.remove(&port);
+                    json!({"event": "nativeDisconnect", "owner": owner, "port": port, "error": error})
+                }
+            };
+            host.deliver(&to, &event.to_string());
+        }
+    }
+
+    /// Closes the native ports of the pages in `from`.
+    fn close_native_ports(&mut self, from: impl Fn(&PageSource, &str) -> bool) {
+        let ports: Vec<u64> = self
+            .native_ports
+            .iter()
+            .filter(|(_, (page, owner))| from(page, owner))
+            .map(|(port, _)| *port)
+            .collect();
+        for port in ports {
+            self.native_ports.remove(&port);
+            self.native.disconnect(port);
         }
     }
 
@@ -196,17 +241,21 @@ impl Hub {
             ExtensionState::forget(&self.state_dir, &id);
         }
         self.backgrounds.remove(owner);
+        self.close_native_ports(|_, o| o == owner);
     }
 
     /// A background page went away (extension disabled or removed).
     pub fn background_closed(&mut self, id: &ExtensionId) {
         self.backgrounds.remove(&format!("ext:{id}"));
+        let page = PageSource::Background(id.clone());
+        self.close_native_ports(|p, _| *p == page);
     }
 
     /// The popup closed.
     pub fn panel_closed(&mut self) {
         self.panel = None;
         self.panel_blurred = false;
+        self.close_native_ports(|p, _| *p == PageSource::Panel);
     }
 
     /// Whether the popup lost the focus since the last call (it closes).
@@ -336,6 +385,44 @@ impl Hub {
                     }
                     (PageSource::Panel, _) => self.panel = Some(owner.to_owned()),
                     _ => {}
+                }
+                Some(Ok(Value::Null))
+            }
+            "native.connect" => {
+                let ext = ext?;
+                // As in Chrome: extension pages only, and only with the
+                // permission.
+                if ctx == "content"
+                    || !manifest::has_permission(
+                        &extension_dir(&self.extensions_dir, &ext),
+                        "nativeMessaging",
+                    )
+                {
+                    return Some(Err(native_messaging::NOT_FOUND.into()));
+                }
+                let name = field("app");
+                let result = self
+                    .native
+                    .connect(name.as_str().unwrap_or(""), &ext)
+                    .map(|port| {
+                        self.native_ports
+                            .insert(port, (from.clone(), owner.to_owned()));
+                        Value::from(port)
+                    });
+                Some(result)
+            }
+            "native.post" => {
+                let port = field("port").as_u64()?;
+                if self.native_ports.get(&port).map(|(_, o)| o.as_str()) != Some(owner) {
+                    return Some(Err("Attempting to use a disconnected port object".into()));
+                }
+                Some(self.native.post(port, &field("msg")).map(|()| Value::Null))
+            }
+            "native.disconnect" => {
+                let port = field("port").as_u64()?;
+                if self.native_ports.get(&port).map(|(_, o)| o.as_str()) == Some(owner) {
+                    self.native_ports.remove(&port);
+                    self.native.disconnect(port);
                 }
                 Some(Ok(Value::Null))
             }

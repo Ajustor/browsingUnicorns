@@ -237,6 +237,84 @@ function makeChrome(entry) {
 
   // runtime
   const onMessage = event();
+
+  // Native messaging: ports to programs on the computer, by id once the
+  // browser opened them.
+  const nativePorts = new Map();
+  const withLastError = (message, f) => {
+    api.runtime.lastError = { message };
+    try {
+      f();
+    } finally {
+      api.runtime.lastError = undefined;
+    }
+  };
+  const connectNative = (app) => {
+    let id = null;
+    let closed = false;
+    const queue = [];
+    const port = { name: String(app), sender: undefined, onMessage: event(), onDisconnect: event() };
+    const close = (error) => {
+      if (closed) return;
+      closed = true;
+      if (id !== null) nativePorts.delete(id);
+      if (error) withLastError(error, () => port.onDisconnect.fire(port));
+      else port.onDisconnect.fire(port);
+    };
+    port.postMessage = (msg) => {
+      if (closed) throw new Error("Attempting to use a disconnected port object");
+      // As in Chrome: what reaches the host is the message's JSON.
+      const value = JSON.parse(JSON.stringify(msg === undefined ? null : msg));
+      if (id === null) queue.push(value);
+      else send(owner, "native.post", { port: id, msg: value }).catch((e) => close(e.message));
+    };
+    port.disconnect = () => {
+      if (closed) return;
+      closed = true;
+      if (id !== null) {
+        nativePorts.delete(id);
+        send(owner, "native.disconnect", { port: id }).catch(() => {});
+      }
+    };
+    port._event = (msg) => {
+      if (msg.event === "native") port.onMessage.fire(msg.msg, port);
+      else close(msg.error);
+    };
+    send(owner, "native.connect", { app: String(app) }).then(
+      (portId) => {
+        if (closed) {
+          send(owner, "native.disconnect", { port: portId }).catch(() => {});
+          return;
+        }
+        id = portId;
+        nativePorts.set(id, port);
+        for (const value of queue.splice(0)) {
+          send(owner, "native.post", { port: id, msg: value }).catch((e) => close(e.message));
+        }
+      },
+      (e) => close(e.message),
+    );
+    return port;
+  };
+  // One message, its first answer, then the port closes.
+  const sendNativeMessage = (app, message, cb) => {
+    const answer = new Promise((resolve, reject) => {
+      const port = connectNative(app);
+      let done = false;
+      port.onMessage.addListener((reply) => {
+        done = true;
+        port.disconnect();
+        resolve(reply);
+      });
+      port.onDisconnect.addListener(() => {
+        if (done) return;
+        reject(new Error((api.runtime.lastError && api.runtime.lastError.message) || "Native host has exited."));
+      });
+      port.postMessage(message);
+    });
+    return withCallback(answer, cb, api);
+  };
+
   api.runtime = {
     id,
     lastError: undefined,
@@ -249,6 +327,8 @@ function makeChrome(entry) {
       return call("sendMessage", { payload }, cb);
     },
     connect: () => ({ name: "", postMessage() {}, disconnect() {}, onMessage: event(), onDisconnect: event() }),
+    connectNative,
+    sendNativeMessage,
     onMessage,
     onMessageExternal: event(),
     onConnect: event(),
@@ -305,6 +385,9 @@ function makeChrome(entry) {
       if (a) a.onChanged.fire(msg.changes);
     } else if (msg.event === "tabs" && api.tabs && api.tabs[msg.name]) {
       api.tabs[msg.name].fire(...msg.args);
+    } else if (msg.event === "native" || msg.event === "nativeDisconnect") {
+      const port = nativePorts.get(msg.port);
+      if (port) port._event(msg);
     }
   });
 

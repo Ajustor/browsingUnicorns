@@ -217,6 +217,19 @@ pub fn messages(dir: &Path) -> Map<String, Value> {
         .unwrap_or_default()
 }
 
+/// Whether the manifest asks for `permission` (`permissions` or
+/// `optional_permissions`, which this browser grants as asked).
+pub fn has_permission(dir: &Path, permission: &str) -> bool {
+    let Ok(m) = load(dir) else {
+        return false;
+    };
+    ["permissions", "optional_permissions"].iter().any(|key| {
+        m.get(*key)
+            .and_then(Value::as_array)
+            .is_some_and(|list| list.iter().any(|p| p.as_str() == Some(permission)))
+    })
+}
+
 /// The publisher's public key (base64 DER) the manifest declares, if any.
 pub fn key(dir: &Path) -> Option<String> {
     let m = load(dir).ok()?;

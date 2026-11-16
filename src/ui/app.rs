@@ -455,6 +455,7 @@ impl eframe::App for BrowserApp {
             extensions: self.extensions.extensions(),
         };
         self.hub.tabs_changed(&mut host);
+        self.hub.pump_native(&mut host);
         if let Some(notice) = self.updates.poll() {
             self.notice = Some(notice);
         }
