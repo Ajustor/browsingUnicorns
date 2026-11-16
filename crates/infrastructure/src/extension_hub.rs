@@ -13,6 +13,7 @@ use application::ports::{PageSource, WebEngine};
 use domain::{ExtensionId, Extensions, TabId, UrlPattern, WebAddress};
 use serde_json::{Map, Value, json};
 
+use crate::extension_server::Origins;
 use crate::extensions::state::ExtensionState;
 use crate::extensions::{dnr, extension_dir, manifest};
 use crate::native_messaging::{self, FromHost, NativeMessaging};
@@ -139,6 +140,19 @@ pub struct Hub {
     /// Ports to native hosts (`runtime.connectNative`), and whose they are.
     native: NativeMessaging,
     native_ports: HashMap<u64, (PageSource, String)>,
+    /// Ports between an extension's pages and scripts (`runtime.connect`,
+    /// `tabs.connect`), by id.
+    ports: HashMap<u64, Port>,
+    next_port: u64,
+    /// Pages gone since the last frame: their ports close.
+    closed_pages: Vec<PageSource>,
+}
+
+/// A port: the page that opened it, the pages that got `onConnect`.
+struct Port {
+    owner: String,
+    opener: PageSource,
+    receivers: Vec<PageSource>,
 }
 
 fn tab_json(t: &TabState, index: usize) -> Value {
@@ -192,6 +206,41 @@ impl Hub {
             last_tabs: Vec::new(),
             native: NativeMessaging::default(),
             native_ports: HashMap::new(),
+            ports: HashMap::new(),
+            next_port: 1,
+            closed_pages: Vec::new(),
+        }
+    }
+
+    /// Where the extensions' pages are served (their `origin`).
+    fn origins(&self) -> Origins {
+        match self.bridge {
+            Bridge::Ipc => Origins::desktop(),
+            Bridge::Android => Origins::Android,
+        }
+    }
+
+    /// `page` went away: its ports close, the other ends are told.
+    fn close_ports_of(&mut self, page: &PageSource, host: &mut dyn HubHost) {
+        let mut tell = Vec::new();
+        self.ports.retain(|id, port| {
+            if &port.opener == page {
+                for r in &port.receivers {
+                    tell.push((r.clone(), port.owner.clone(), *id));
+                }
+                return false;
+            }
+            let before = port.receivers.len();
+            port.receivers.retain(|r| r != page);
+            if port.receivers.is_empty() && before > 0 {
+                tell.push((port.opener.clone(), port.owner.clone(), *id));
+                return false;
+            }
+            true
+        });
+        for (to, owner, id) in tell {
+            let event = json!({"event": "portDisconnect", "owner": owner, "port": id});
+            host.deliver(&to, &event.to_string());
         }
     }
 
@@ -242,6 +291,7 @@ impl Hub {
         }
         self.backgrounds.remove(owner);
         self.close_native_ports(|_, o| o == owner);
+        self.ports.retain(|_, p| p.owner != owner);
     }
 
     /// A background page went away (extension disabled or removed).
@@ -249,10 +299,14 @@ impl Hub {
         self.backgrounds.remove(&format!("ext:{id}"));
         let page = PageSource::Background(id.clone());
         self.close_native_ports(|p, _| *p == page);
+        self.closed_pages.push(page);
     }
 
     /// The popup closed.
     pub fn panel_closed(&mut self) {
+        if self.panel.is_some() {
+            self.closed_pages.push(PageSource::Panel);
+        }
         self.panel = None;
         self.panel_blurred = false;
         self.close_native_ports(|p, _| *p == PageSource::Panel);
@@ -388,6 +442,97 @@ impl Hub {
                 }
                 Some(Ok(Value::Null))
             }
+            "port.connect" => {
+                let ext = ext?;
+                // tabs.connect: the content scripts of a tab. runtime.connect:
+                // the extension's pages, the caller excepted.
+                let receivers: Vec<PageSource> = match tab_id(&field("tabId")) {
+                    Some(tab) => self
+                        .tab_owners
+                        .get(&tab)
+                        .filter(|o| o.contains(owner))
+                        .map(|_| vec![PageSource::Tab(tab)])
+                        .unwrap_or_default(),
+                    None => {
+                        let mut pages = Vec::new();
+                        if self.backgrounds.contains(owner) {
+                            pages.push(PageSource::Background(ext.clone()));
+                        }
+                        if self.panel.as_deref() == Some(owner) {
+                            pages.push(PageSource::Panel);
+                        }
+                        pages
+                    }
+                };
+                let receivers: Vec<PageSource> =
+                    receivers.into_iter().filter(|r| r != from).collect();
+                if receivers.is_empty() {
+                    return Some(Err(
+                        "Could not establish connection. Receiving end does not exist.".into(),
+                    ));
+                }
+                let id = self.next_port;
+                self.next_port += 1;
+                let sender = self.sender(from, &ext, host);
+                let event = json!({"event": "connect", "owner": owner, "port": id,
+                    "name": field("name"), "sender": sender})
+                .to_string();
+                for r in &receivers {
+                    host.deliver(r, &event);
+                }
+                self.ports.insert(
+                    id,
+                    Port {
+                        owner: owner.to_owned(),
+                        opener: from.clone(),
+                        receivers,
+                    },
+                );
+                Some(Ok(Value::from(id)))
+            }
+            "port.post" => {
+                let id = field("port").as_u64()?;
+                let Some(port) = self.ports.get(&id).filter(|p| p.owner == owner) else {
+                    return Some(Err("Attempting to use a disconnected port object".into()));
+                };
+                let to: Vec<PageSource> = if &port.opener == from {
+                    port.receivers.clone()
+                } else if port.receivers.contains(from) {
+                    vec![port.opener.clone()]
+                } else {
+                    return Some(Err("Attempting to use a disconnected port object".into()));
+                };
+                let event =
+                    json!({"event": "port", "owner": owner, "port": id, "msg": field("msg")})
+                        .to_string();
+                for dest in &to {
+                    host.deliver(dest, &event);
+                }
+                Some(Ok(Value::Null))
+            }
+            "port.disconnect" => {
+                let id = field("port").as_u64()?;
+                let mut tell = Vec::new();
+                if let Some(port) = self.ports.get_mut(&id).filter(|p| p.owner == owner) {
+                    if &port.opener == from {
+                        tell.append(&mut port.receivers);
+                    } else {
+                        port.receivers.retain(|r| r != from);
+                        if port.receivers.is_empty() {
+                            tell.push(port.opener.clone());
+                        }
+                    }
+                    if port.receivers.is_empty() {
+                        self.ports.remove(&id);
+                    }
+                }
+                let event =
+                    json!({"event": "portDisconnect", "owner": owner, "port": id}).to_string();
+                for dest in &tell {
+                    host.deliver(dest, &event);
+                }
+                Some(Ok(Value::Null))
+            }
             "native.connect" => {
                 let ext = ext?;
                 // As in Chrome: extension pages only, and only with the
@@ -441,7 +586,7 @@ impl Hub {
                 if from != &PageSource::Panel && self.panel.as_deref() == Some(owner) {
                     to.push(PageSource::Panel);
                 }
-                let sender = Self::sender(from, &ext, host);
+                let sender = self.sender(from, &ext, host);
                 self.send_event(from, id, ch, owner, &to, field("payload"), sender, host)
             }
             "tabs.sendMessage" => {
@@ -645,8 +790,15 @@ impl Hub {
     }
 
     /// `sender` of `runtime.onMessage`: the tab as it is now.
-    fn sender(from: &PageSource, ext: &ExtensionId, host: &dyn HubHost) -> Value {
+    fn sender(&self, from: &PageSource, ext: &ExtensionId, host: &dyn HubHost) -> Value {
         let mut sender = json!({"id": ext.to_string()});
+        // The extension's own pages: their origin, as Chrome tells it
+        // (extensions check it to trust the message).
+        if matches!(from, PageSource::Background(_) | PageSource::Panel) {
+            let origin = self.origins().origin(ext);
+            sender["url"] = format!("{origin}/").into();
+            sender["origin"] = origin.into();
+        }
         let tabs = host.tabs();
         if let PageSource::Tab(tab) = from
             && let Some((i, t)) = tabs.iter().enumerate().find(|(_, t)| t.id == *tab)
@@ -930,6 +1082,9 @@ impl Hub {
     /// Compares the tabs with the last time and sends `tabs.on*` events to
     /// the background pages. Call once per frame (cheap when nothing moved).
     pub fn tabs_changed(&mut self, host: &mut dyn HubHost) {
+        for page in std::mem::take(&mut self.closed_pages) {
+            self.close_ports_of(&page, host);
+        }
         let now = host.tabs();
         if now == self.last_tabs {
             return;
@@ -959,6 +1114,7 @@ impl Hub {
                     if t.loading && !b.loading {
                         // A new page: its content scripts say hello again.
                         self.tab_owners.remove(&t.id);
+                        self.closed_pages.push(PageSource::Tab(t.id));
                     }
                     if t.active && !b.active {
                         events.push(("onActivated", json!([{"tabId": t.id.get(), "windowId": 1}])));
@@ -969,6 +1125,7 @@ impl Hub {
         for b in &before {
             if !now.iter().any(|t| t.id == b.id) {
                 self.tab_owners.remove(&b.id);
+                self.closed_pages.push(PageSource::Tab(b.id));
                 events.push((
                     "onRemoved",
                     json!([b.id.get(), {"windowId": 1, "isWindowClosing": false}]),
@@ -1060,6 +1217,87 @@ mod tests {
 
     fn ext() -> ExtensionId {
         ExtensionId::parse(EXT).unwrap()
+    }
+
+    #[test]
+    fn ports_between_popup_and_background() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut hub = hub(dir.path());
+        let mut host = Host::default();
+        let (bg, popup) = (PageSource::Background(ext()), PageSource::Panel);
+
+        // No background yet: nobody to connect to.
+        hub.handle(
+            &popup,
+            &msg(1, "page", "port.connect", json!({"name": "x"})),
+            &mut host,
+        );
+        assert!(host.delivered.pop().unwrap().1["error"].is_string());
+
+        hub.handle(&bg, &msg(1, "background", "hello", json!({})), &mut host);
+        hub.handle(&popup, &msg(1, "page", "hello", json!({})), &mut host);
+        host.delivered.clear();
+
+        hub.handle(
+            &popup,
+            &msg(2, "page", "port.connect", json!({"name": "session"})),
+            &mut host,
+        );
+        let id = host.delivered.pop().unwrap().1["result"].as_u64().unwrap();
+        let (to, event) = host.delivered.pop().unwrap();
+        assert_eq!(to, bg);
+        assert_eq!(event["event"], "connect");
+        assert_eq!(event["name"], "session");
+        assert_eq!(event["port"], id);
+        // The popup is the extension's own page: its origin says so.
+        assert!(
+            event["sender"]["origin"]
+                .as_str()
+                .unwrap()
+                .contains(&ext().to_string())
+        );
+
+        // Both ways.
+        hub.handle(
+            &popup,
+            &msg(3, "page", "port.post", json!({"port": id, "msg": {"a": 1}})),
+            &mut host,
+        );
+        host.delivered.pop();
+        let (to, event) = host.delivered.pop().unwrap();
+        assert_eq!(
+            (to, event["event"].clone(), event["msg"].clone()),
+            (bg.clone(), json!("port"), json!({"a": 1}))
+        );
+        hub.handle(
+            &bg,
+            &msg(
+                4,
+                "background",
+                "port.post",
+                json!({"port": id, "msg": "ok"}),
+            ),
+            &mut host,
+        );
+        host.delivered.pop();
+        let (to, event) = host.delivered.pop().unwrap();
+        assert_eq!((to, event["msg"].clone()), (popup.clone(), json!("ok")));
+
+        // The popup closes: the background's end disconnects.
+        hub.panel_closed();
+        host.delivered.clear();
+        hub.tabs_changed(&mut host);
+        assert!(
+            host.delivered
+                .iter()
+                .any(|(to, e)| to == &bg && e["event"] == "portDisconnect" && e["port"] == id)
+        );
+        hub.handle(
+            &bg,
+            &msg(5, "background", "port.post", json!({"port": id, "msg": 1})),
+            &mut host,
+        );
+        assert!(host.delivered.pop().unwrap().1["error"].is_string());
     }
 
     #[test]

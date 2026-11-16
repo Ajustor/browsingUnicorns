@@ -296,6 +296,60 @@ function makeChrome(entry) {
     );
     return port;
   };
+  // Ports between the extension's pages and scripts (runtime.connect,
+  // tabs.connect), by id once the browser opened them.
+  const ports = new Map();
+  const makePort = (name, sender) => {
+    let id = null;
+    let closed = false;
+    const queue = [];
+    const port = { name: String(name || ""), sender, onMessage: event(), onDisconnect: event() };
+    const post = (value) => send(owner, "port.post", { port: id, msg: value }).catch(() => {});
+    port._open = (portId) => {
+      if (closed) {
+        send(owner, "port.disconnect", { port: portId }).catch(() => {});
+        return;
+      }
+      id = portId;
+      ports.set(id, port);
+      for (const value of queue.splice(0)) post(value);
+    };
+    port._close = (error) => {
+      if (closed) return;
+      closed = true;
+      if (id !== null) ports.delete(id);
+      if (error) withLastError(error, () => port.onDisconnect.fire(port));
+      else port.onDisconnect.fire(port);
+    };
+    port.postMessage = (msg) => {
+      if (closed) throw new Error("Attempting to use a disconnected port object");
+      const value = JSON.parse(JSON.stringify(msg === undefined ? null : msg));
+      if (id === null) queue.push(value);
+      else post(value);
+    };
+    port.disconnect = () => {
+      if (closed) return;
+      closed = true;
+      if (id !== null) {
+        ports.delete(id);
+        send(owner, "port.disconnect", { port: id }).catch(() => {});
+      }
+    };
+    return port;
+  };
+  const openPort = (fields, name) => {
+    const port = makePort(name);
+    send(owner, "port.connect", Object.assign({ name: String(name || "") }, fields)).then(
+      (portId) => port._open(portId),
+      (e) => port._close(e.message),
+    );
+    return port;
+  };
+  Object.defineProperty(api, "_connectTab", {
+    value: (tabId, info) => openPort({ tabId }, info && info.name),
+    enumerable: false,
+  });
+
   // One message, its first answer, then the port closes.
   const sendNativeMessage = (app, message, cb) => {
     const answer = new Promise((resolve, reject) => {
@@ -326,7 +380,11 @@ function makeChrome(entry) {
       const payload = list.length >= 2 && typeof list[0] === "string" ? list[1] : list[0];
       return call("sendMessage", { payload }, cb);
     },
-    connect: () => ({ name: "", postMessage() {}, disconnect() {}, onMessage: event(), onDisconnect: event() }),
+    connect: (...args) => {
+      // (extensionId?, connectInfo?)
+      const info = typeof args[0] === "string" ? args[1] : args[0];
+      return openPort({}, info && info.name);
+    },
     connectNative,
     sendNativeMessage,
     onMessage,
@@ -385,6 +443,16 @@ function makeChrome(entry) {
       if (a) a.onChanged.fire(msg.changes);
     } else if (msg.event === "tabs" && api.tabs && api.tabs[msg.name]) {
       api.tabs[msg.name].fire(...msg.args);
+    } else if (msg.event === "connect") {
+      const port = makePort(msg.name, msg.sender || {});
+      port._open(msg.port);
+      api.runtime.onConnect.fire(port);
+    } else if (msg.event === "port") {
+      const port = ports.get(msg.port);
+      if (port) port.onMessage.fire(msg.msg, port);
+    } else if (msg.event === "portDisconnect") {
+      const port = ports.get(msg.port);
+      if (port) port._close(msg.error);
     } else if (msg.event === "native" || msg.event === "nativeDisconnect") {
       const port = nativePorts.get(msg.port);
       if (port) port._event(msg);
@@ -404,6 +472,7 @@ function extensionApis(api, entry, call) {
   api.tabs = {
     TAB_ID_NONE: -1,
     query: (query, cb) => call("tabs.query", { query: query || {} }, cb),
+    connect: (tabId, info) => api._connectTab(tabId, info),
     get: (tabId, cb) => call("tabs.get", { tabId }, cb),
     getCurrent: noop(api, undefined),
     create: (props, cb) => call("tabs.create", { props: props || {} }, cb),
