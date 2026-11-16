@@ -76,6 +76,15 @@ binaire reste petit et le moteur profite des mises à jour de sécurité de l'OS
   dans sa propre fenêtre. Avatar à droite de la barre d'outils → onglet
   *Profiles* du panneau latéral (ajouter, ouvrir, renommer, couleur,
   supprimer). `browsingUnicorns --profile <id>` ouvre un profil directement.
+- 🕶️ Navigation privée : sur ordinateur, une fenêtre privée (Ctrl+Shift+N,
+  bouton masque à gauche de l'avatar, `--private`) en gris anthracite ; ni
+  historique ni onglets restaurés, cookies et stockage des sites dans un
+  dossier temporaire supprimé à la fermeture, réglages changés en mémoire
+  seulement, favoris en lecture seule, ni extensions, ni scripts
+  utilisateur, ni synchro, ni vérification des mises à jour. Sur Android,
+  des onglets privés (bascule *Normal / Private* de l'écran des onglets) dans
+  un profil WebView à part, supprimé avec le dernier d'entre eux ; absents
+  si la WebView est trop ancienne
 - 💾 Profil par défaut dans `<data>/browsing-unicorns/` (`history.json`,
   `bookmarks.json`, `session.json`, `extensions.json`, `webview/` pour les
   données des pages), les autres dans `profiles/<id>/` en dessous, la liste
@@ -203,4 +212,4 @@ demande un compte Pro et Pages réglé sur « GitHub Actions ».
 ## Pistes
 
 - Page de réglages dans l'interface
-- Navigation privée ; masquage cosmétique générique du bloqueur de pubs
+- Masquage cosmétique générique du bloqueur de pubs

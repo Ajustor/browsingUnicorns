@@ -4,6 +4,22 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [Unreleased]
+
+### Ajouté
+
+- Navigation privée. Sur ordinateur, une fenêtre privée (Ctrl+Shift+N ou le
+  bouton masque à gauche de l'avatar) : rien n'est écrit dans le profil, ni
+  historique ni onglets à rouvrir ; cookies, cache et stockage des sites
+  vont dans un dossier temporaire supprimé à sa fermeture (ou au lancement
+  suivant après un plantage) ; les favoris se lisent sans se modifier, les
+  réglages changés le restent en mémoire, et extensions, scripts
+  utilisateur, synchro et mises à jour automatiques sont coupés. Elle se
+  reconnaît à son gris anthracite et à sa pastille « Private ». Sur Android,
+  des onglets privés : une bascule *Normal / Private* sur l'écran des
+  onglets, une WebView à part dont les cookies et données sont supprimés
+  avec le dernier onglet privé, hors historique, session et synchro.
+
 ## [0.10.0] - 2026-11-16
 
 ### Ajouté
