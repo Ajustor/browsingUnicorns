@@ -31,6 +31,14 @@ pub struct KeyPress {
     pub alt: bool,
 }
 
+/// A popup's natural width; `settled` once its page is loaded and two
+/// measures agreed.
+#[derive(Debug, Clone, Copy)]
+struct PanelWidth {
+    width: u32,
+    settled: bool,
+}
+
 /// Called after an event is sent, so the UI wakes up to read it.
 pub type Waker = Arc<dyn Fn() + Send + Sync>;
 
@@ -91,6 +99,8 @@ pub struct WryEngine {
     panel_measured: Option<std::time::Instant>,
     /// Where the popup was last placed (moved only when it changes).
     panel_area: Option<Viewport>,
+    /// The popup's natural width as last measured, and whether it settled.
+    panel_width: Arc<std::sync::Mutex<Option<PanelWidth>>>,
     /// Extensions to hand to the web view profile once a view exists.
     #[cfg_attr(not(windows), allow(dead_code))]
     pending_extensions: Option<Extensions>,
@@ -230,6 +240,7 @@ impl WryEngine {
             panel_size: Arc::default(),
             panel_measured: None,
             panel_area: None,
+            panel_width: Arc::default(),
             pending_extensions: None,
             #[cfg(windows)]
             managed_extensions: Default::default(),
@@ -277,17 +288,20 @@ impl WryEngine {
             return;
         }
         self.panel_measured = Some(std::time::Instant::now());
-        // Once, when it opens: the width the content wants (no wrapping),
-        // found by laying the page out at `max-content` for a moment. Then
-        // only its height at that width: reading it changes nothing (doing
-        // the width trick again every time made pages relayout, and blink).
-        const MEASURE: &str = "(() => { const d = document.documentElement; if (!d) return '';            const old = d.style.width; d.style.width = 'max-content';            const w = Math.ceil(d.getBoundingClientRect().width); d.style.width = old;            const h = Math.ceil(Math.max(d.scrollHeight, document.body ? document.body.scrollHeight : 0));            const r = window.devicePixelRatio || 1;            return [Math.min(Math.max(w, 120), 800) * r, Math.min(Math.max(h, 40), 600) * r].map(Math.round).join(','); })()";
+        // While it loads: the width the content wants (no wrapping), found
+        // by laying the page out at `max-content` for a moment. Once the
+        // page is loaded and two such widths agree, only its height at that
+        // width: reading it changes nothing (doing the width trick all the
+        // time made pages relayout, and blink).
+        const MEASURE: &str = "(() => { const d = document.documentElement; if (!d) return '';            const old = d.style.width; d.style.width = 'max-content';            const w = Math.ceil(d.getBoundingClientRect().width); d.style.width = old;            const h = Math.ceil(Math.max(d.scrollHeight, document.body ? document.body.scrollHeight : 0));            const r = window.devicePixelRatio || 1;            const ready = document.readyState === 'complete' ? 1 : 0;            return [Math.min(Math.max(w, 120), 800) * r, Math.min(Math.max(h, 40), 600) * r, ready].map(Math.round).join(','); })()";
         const HEIGHT: &str = "(() => { const d = document.documentElement; if (!d) return '';            const h = Math.ceil(Math.max(d.scrollHeight, document.body ? document.body.scrollHeight : 0));            return String(Math.round(Math.min(Math.max(h, 40), 600) * (window.devicePixelRatio || 1))); })()";
         let size = self.panel_size.clone();
-        let known_width = size
+        let settled = self.panel_width.clone();
+        let known_width = settled
             .lock()
             .unwrap_or_else(|p| p.into_inner())
-            .map(|(w, _)| w);
+            .filter(|w| w.settled)
+            .map(|w| w.width);
         let script = if known_width.is_some() {
             HEIGHT
         } else {
@@ -296,10 +310,21 @@ impl WryEngine {
         let waker = self.waker.clone();
         let _ = view.evaluate_script_with_callback(script, move |result| {
             let text = result.trim_matches('"');
-            let mut parts = text.split(',').filter_map(|p| p.parse::<u32>().ok());
-            let measured = match (known_width, parts.next(), parts.next()) {
-                (Some(w), Some(h), None) => Some((w, h)),
-                (None, Some(w), Some(h)) => Some((w, h)),
+            let parts: Vec<u32> = text
+                .split(',')
+                .filter_map(|p| p.parse::<u32>().ok())
+                .collect();
+            let measured = match (known_width, parts.as_slice()) {
+                (Some(w), [h]) => Some((w, *h)),
+                (None, [w, h, ready]) => {
+                    let mut width = settled.lock().unwrap_or_else(|p| p.into_inner());
+                    let same = width.is_some_and(|last| last.width == *w);
+                    *width = Some(PanelWidth {
+                        width: *w,
+                        settled: same && *ready == 1,
+                    });
+                    Some((*w, *h))
+                }
                 _ => None,
             };
             if let Some(measured) = measured {
@@ -762,6 +787,7 @@ impl WebEngine for WryEngine {
         }
         self.panel_area = Some(area);
         *self.panel_size.lock().unwrap_or_else(|p| p.into_inner()) = None;
+        *self.panel_width.lock().unwrap_or_else(|p| p.into_inner()) = None;
         self.panel_measured = None;
         let emit = self.emitter();
         let view = base_builder(
