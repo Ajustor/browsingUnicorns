@@ -41,7 +41,7 @@ pub fn show(
             (icon::HOUSE, "Home (Alt+Home)", true, Command::Home),
         ];
         for (glyph, tip, enabled, command) in nav {
-            if button(ui, glyph, tip, enabled) {
+            if button(ui, RichText::new(glyph).size(16.0), tip, enabled) {
                 commands.push(command);
             }
         }
@@ -49,10 +49,17 @@ pub fn show(
         match address {
             Some(a) => {
                 let (glyph, tip) = if a.is_secure() {
-                    (icon::LOCK_SIMPLE, "Connection is secure: certificate")
+                    (
+                        RichText::new(icon::LOCK_SIMPLE).color(super::theme::CYAN),
+                        "Connection is secure: certificate",
+                    )
                 } else {
-                    (icon::GLOBE_SIMPLE, "Connection is not secure")
+                    (
+                        RichText::new(icon::GLOBE_SIMPLE),
+                        "Connection is not secure",
+                    )
                 };
+                let glyph = glyph.size(16.0);
                 if button(ui, glyph, tip, true) {
                     commands.push(Command::ToggleSiteInfo);
                 }
@@ -70,24 +77,32 @@ pub fn show(
             {
                 commands.push(Command::ToggleLibrary(LibraryView::Profiles));
             }
-            if button(ui, icon::BOOKS, "History and bookmarks (Ctrl+H)", true) {
+            if button(
+                ui,
+                RichText::new(icon::BOOKS).size(16.0),
+                "History and bookmarks (Ctrl+H)",
+                true,
+            ) {
                 commands.push(Command::ToggleLibrary(LibraryView::History));
             }
-            if button(ui, icon::CODE, "Developer tools (F12)", active.is_some()) {
+            if button(
+                ui,
+                RichText::new(icon::CODE).size(16.0),
+                "Developer tools (F12)",
+                active.is_some(),
+            ) {
                 commands.push(Command::OpenDevTools);
             }
             extension_bar::show(ui, actions, commands);
             let (star, tip) = if bookmarked {
                 (
-                    RichText::new(icon::STAR)
-                        .strong()
-                        .color(ui.visuals().warn_fg_color),
+                    RichText::new(icon::STAR).strong().color(super::theme::CYAN),
                     "Remove bookmark (Ctrl+D)",
                 )
             } else {
                 (RichText::new(icon::STAR), "Bookmark this page (Ctrl+D)")
             };
-            if button(ui, star, tip, address.is_some()) {
+            if button(ui, star.size(16.0), tip, address.is_some()) {
                 commands.push(Command::ToggleBookmark);
             }
             omnibox.show(ui, address.map(|a| a.as_str()), commands);

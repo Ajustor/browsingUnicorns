@@ -483,22 +483,36 @@ impl eframe::App for BrowserApp {
         } else {
             Vec::new()
         };
-        TopBottomPanel::top("toolbar").show(ctx, |ui| {
-            toolbar::show(
-                ui,
-                self.browser.session().active(),
-                self.browser.is_active_bookmarked(),
-                &mut self.omnibox,
-                &actions,
-                self.profiles.current(),
-                &mut commands,
-            );
-        });
+        TopBottomPanel::top("toolbar")
+            .frame(super::theme::chrome_frame())
+            .show_separator_line(false)
+            .show(ctx, |ui| {
+                super::theme::chrome_style(ui);
+                toolbar::show(
+                    ui,
+                    self.browser.session().active(),
+                    self.browser.is_active_bookmarked(),
+                    &mut self.omnibox,
+                    &actions,
+                    self.profiles.current(),
+                    &mut commands,
+                );
+            });
         self.site_info_bar(ctx);
         if !self.browser.bookmarks().is_empty() {
-            TopBottomPanel::top("bookmarks").show(ctx, |ui| {
-                bookmarks_bar::show(ui, self.browser.bookmarks(), &mut commands);
-            });
+            TopBottomPanel::top("bookmarks")
+                .frame(super::theme::chrome_frame().inner_margin(egui::Margin::symmetric(10, 3)))
+                .show_separator_line(false)
+                .show(ctx, |ui| {
+                    super::theme::chrome_style(ui);
+                    bookmarks_bar::show(ui, self.browser.bookmarks(), &mut commands);
+                    let r = ui.max_rect();
+                    ui.painter().hline(
+                        r.x_range(),
+                        r.bottom() + 3.0,
+                        egui::Stroke::new(1.0, super::theme::NIGHT_HOVER),
+                    );
+                });
         }
         self.updates.banner(ctx, &mut commands);
         if self.library.open == Some(LibraryView::Profiles) {

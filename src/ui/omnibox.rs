@@ -25,11 +25,17 @@ impl Omnibox {
             self.text.push_str(current.unwrap_or_default());
         }
 
+        // A pill, for this widget only: it is the toolbar's last one.
+        ui.style_mut().visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(16);
+        ui.style_mut().visuals.widgets.hovered.corner_radius = egui::CornerRadius::same(16);
+        ui.style_mut().visuals.widgets.active.corner_radius = egui::CornerRadius::same(16);
         let response = ui.add(
             TextEdit::singleline(&mut self.text)
                 .id(id)
                 .hint_text("Search or enter an address")
-                .desired_width(f32::INFINITY),
+                .desired_width(f32::INFINITY)
+                .margin(egui::Margin::symmetric(12, 6))
+                .frame(true),
         );
 
         if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {

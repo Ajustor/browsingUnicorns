@@ -1,6 +1,6 @@
 use application::Target;
 use domain::Bookmarks;
-use egui::{Button, ScrollArea};
+use egui::{Button, RichText, ScrollArea};
 
 use super::command::Command;
 
@@ -16,7 +16,11 @@ pub fn show(ui: &mut egui::Ui, bookmarks: &Bookmarks, commands: &mut Vec<Command
                 for b in bookmarks.items() {
                     let label = super::tab_strip::truncate(b.label(), LABEL_CHARS);
                     let response = ui
-                        .add(Button::new(label).frame(false).small())
+                        .add(
+                            Button::new(RichText::new(label).color(super::theme::CHROME_TEXT_WEAK))
+                                .frame(false)
+                                .small(),
+                        )
                         .on_hover_text(b.address.as_str());
                     if response.clicked() {
                         commands.push(Command::Open(b.address.clone(), Target::ActiveTab));
