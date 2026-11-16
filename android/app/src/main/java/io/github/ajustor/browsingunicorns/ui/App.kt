@@ -2,15 +2,20 @@ package io.github.ajustor.browsingunicorns.ui
 
 import android.view.ViewGroup
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -30,7 +35,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -71,8 +75,15 @@ fun App(c: BrowserController) {
             c.message = null
         }
     }
-    Scaffold(snackbarHost = { SnackbarHost(snackbar) }) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding).imePadding()) {
+    // The bars reach under the status and navigation bars: each screen pads
+    // itself (BrowserScreen's top block and bottom bar, the headers).
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+    ) { padding ->
+        // The other screens' lists stop above the navigation bar, as before.
+        val bottom = if (c.screen == Screen.Browser) Modifier else Modifier.navigationBarsPadding()
+        Box(Modifier.fillMaxSize().padding(padding).imePadding().then(bottom)) {
             when (c.screen) {
                 Screen.Browser -> BrowserScreen(c)
                 Screen.Tabs -> TabsScreen(c)
@@ -89,9 +100,15 @@ fun App(c: BrowserController) {
 @Composable
 private fun BrowserScreen(c: BrowserController) {
     Column(Modifier.fillMaxSize()) {
-        AddressBar(c)
+        Box(Modifier.fillMaxWidth().background(UnicornGradient).statusBarsPadding()) {
+            AddressBar(c)
+        }
         if (c.progress < 100) {
-            LinearProgressIndicator(progress = { c.progress / 100f }, modifier = Modifier.fillMaxWidth())
+            Box(Modifier.fillMaxWidth().height(3.dp).background(Unicorn.Night)) {
+                Box(
+                    Modifier.fillMaxWidth(c.progress / 100f).height(3.dp).background(ProgressGradient),
+                )
+            }
         }
         AndroidView(
             factory = {
@@ -185,6 +202,7 @@ private fun AddressBar(c: BrowserController) {
         value = text,
         onValueChange = { text = it },
         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)
+            .border(1.dp, Unicorn.Outline, RoundedCornerShape(24.dp))
             .onFocusChanged { c.views.addressBarFocused = it.isFocused },
         singleLine = true,
         placeholder = { Text("Search or enter an address") },
@@ -196,6 +214,7 @@ private fun AddressBar(c: BrowserController) {
                     Icon(
                         if (c.state.activeSecure) Icons.Filled.Lock else Icons.Filled.Info,
                         contentDescription = if (c.state.activeSecure) "Secure connection: certificate" else "Not secure",
+                        tint = if (c.state.activeSecure) Unicorn.Cyan else Unicorn.OnNight,
                         modifier = Modifier.size(18.dp),
                     )
                 }
@@ -208,6 +227,17 @@ private fun AddressBar(c: BrowserController) {
         },
         shape = RoundedCornerShape(24.dp),
         colors = TextFieldDefaults.colors(
+            focusedContainerColor = Unicorn.NightDeep,
+            unfocusedContainerColor = Unicorn.NightDeep,
+            focusedTextColor = Unicorn.OnNight,
+            unfocusedTextColor = Unicorn.OnNight,
+            cursorColor = Unicorn.Cyan,
+            focusedLeadingIconColor = Unicorn.OnNight,
+            unfocusedLeadingIconColor = Unicorn.OnNight,
+            focusedTrailingIconColor = Unicorn.OnNight,
+            unfocusedTrailingIconColor = Unicorn.OnNight,
+            focusedPlaceholderColor = Unicorn.OnNight.copy(alpha = 0.6f),
+            unfocusedPlaceholderColor = Unicorn.OnNight.copy(alpha = 0.6f),
             focusedIndicatorColor = Color.Transparent,
             unfocusedIndicatorColor = Color.Transparent,
         ),
@@ -222,9 +252,9 @@ private fun AddressBar(c: BrowserController) {
 @Composable
 private fun BottomBar(c: BrowserController) {
     var menu by remember { mutableStateOf(false) }
-    Surface(tonalElevation = 3.dp) {
+    Surface(color = Unicorn.Night, contentColor = Unicorn.OnNight) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+            Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 4.dp),
             horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceAround,
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -239,7 +269,7 @@ private fun BottomBar(c: BrowserController) {
             }
             IconButton(onClick = { c.act { toggleBookmark() } }, enabled = c.state.activeUrl != null) {
                 if (c.state.bookmarked) {
-                    Icon(Icons.Filled.Star, contentDescription = "Remove bookmark", tint = MaterialTheme.colorScheme.primary)
+                    Icon(Icons.Filled.Star, contentDescription = "Remove bookmark", tint = Unicorn.Cyan)
                 } else {
                     Icon(Icons.Outlined.Star, contentDescription = "Bookmark this page")
                 }
@@ -247,7 +277,7 @@ private fun BottomBar(c: BrowserController) {
             IconButton(onClick = { c.screen = Screen.Tabs }) {
                 Surface(
                     shape = RoundedCornerShape(6.dp),
-                    border = BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface),
+                    border = BorderStroke(2.dp, Unicorn.OnNight),
                     color = Color.Transparent,
                     modifier = Modifier.size(24.dp),
                 ) {
