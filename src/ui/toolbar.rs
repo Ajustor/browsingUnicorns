@@ -46,11 +46,21 @@ pub fn show(
             }
         }
 
-        ui.label(match address {
-            Some(a) if a.is_secure() => icon::LOCK_SIMPLE,
-            Some(_) => icon::GLOBE_SIMPLE,
-            None => icon::MAGNIFYING_GLASS,
-        });
+        match address {
+            Some(a) => {
+                let (glyph, tip) = if a.is_secure() {
+                    (icon::LOCK_SIMPLE, "Connection is secure: certificate")
+                } else {
+                    (icon::GLOBE_SIMPLE, "Connection is not secure")
+                };
+                if button(ui, glyph, tip, true) {
+                    commands.push(Command::ToggleSiteInfo);
+                }
+            }
+            None => {
+                ui.label(icon::MAGNIFYING_GLASS);
+            }
+        }
 
         // Right to left so the address bar takes the room left in between.
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

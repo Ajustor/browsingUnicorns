@@ -14,6 +14,7 @@ use super::extensions::{ExtensionsRunner, ExtensionsView};
 use super::library::{Library, LibraryData, LibraryView};
 use super::omnibox::Omnibox;
 use super::profiles::{ProfileCommand, ProfilesRunner};
+use super::site_info::SiteInfo;
 use super::sync::SyncRunner;
 use super::sync_panel::SyncView;
 use super::updates::{Notice, Updates};
@@ -38,6 +39,8 @@ pub struct BrowserApp {
     omnibox: Omnibox,
     library: Library,
     notice: Option<Notice>,
+    /// The padlock's bar, when open.
+    site_info: Option<SiteInfo>,
     window_title: String,
     last_persist: Instant,
     close_requested: bool,
@@ -91,6 +94,7 @@ impl BrowserApp {
             omnibox: Omnibox::default(),
             library: Library::default(),
             notice: None,
+            site_info: None,
             window_title: String::new(),
             last_persist: Instant::now(),
             close_requested: false,
@@ -247,6 +251,7 @@ impl BrowserApp {
                 .engine_mut()
                 .open_devtools(&PageSource::Background(id)),
             Command::ToggleLibrary(view) => self.library.toggle(view),
+            Command::ToggleSiteInfo => self.toggle_site_info(),
             Command::CheckForUpdates => self.updates.check_now(),
             Command::InstallUpdate => self.updates.updater.install(),
             Command::UpdateLater => self.updates.updater.later(),
@@ -274,6 +279,42 @@ impl BrowserApp {
             | Command::RemoveUserScript(_)
             | Command::Profile(_)
             | Command::ToggleExtensionPopup { .. } => unreachable!("handled by run"),
+        }
+    }
+
+    /// Opens the padlock's bar on the active site (asking its certificate),
+    /// or closes it.
+    fn toggle_site_info(&mut self) {
+        if self.site_info.take().is_some() {
+            return;
+        }
+        let Some(tab) = self.browser.session().active() else {
+            return;
+        };
+        let Some(address) = tab.address().cloned() else {
+            return;
+        };
+        self.site_info = Some(SiteInfo {
+            address,
+            certificates: None,
+        });
+    }
+
+    /// Shows the padlock's bar while the active page stays the same.
+    fn site_info_bar(&mut self, ctx: &egui::Context) {
+        let Some(info) = &mut self.site_info else {
+            return;
+        };
+        let active = self.browser.session().active();
+        if active.and_then(|t| t.address()) != Some(&info.address) {
+            self.site_info = None;
+            return;
+        }
+        if info.address.is_secure() {
+            info.certificates = active.and_then(|t| self.browser.engine().site_security(t.id()));
+        }
+        if !info.show(ctx) {
+            self.site_info = None;
         }
     }
 
@@ -426,6 +467,7 @@ impl eframe::App for BrowserApp {
                 &mut commands,
             );
         });
+        self.site_info_bar(ctx);
         if !self.browser.bookmarks().is_empty() {
             TopBottomPanel::top("bookmarks").show(ctx, |ui| {
                 bookmarks_bar::show(ui, self.browser.bookmarks(), &mut commands);

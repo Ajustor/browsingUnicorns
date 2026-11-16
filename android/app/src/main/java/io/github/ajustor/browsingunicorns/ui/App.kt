@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
@@ -163,6 +164,15 @@ private fun AddressBar(c: BrowserController) {
     val url = c.state.activeUrl ?: ""
     var text by remember(url) { mutableStateOf(url) }
     val focus = LocalFocusManager.current
+    var siteInfo by remember { mutableStateOf(false) }
+    if (siteInfo) {
+        SiteInfoDialog(
+            host = android.net.Uri.parse(url).host ?: url,
+            secure = c.state.activeSecure,
+            certificate = c.views.active()?.certificate,
+            onDismiss = { siteInfo = false },
+        )
+    }
     // Typing here: the page keeps off the focus until it is touched.
     DisposableEffect(c.views) {
         c.views.onPageTouched = { focus.clearFocus() }
@@ -179,11 +189,17 @@ private fun AddressBar(c: BrowserController) {
         singleLine = true,
         placeholder = { Text("Search or enter an address") },
         leadingIcon = {
-            Icon(
-                if (c.state.activeSecure) Icons.Filled.Lock else Icons.Filled.Search,
-                contentDescription = if (c.state.activeSecure) "Secure connection" else null,
-                modifier = Modifier.size(18.dp),
-            )
+            if (url.isEmpty()) {
+                Icon(Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(18.dp))
+            } else {
+                IconButton(onClick = { siteInfo = true }) {
+                    Icon(
+                        if (c.state.activeSecure) Icons.Filled.Lock else Icons.Filled.Info,
+                        contentDescription = if (c.state.activeSecure) "Secure connection: certificate" else "Not secure",
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
         },
         trailingIcon = {
             IconButton(onClick = { c.act { reload() } }) {

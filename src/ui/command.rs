@@ -43,6 +43,8 @@ pub enum Command {
     SetUserScriptEnabled(UserScriptId, bool),
     RemoveUserScript(UserScriptId),
     Profile(ProfileCommand),
+    /// Shows the active site's connection and certificate, or hides them.
+    ToggleSiteInfo,
     /// The web inspector of the active tab.
     OpenDevTools,
     /// The web inspector of an extension's background page.

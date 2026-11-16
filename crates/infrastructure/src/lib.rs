@@ -3,6 +3,8 @@
 //! The `desktop` feature (default) adds the system web view and the HTTP
 //! sync transport; the Android app builds without it.
 
+#[cfg(feature = "desktop")]
+pub mod certificates;
 mod clock;
 mod dto;
 pub mod extension_hub;

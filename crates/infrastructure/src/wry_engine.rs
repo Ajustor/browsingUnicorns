@@ -1,6 +1,10 @@
 use std::borrow::Cow;
+#[cfg(windows)]
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
+#[cfg(windows)]
+use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::mpsc::Sender;
 
@@ -107,6 +111,9 @@ pub struct WryEngine {
     shortcuts: std::rc::Rc<std::cell::RefCell<std::collections::HashSet<KeyPress>>>,
     #[cfg(windows)]
     pressed: std::rc::Rc<std::cell::RefCell<Vec<KeyPress>>>,
+    /// Windows: each tab's connection security, as last told.
+    #[cfg(windows)]
+    security: HashMap<TabId, Rc<RefCell<Option<crate::certificates::Certificates>>>>,
 }
 
 fn engine_error(e: wry::Error) -> EngineError {
@@ -224,6 +231,8 @@ impl WryEngine {
             shortcuts: Default::default(),
             #[cfg(windows)]
             pressed: Default::default(),
+            #[cfg(windows)]
+            security: HashMap::new(),
         }
     }
 
@@ -431,6 +440,18 @@ impl WryEngine {
         }
     }
 
+    /// How `tab`'s page connection is secured, once the engine told.
+    /// Windows only: elsewhere the system's web view doesn't tell.
+    pub fn site_security(&self, tab: TabId) -> Option<crate::certificates::Certificates> {
+        #[cfg(windows)]
+        return self.security.get(&tab).and_then(|s| s.borrow().clone());
+        #[cfg(not(windows))]
+        {
+            let _ = tab;
+            Some(Err("this system's web view doesn't tell".into()))
+        }
+    }
+
     /// The shortcuts pressed in a page since the last call.
     pub fn take_key_presses(&mut self) -> Vec<KeyPress> {
         #[cfg(windows)]
@@ -531,6 +552,15 @@ impl WebEngine for WryEngine {
                 log::warn!("shortcuts in tab {tab}: {e}");
             }
         }
+        #[cfg(windows)]
+        {
+            let slot = Rc::default();
+            let waker = self.waker.clone();
+            if let Err(e) = crate::certificates::watch(&view, Rc::clone(&slot), move || waker()) {
+                log::warn!("security of tab {tab}: {e}");
+            }
+            self.security.insert(tab, slot);
+        }
         let mut handles = Handles::default();
         page_injection::replace(&view, &self.page_scripts, &mut handles);
         view.load_url(address.as_str()).map_err(engine_error)?;
@@ -547,6 +577,8 @@ impl WebEngine for WryEngine {
         self.injected.remove(&tab);
         #[cfg(windows)]
         self.tab_pages.remove(&tab);
+        #[cfg(windows)]
+        self.security.remove(&tab);
         if self.shown == Some(tab) {
             self.shown = None;
         }

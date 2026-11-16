@@ -11,6 +11,7 @@ mod library;
 mod omnibox;
 mod profiles;
 mod shortcuts;
+mod site_info;
 mod sync;
 mod sync_panel;
 mod tab_strip;
