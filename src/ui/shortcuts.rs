@@ -1,10 +1,12 @@
 use egui::{Key, KeyboardShortcut, Modifiers};
+use infrastructure::KeyPress;
 
 use super::command::Command;
 use super::library::LibraryView;
 
-/// Browser shortcuts. They only reach egui while the chrome has the keyboard
-/// focus: a page that has it keeps its keys.
+/// Browser shortcuts. They reach egui while the chrome has the keyboard
+/// focus; on Windows the engine also takes them from the page that has it
+/// ([`page_keys`], [`from_page`]).
 const SHORTCUTS: &[(Modifiers, Key, Command)] = &[
     (Modifiers::COMMAND, Key::T, Command::NewTab),
     (Modifiers::COMMAND, Key::W, Command::CloseActiveTab),
@@ -45,6 +47,32 @@ const SHORTCUTS: &[(Modifiers, Key, Command)] = &[
     ),
 ];
 
+/// A shortcut as the engine sees a key press (Ctrl is Command off macOS).
+fn key_press(modifiers: Modifiers, key: Key) -> KeyPress {
+    KeyPress {
+        key: key.name().to_owned(),
+        ctrl: modifiers.command || modifiers.ctrl,
+        shift: modifiers.shift,
+        alt: modifiers.alt,
+    }
+}
+
+/// The keys the engine takes from the pages.
+pub fn page_keys() -> Vec<KeyPress> {
+    SHORTCUTS
+        .iter()
+        .map(|(m, k, _)| key_press(*m, *k))
+        .collect()
+}
+
+/// The command of a shortcut pressed in a page.
+pub fn from_page(press: &KeyPress) -> Option<Command> {
+    SHORTCUTS
+        .iter()
+        .find(|(m, k, _)| key_press(*m, *k) == *press)
+        .map(|(.., command)| command.clone())
+}
+
 pub fn collect(ctx: &egui::Context, commands: &mut Vec<Command>) {
     ctx.input_mut(|input| {
         for (modifiers, key, command) in SHORTCUTS {
@@ -53,4 +81,41 @@ pub fn collect(ctx: &egui::Context, commands: &mut Vec<Command>) {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn press(key: &str, ctrl: bool, shift: bool, alt: bool) -> KeyPress {
+        KeyPress {
+            key: key.into(),
+            ctrl,
+            shift,
+            alt,
+        }
+    }
+
+    #[test]
+    fn page_keys_map_to_their_commands() {
+        assert!(matches!(
+            from_page(&press("T", true, false, false)),
+            Some(Command::NewTab)
+        ));
+        assert!(matches!(
+            from_page(&press("Tab", true, true, false)),
+            Some(Command::CycleTabs(-1))
+        ));
+        assert!(matches!(
+            from_page(&press("Left", false, false, true)),
+            Some(Command::Back)
+        ));
+        assert!(matches!(
+            from_page(&press("F5", false, false, false)),
+            Some(Command::Reload)
+        ));
+        // A page's own keys stay with it.
+        assert!(from_page(&press("C", true, false, false)).is_none());
+        assert!(from_page(&press("T", false, false, false)).is_none());
+    }
 }

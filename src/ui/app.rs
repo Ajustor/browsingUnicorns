@@ -73,6 +73,10 @@ impl BrowserApp {
             hub,
         } = add_ons;
         updates.check_if_due();
+        let mut browser = browser;
+        browser
+            .engine_mut()
+            .set_shortcuts(super::shortcuts::page_keys());
         Self {
             browser,
             events,
@@ -104,6 +108,7 @@ impl BrowserApp {
     fn run(&mut self, command: Command) {
         let result = match command {
             Command::NewTab => self.browser.open_tab(None).map(|_| {
+                self.browser.engine().focus_window();
                 self.omnibox.request_focus();
             }),
             Command::Home => self.browser.go_home(),
@@ -225,7 +230,10 @@ impl BrowserApp {
             Command::Back => self.browser.go_back(),
             Command::Forward => self.browser.go_forward(),
             Command::Reload => self.browser.reload(),
-            Command::FocusOmnibox => self.omnibox.request_focus(),
+            Command::FocusOmnibox => {
+                self.browser.engine().focus_window();
+                self.omnibox.request_focus();
+            }
             Command::OpenDevTools => {
                 if let Some(tab) = self.browser.session().active_id() {
                     self.browser
@@ -353,7 +361,7 @@ impl BrowserApp {
                 } else {
                     ui.label(&notice.text);
                 }
-                dismissed = ui.small_button("OK").clicked();
+dismissed = ui.small_button("OK").clicked();
             });
         });
         if dismissed {
@@ -380,6 +388,9 @@ impl eframe::App for BrowserApp {
 
         let mut commands = Vec::new();
         super::shortcuts::collect(ctx, &mut commands);
+        for press in self.browser.engine_mut().take_key_presses() {
+            commands.extend(super::shortcuts::from_page(&press));
+        }
 
         TopBottomPanel::top("tabs").show(ctx, |ui| {
             tab_strip::show(ui, self.browser.session(), &mut commands);

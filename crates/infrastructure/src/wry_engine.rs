@@ -17,6 +17,16 @@ use crate::extension_server::{ExtensionServer, Origins, SCHEME};
 use crate::page_injection::{self, Handles};
 use crate::page_scripts::{Bridge, Sources, page_scripts};
 
+/// A key pressed with its modifiers; `key` is named like egui names it
+/// (`T`, `Tab`, `Left`, `F5`...).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct KeyPress {
+    pub key: String,
+    pub ctrl: bool,
+    pub shift: bool,
+    pub alt: bool,
+}
+
 /// Called after an event is sent, so the UI wakes up to read it.
 pub type Waker = Arc<dyn Fn() + Send + Sync>;
 
@@ -91,6 +101,12 @@ pub struct WryEngine {
     blocking_rules: Arc<std::sync::RwLock<domain::RuleSet>>,
     #[cfg(windows)]
     tab_pages: HashMap<TabId, std::rc::Rc<std::cell::RefCell<String>>>,
+    /// Windows: the browser's shortcuts, taken from the pages' keys, and
+    /// those pressed since the last look.
+    #[cfg(windows)]
+    shortcuts: std::rc::Rc<std::cell::RefCell<std::collections::HashSet<KeyPress>>>,
+    #[cfg(windows)]
+    pressed: std::rc::Rc<std::cell::RefCell<Vec<KeyPress>>>,
 }
 
 fn engine_error(e: wry::Error) -> EngineError {
@@ -204,6 +220,10 @@ impl WryEngine {
             blocking_rules: Arc::default(),
             #[cfg(windows)]
             tab_pages: HashMap::new(),
+            #[cfg(windows)]
+            shortcuts: Default::default(),
+            #[cfg(windows)]
+            pressed: Default::default(),
         }
     }
 
@@ -390,6 +410,35 @@ impl WryEngine {
         self.backgrounds.contains_key(id)
     }
 
+    /// The keys the browser takes from the pages (its shortcuts). Windows
+    /// only: elsewhere a page with the focus keeps its keys.
+    pub fn set_shortcuts(&mut self, keys: impl IntoIterator<Item = KeyPress>) {
+        #[cfg(windows)]
+        {
+            *self.shortcuts.borrow_mut() = keys.into_iter().collect();
+        }
+        #[cfg(not(windows))]
+        drop(keys.into_iter());
+    }
+
+    /// Gives the keyboard back to the window (from the page that has it),
+    /// for the address bar.
+    pub fn focus_window(&self) {
+        if let Some(view) = self.shown.and_then(|tab| self.views.get(&tab))
+            && let Err(e) = view.focus_parent()
+        {
+            log::warn!("focus: {e}");
+        }
+    }
+
+    /// The shortcuts pressed in a page since the last call.
+    pub fn take_key_presses(&mut self) -> Vec<KeyPress> {
+        #[cfg(windows)]
+        return std::mem::take(&mut *self.pressed.borrow_mut());
+        #[cfg(not(windows))]
+        Vec::new()
+    }
+
     /// The address of `path` of extension `id`, where its files are served.
     pub fn extension_url(&self, id: &ExtensionId, path: &str) -> Option<String> {
         self.server.as_ref().map(|s| s.origins().url(id, path))
@@ -456,6 +505,18 @@ impl WebEngine for WryEngine {
                 log::warn!("extensions: network rules in tab {tab}: {e}");
             }
             self.tab_pages.insert(tab, page);
+        }
+        #[cfg(windows)]
+        {
+            let waker = self.waker.clone();
+            if let Err(e) = crate::webview2_keys::attach(
+                &view,
+                self.shortcuts.clone(),
+                self.pressed.clone(),
+                move || waker(),
+            ) {
+                log::warn!("shortcuts in tab {tab}: {e}");
+            }
         }
         let mut handles = Handles::default();
         page_injection::replace(&view, &self.page_scripts, &mut handles);

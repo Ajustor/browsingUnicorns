@@ -26,6 +26,8 @@ mod webkit_rules;
 mod webview2_blocking;
 #[cfg(all(windows, feature = "desktop"))]
 mod webview2_extensions;
+#[cfg(all(windows, feature = "desktop"))]
+mod webview2_keys;
 #[cfg(feature = "desktop")]
 mod wry_engine;
 
@@ -39,7 +41,7 @@ pub use json_store::JsonRepository;
 pub use parent_window::ParentWindow;
 pub use settings_store::TomlSettingsRepository;
 #[cfg(feature = "desktop")]
-pub use wry_engine::{EngineFiles, WryEngine, builtin_extensions};
+pub use wry_engine::{EngineFiles, KeyPress, WryEngine, builtin_extensions};
 
 /// `<data dir>/browsing-unicorns`, where history, bookmarks and the session
 /// of the default profile are kept, the other profiles under it.
