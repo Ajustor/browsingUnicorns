@@ -150,7 +150,52 @@ fn tabs_and_navigation_go_through_the_host() {
             .contains(&format!("navigate {id} https://rust-lang.org/"))
     );
     b.on_load_started(id, "data:text/html,hi".into());
-    assert!(b.open_tab(Some("javascript:x".into())).is_err());
+    assert!(b.open_tab(Some("javascript:x".into()), false).is_err());
+}
+
+#[test]
+fn private_tabs_leave_nothing_behind() {
+    let dir = tempfile::tempdir().unwrap();
+    let http = Arc::new(FakeHttp::default());
+    let (b, _) = browser(&dir, "phone", &http);
+    b.restore_session().unwrap();
+    let normal = b.state().active.unwrap();
+    b.on_load_finished(normal, "https://a.com/".into());
+    let private = b
+        .open_tab(Some("https://secret.test/".into()), true)
+        .unwrap();
+    b.on_load_started(private, "https://secret.test/".into());
+    b.on_load_finished(private, "https://secret.test/".into());
+    b.on_title_changed(private, "Secret".into());
+    // A page of the private tab opens a private tab too.
+    b.on_new_window("https://secret.test/popup".into()).unwrap();
+    let state = b.state();
+    assert_eq!(state.tabs.iter().filter(|t| t.private).count(), 2);
+    assert!(!state.tabs.iter().find(|t| t.id == normal).unwrap().private);
+
+    let history = b.history(String::new(), 10);
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].url, "https://a.com/");
+
+    b.persist().unwrap();
+    let session = std::fs::read_to_string(dir.path().join("phone").join("session.json")).unwrap();
+    assert!(session.contains("a.com") && !session.contains("secret"));
+
+    let record = b.lock().browser.sync_record(new_device_id(), "phone");
+    assert_eq!(record.tabs.len(), 1);
+    assert_eq!(record.tabs[0].address.as_str(), "https://a.com/");
+    assert!(
+        record
+            .history
+            .iter()
+            .all(|v| !v.address.as_str().contains("secret"))
+    );
+
+    b.close_private_tabs();
+    let state = b.state();
+    assert_eq!(state.tabs.len(), 1);
+    assert_eq!(state.tabs[0].id, normal);
+    assert_eq!(state.active, Some(normal));
 }
 
 #[test]
@@ -440,7 +485,9 @@ fn the_ad_blocker_blocks_and_counts() {
     let dir = tempfile::tempdir().unwrap();
     let http = Arc::new(FakeHttp::default());
     let (b, host) = browser(&dir, "phone", &http);
-    let tab = b.open_tab(Some("https://news.test/".into())).unwrap();
+    let tab = b
+        .open_tab(Some("https://news.test/".into()), false)
+        .unwrap();
     b.on_load_finished(tab, "https://news.test/".into());
     let page = Some("https://news.test/".to_owned());
     let intercept = |url: &str, main_frame: bool| {

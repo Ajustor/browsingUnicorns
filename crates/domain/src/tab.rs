@@ -35,6 +35,8 @@ pub struct Tab {
     title: String,
     history: History,
     load_state: LoadState,
+    /// Left out of the history, the saved session and sync.
+    private: bool,
 }
 
 impl Tab {
@@ -46,11 +48,24 @@ impl Tab {
             title: String::new(),
             history: History::default(),
             load_state: LoadState::Idle,
+            private: false,
+        }
+    }
+
+    /// A tab whose pages leave nothing behind.
+    pub fn new_private(id: TabId) -> Self {
+        Self {
+            private: true,
+            ..Self::new(id)
         }
     }
 
     pub fn id(&self) -> TabId {
         self.id
+    }
+
+    pub fn is_private(&self) -> bool {
+        self.private
     }
 
     pub fn address(&self) -> Option<&WebAddress> {

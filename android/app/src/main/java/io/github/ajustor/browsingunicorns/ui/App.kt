@@ -315,7 +315,7 @@ private fun BottomBar(c: BrowserController) {
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                     DropdownMenuItem(text = { Text("New tab") }, onClick = {
                         menu = false
-                        c.act { openTab(null) }
+                        c.act { openTab(null, false) }
                     })
                     DropdownMenuItem(text = { Text("History") }, onClick = {
                         menu = false

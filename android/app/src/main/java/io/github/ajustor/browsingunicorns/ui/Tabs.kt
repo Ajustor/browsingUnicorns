@@ -49,7 +49,7 @@ fun TabsScreen(c: BrowserController) {
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Header(c, "Tabs (${c.state.tabs.size})") {
             IconButton(onClick = {
-                c.act { openTab(null) }
+                c.act { openTab(null, false) }
                 c.screen = Screen.Browser
             }) { Icon(Icons.Filled.Add, contentDescription = "New tab") }
         }

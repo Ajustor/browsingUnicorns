@@ -62,13 +62,27 @@ impl Session {
 
     /// Opens an empty tab right after the active one and shows it.
     pub fn open_tab(&mut self) -> TabId {
+        self.open(false)
+    }
+
+    /// [`Self::open_tab`] for a private tab.
+    pub fn open_private_tab(&mut self) -> TabId {
+        self.open(true)
+    }
+
+    fn open(&mut self, private: bool) -> TabId {
         self.next_id += 1;
         let id = TabId::new(self.next_id);
         let at = self
             .active
             .and_then(|a| self.position(a))
             .map_or(self.tabs.len(), |i| i + 1);
-        self.tabs.insert(at, Tab::new(id));
+        let tab = if private {
+            Tab::new_private(id)
+        } else {
+            Tab::new(id)
+        };
+        self.tabs.insert(at, tab);
         self.active = Some(id);
         id
     }
@@ -99,10 +113,10 @@ impl Session {
     }
 
     /// The tabs that show a page, in order. Tabs that have not loaded
-    /// anything yet are left out.
+    /// anything yet, and private ones, are left out.
     pub fn snapshot(&self) -> SessionSnapshot {
         let mut snapshot = SessionSnapshot::default();
-        for tab in &self.tabs {
+        for tab in self.tabs.iter().filter(|t| !t.is_private()) {
             if let Some(address) = tab.address() {
                 if Some(tab.id()) == self.active {
                     snapshot.active = Some(snapshot.tabs.len());
@@ -188,6 +202,21 @@ mod tests {
         assert_eq!(snap.tabs, vec![page("a"), page("c")]);
         assert_eq!(snap.active, Some(1));
         assert!(Session::new().snapshot().is_empty());
+    }
+
+    #[test]
+    fn private_tabs_are_not_in_the_snapshot() {
+        let mut s = Session::new();
+        let a = s.open_tab();
+        let p = s.open_private_tab();
+        assert!(s.tab(p).unwrap().is_private());
+        assert!(!s.tab(a).unwrap().is_private());
+        let page = |p: &str| WebAddress::parse(&format!("https://x.com/{p}")).unwrap();
+        s.tab_mut(a).unwrap().load_started(page("a"));
+        s.tab_mut(p).unwrap().load_started(page("secret"));
+        let snap = s.snapshot();
+        assert_eq!(snap.tabs, vec![page("a")]);
+        assert_eq!(snap.active, None, "the active tab is private");
     }
 
     #[test]

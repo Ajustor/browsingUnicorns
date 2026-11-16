@@ -76,6 +76,9 @@ pub struct TabInfo {
     pub title: String,
     pub url: Option<String>,
     pub loading: bool,
+    /// Kept out of the history, the session and sync; its WebView has its
+    /// own cookies and storage.
+    pub private: bool,
 }
 
 /// What the browser screen shows.
@@ -422,6 +425,7 @@ impl MobileBrowser {
                     title: t.display_title().to_owned(),
                     url: t.address().map(ToString::to_string),
                     loading: t.is_loading(),
+                    private: t.is_private(),
                 })
                 .collect(),
             active: session.active_id().map(TabId::get),
@@ -437,14 +441,25 @@ impl MobileBrowser {
 
     // --- Tabs and navigation ---------------------------------------------
 
-    /// Opens a tab on `url` (the home page when `None`).
-    pub fn open_tab(&self, url: Option<String>) -> Result<u64, MobileError> {
+    /// Opens a tab on `url` (the home page when `None`), private or not.
+    pub fn open_tab(&self, url: Option<String>, private: bool) -> Result<u64, MobileError> {
         let address = url.as_deref().map(parse).transpose()?;
         self.lock()
             .browser
-            .open_tab(address)
+            .open_tab_in(address, private)
             .map(TabId::get)
             .map_err(MobileError::new)
+    }
+
+    /// Closes every private tab.
+    pub fn close_private_tabs(&self) {
+        let closed = self.lock().browser.close_private_tabs();
+        let mut blocked = self.blocked_lock();
+        for id in closed {
+            blocked.remove(&id.get());
+        }
+        drop(blocked);
+        self.hub_tick();
     }
 
     pub fn close_tab(&self, id: u64) {

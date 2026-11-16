@@ -183,6 +183,7 @@ impl<E: WebEngine> Browser<E> {
                 .session
                 .tabs()
                 .iter()
+                .filter(|t| !t.is_private())
                 .filter_map(|t| {
                     Some(RemoteTab {
                         address: t.address()?.clone(),
@@ -237,7 +238,7 @@ impl<E: WebEngine> Browser<E> {
         match (target, self.session.active_id()) {
             (Target::ActiveTab, Some(id)) => self.engine.navigate(id, &address)?,
             _ => {
-                self.open_tab(Some(address))?;
+                self.open_tab_in(Some(address), self.active_is_private())?;
             }
         }
         Ok(())
@@ -253,8 +254,22 @@ impl<E: WebEngine> Browser<E> {
 
     /// Opens a tab on `address` (the home page when `None`) and shows it.
     pub fn open_tab(&mut self, address: Option<WebAddress>) -> Result<TabId, BrowserError> {
+        self.open_tab_in(address, false)
+    }
+
+    /// [`Self::open_tab`], private or not: a private tab's pages stay out of
+    /// the history, the saved session and sync.
+    pub fn open_tab_in(
+        &mut self,
+        address: Option<WebAddress>,
+        private: bool,
+    ) -> Result<TabId, BrowserError> {
         let address = address.unwrap_or_else(|| self.settings.home_page.clone());
-        let id = self.session.open_tab();
+        let id = if private {
+            self.session.open_private_tab()
+        } else {
+            self.session.open_tab()
+        };
         if let Err(e) = self.engine.open_view(id, &address) {
             self.session.close_tab(id);
             return Err(e.into());
@@ -274,6 +289,26 @@ impl<E: WebEngine> Browser<E> {
         if let Some(id) = self.session.active_id() {
             self.close_tab(id);
         }
+    }
+
+    /// Closes every private tab; returns their ids.
+    pub fn close_private_tabs(&mut self) -> Vec<TabId> {
+        let ids: Vec<TabId> = self
+            .session
+            .tabs()
+            .iter()
+            .filter(|t| t.is_private())
+            .map(|t| t.id())
+            .collect();
+        for &id in &ids {
+            self.close_tab(id);
+        }
+        ids
+    }
+
+    /// Whether the active tab is private: the tabs it opens are too.
+    fn active_is_private(&self) -> bool {
+        self.session.active().is_some_and(|t| t.is_private())
     }
 
     pub fn activate(&mut self, id: TabId) {
@@ -347,9 +382,10 @@ impl<E: WebEngine> Browser<E> {
                 if let Some(t) = self.session.tab_mut(tab) {
                     t.load_finished(address.clone());
                     let title = t.title().to_owned();
-                    if self
-                        .history
-                        .record(address.clone(), self.profile.clock.now())
+                    if !t.is_private()
+                        && self
+                            .history
+                            .record(address.clone(), self.profile.clock.now())
                     {
                         // The title may have come before the end of the load.
                         self.history.retitle(&address, &title);
@@ -361,7 +397,8 @@ impl<E: WebEngine> Browser<E> {
             EngineEvent::TitleChanged { tab, title } => {
                 if let Some(t) = self.session.tab_mut(tab) {
                     t.set_title(title);
-                    if let Some(address) = t.address()
+                    if !t.is_private()
+                        && let Some(address) = t.address()
                         && self.history.retitle(address, t.title())
                     {
                         self.history_dirty = true;
@@ -369,7 +406,7 @@ impl<E: WebEngine> Browser<E> {
                 }
             }
             EngineEvent::NewTabRequested { address } => {
-                self.open_tab(Some(address))?;
+                self.open_tab_in(Some(address), self.active_is_private())?;
             }
             // Answered by the presentation (page scripts' bridge).
             EngineEvent::PageMessage { .. } => {}
