@@ -653,11 +653,67 @@ function extensionApis(api, entry, call) {
   };
   api.contextMenus = menus;
   api.menus = menus;
+  // What the manifest asks for, plus the optional permissions granted since
+  // (kept for all the extension's pages). A permission whose API the
+  // browser lacks (`privacy`...) is never granted: an extension checks it
+  // before calling that API.
+  const GRANTED_KEY = "__bu_granted_permissions";
+  // In the extension's own origin only: a content script's localStorage is
+  // the visited site's.
+  const granted = () => {
+    let extra = [];
+    try {
+      if (context !== "content") extra = JSON.parse(localStorage.getItem(GRANTED_KEY) || "[]");
+    } catch (e) {}
+    return new Set([...(manifest.permissions || []), ...extra]);
+  };
+  const saveGranted = (set) => {
+    const base = new Set(manifest.permissions || []);
+    if (context === "content") return;
+    try {
+      localStorage.setItem(GRANTED_KEY, JSON.stringify([...set].filter((p) => !base.has(p))));
+    } catch (e) {}
+  };
+  const NAMESPACED = [
+    "privacy", "proxy", "history", "bookmarks", "sessions", "tabGroups", "topSites",
+    "downloads", "cookies", "management", "notifications", "idle", "webNavigation",
+    "contextMenus", "alarms", "scripting", "offscreen", "sidePanel", "declarativeNetRequest",
+    "browsingData", "contentSettings", "debugger", "fontSettings", "gcm", "identity",
+    "pageCapture", "power", "printerProvider", "search", "system.cpu", "system.memory",
+    "system.storage", "tabCapture", "tts", "ttsEngine", "wallpaper", "webRequest",
+  ];
+  const available = (p) => !NAMESPACED.includes(p) || api[p] !== undefined;
+  const wanted = (o) => ((o && o.permissions) || []).map(String);
   api.permissions = {
-    contains: noop(api, true),
-    request: noop(api, true),
-    remove: noop(api, true),
-    getAll: noop(api, { permissions: manifest.permissions || [], origins: manifest.host_permissions || [] }),
+    contains: (o, cb) => {
+      const have = granted();
+      const ok = wanted(o).every((p) => have.has(p) && available(p));
+      return withCallback(Promise.resolve(ok), cb, api);
+    },
+    request: (o, cb) => {
+      const asked = wanted(o);
+      const ok = asked.every(available);
+      if (ok) {
+        const have = granted();
+        asked.forEach((p) => have.add(p));
+        saveGranted(have);
+      }
+      return withCallback(Promise.resolve(ok), cb, api);
+    },
+    remove: (o, cb) => {
+      const have = granted();
+      const base = new Set(manifest.permissions || []);
+      const removable = wanted(o).filter((p) => !base.has(p));
+      removable.forEach((p) => have.delete(p));
+      saveGranted(have);
+      return withCallback(Promise.resolve(removable.length > 0), cb, api);
+    },
+    getAll: (cb) =>
+      withCallback(
+        Promise.resolve({ permissions: [...granted()].filter(available), origins: manifest.host_permissions || [] }),
+        cb,
+        api,
+      ),
     onAdded: ev(),
     onRemoved: ev(),
   };

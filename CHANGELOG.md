@@ -4,6 +4,17 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [Unreleased]
+
+### Corrigé
+
+- La popup de Bitwarden restait noire : le navigateur répondait « oui » à
+  toute question sur les permissions, Bitwarden croyait donc avoir la
+  permission optionnelle `privacy` et appelait `chrome.privacy`, qui
+  n'existe pas ici. Les extensions n'ont désormais que les permissions de
+  leur manifest et celles accordées ensuite, jamais celles d'une API que le
+  navigateur n'a pas.
+
 ## [0.12.0] - 2026-11-16
 
 ### Ajouté
