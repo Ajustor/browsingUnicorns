@@ -19,6 +19,10 @@ struct SettingsFile {
     search_engine: SearchEngineFile,
     /// When the settings were last changed (unix seconds), for sync.
     updated_at: u64,
+    /// The built-in ad blocker is on.
+    blocker: bool,
+    /// Hosts where the ad blocker is off.
+    blocker_allowlist: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -42,6 +46,8 @@ impl From<&Settings> for SettingsFile {
                 template: s.search_engine.template.clone(),
             },
             updated_at: s.updated_at,
+            blocker: s.blocker,
+            blocker_allowlist: s.blocker_allowlist.clone(),
         }
     }
 }
@@ -54,6 +60,8 @@ impl SettingsFile {
             home_page,
             search_engine: SearchEngine::new(self.search_engine.name, self.search_engine.template),
             updated_at: self.updated_at,
+            blocker: self.blocker,
+            blocker_allowlist: self.blocker_allowlist,
         })
     }
 }
@@ -111,6 +119,8 @@ mod tests {
             home_page: WebAddress::parse("https://example.com/").unwrap(),
             search_engine: SearchEngine::new("Qwant", "https://www.qwant.com/?q={query}"),
             updated_at: 42,
+            blocker: false,
+            blocker_allowlist: vec!["lemonde.fr".into()],
         };
         repo(&dir).save(&settings).unwrap();
         assert_eq!(repo(&dir).load().unwrap(), settings);
@@ -124,6 +134,8 @@ mod tests {
         let loaded = repo.load().unwrap();
         assert_eq!(loaded.home_page.as_str(), "https://example.com/");
         assert_eq!(loaded.search_engine, SearchEngine::default());
+        assert!(loaded.blocker);
+        assert!(loaded.blocker_allowlist.is_empty());
     }
 
     #[test]

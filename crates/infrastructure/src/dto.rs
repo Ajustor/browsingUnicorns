@@ -118,6 +118,14 @@ pub struct SettingsDto {
     pub search_template: String,
     #[serde(default)]
     pub updated_at: u64,
+    #[serde(default = "yes")]
+    pub blocker: bool,
+    #[serde(default)]
+    pub blocker_allowlist: Vec<String>,
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl From<&Settings> for SettingsDto {
@@ -127,6 +135,8 @@ impl From<&Settings> for SettingsDto {
             search_name: s.search_engine.name.clone(),
             search_template: s.search_engine.template.clone(),
             updated_at: s.updated_at,
+            blocker: s.blocker,
+            blocker_allowlist: s.blocker_allowlist.clone(),
         }
     }
 }
@@ -137,6 +147,8 @@ impl SettingsDto {
             home_page: parse(&self.home_page)?,
             search_engine: SearchEngine::new(self.search_name, self.search_template),
             updated_at: self.updated_at,
+            blocker: self.blocker,
+            blocker_allowlist: self.blocker_allowlist,
         })
     }
 }
@@ -208,5 +220,34 @@ impl DeviceRecordDto {
                 .collect(),
             settings: self.settings.into_settings()?,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_older_settings_record_keeps_the_blocker_on() {
+        let dto: SettingsDto = serde_json::from_str(
+            r#"{"home_page":"https://a.com/","search_name":"DDG","search_template":"https://d.com/?q={query}"}"#,
+        )
+        .unwrap();
+        let settings = dto.into_settings().unwrap();
+        assert!(settings.blocker);
+        assert!(settings.blocker_allowlist.is_empty());
+    }
+
+    #[test]
+    fn settings_round_trip_with_the_allowlist() {
+        let settings = Settings {
+            blocker: false,
+            blocker_allowlist: vec!["lemonde.fr".into()],
+            updated_at: 7,
+            ..Settings::default()
+        };
+        let json = serde_json::to_string(&SettingsDto::from(&settings)).unwrap();
+        let back: SettingsDto = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.into_settings().unwrap(), settings);
     }
 }
