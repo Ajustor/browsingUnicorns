@@ -192,6 +192,9 @@ pub enum ExtensionSource {
     Store(ExtensionId),
     /// A `.crx` file on this computer.
     File(PathBuf),
+    /// An unpacked extension: a folder with its `manifest.json` (as Chrome's
+    /// "Load unpacked"). Installed again from there to update it.
+    Folder(PathBuf),
 }
 
 /// The extensions' files: fetches and unpacks packages, removes them.

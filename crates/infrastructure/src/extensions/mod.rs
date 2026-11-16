@@ -1,6 +1,6 @@
 //! Chrome extensions on disk: downloaded from the Chrome Web Store (or read
-//! from a `.crx` file) and unpacked into `<profile>/extensions/<id>/`, where
-//! the web view loads them from.
+//! from a `.crx` file, or copied from an unpacked folder) into
+//! `<profile>/extensions/<id>/`, where the web view loads them from.
 //!
 //! Where the web view has no extension engine (Android, WebKit), the
 //! browser applies the extensions' network rules itself: [`rule_set`].
@@ -184,28 +184,84 @@ impl ExtensionFolder {
         let result = (|| {
             Self::unzip(crx.zip, &staging)?;
             manifest::set_key(&staging, &BASE64.encode(&crx.public_key)).map_err(error)?;
-            let info = manifest::read(&staging).map_err(error)?;
-            let target = extension_dir(&self.dir, &crx.id);
-            if target.exists() {
-                fs::remove_dir_all(&target)
-                    .map_err(|e| error(format!("could not replace the installed version: {e}")))?;
-            }
-            fs::rename(&staging, &target).map_err(error)?;
-            Ok(Extension {
-                id: crx.id.clone(),
-                name: info.name,
-                version: info.version,
-                description: info.description,
-                enabled: true,
-                popup: info.popup,
-                options: info.options,
-            })
+            self.put_in_place(&staging, &crx.id)
         })();
         if result.is_err() {
             let _ = fs::remove_dir_all(&staging);
         }
         result
     }
+
+    /// Copies the unpacked extension in `folder`. Its id comes from the
+    /// manifest's `key` when it has one, else from the folder's path (as in
+    /// Chrome): installing the same folder again updates it.
+    fn copy_unpacked(&self, folder: &Path) -> Result<Extension, ExtensionError> {
+        use sha2::{Digest, Sha256};
+
+        let folder =
+            fs::canonicalize(folder).map_err(|e| error(format!("{}: {e}", folder.display())))?;
+        if !folder.join("manifest.json").is_file() {
+            return Err(error(format!(
+                "{} has no manifest.json: choose the extension's folder",
+                folder.display()
+            )));
+        }
+        let id = match manifest::key(&folder).and_then(|k| BASE64.decode(k.as_bytes()).ok()) {
+            Some(der) => ExtensionId::from_key_hash(&Sha256::digest(der)),
+            None => {
+                ExtensionId::from_key_hash(&Sha256::digest(folder.to_string_lossy().as_bytes()))
+            }
+        };
+        let staging = self.dir.join(format!(".install-{id}"));
+        let result = (|| {
+            let _ = fs::remove_dir_all(&staging);
+            copy_dir(&folder, &staging)?;
+            self.put_in_place(&staging, &id)
+        })();
+        if result.is_err() {
+            let _ = fs::remove_dir_all(&staging);
+        }
+        result
+    }
+
+    /// Replaces extension `id`'s files with `staging`'s.
+    fn put_in_place(&self, staging: &Path, id: &ExtensionId) -> Result<Extension, ExtensionError> {
+        let info = manifest::read(staging).map_err(error)?;
+        let target = extension_dir(&self.dir, id);
+        if target.exists() {
+            fs::remove_dir_all(&target)
+                .map_err(|e| error(format!("could not replace the installed version: {e}")))?;
+        }
+        fs::rename(staging, &target).map_err(error)?;
+        Ok(Extension {
+            id: id.clone(),
+            name: info.name,
+            version: info.version,
+            description: info.description,
+            enabled: true,
+            popup: info.popup,
+            options: info.options,
+        })
+    }
+}
+
+/// Copies `from` into `to`, version control folders left out.
+fn copy_dir(from: &Path, to: &Path) -> Result<(), ExtensionError> {
+    fs::create_dir_all(to).map_err(error)?;
+    for entry in fs::read_dir(from).map_err(error)? {
+        let entry = entry.map_err(error)?;
+        let name = entry.file_name();
+        if name == ".git" || name == ".svn" || name == ".hg" {
+            continue;
+        }
+        let kind = entry.file_type().map_err(error)?;
+        if kind.is_dir() {
+            copy_dir(&entry.path(), &to.join(&name))?;
+        } else if kind.is_file() {
+            fs::copy(entry.path(), to.join(&name)).map_err(error)?;
+        }
+    }
+    Ok(())
 }
 
 impl ExtensionPackages for ExtensionFolder {
@@ -218,6 +274,7 @@ impl ExtensionPackages for ExtensionFolder {
                     fs::read(path).map_err(|e| error(format!("{}: {e}", path.display())))?;
                 self.unpack(&bytes, None)
             }
+            ExtensionSource::Folder(folder) => self.copy_unpacked(folder),
         }
     }
 
@@ -280,6 +337,61 @@ mod tests {
                 ("../evil.txt", "nope"),
             ]),
         )
+    }
+
+    #[test]
+    fn installs_unpacked_folders() {
+        let root = tempfile::tempdir().unwrap();
+        let folder = ExtensionFolder::new(root.path().join("extensions"), no_download());
+        let src = root.path().join("my-ext");
+        fs::create_dir_all(src.join("js")).unwrap();
+        fs::create_dir_all(src.join(".git")).unwrap();
+        fs::write(
+            src.join("manifest.json"),
+            r#"{"name":"Mine","version":"1"}"#,
+        )
+        .unwrap();
+        fs::write(src.join("js/bg.js"), "1").unwrap();
+        fs::write(src.join(".git/HEAD"), "x").unwrap();
+
+        let first = folder
+            .install(&ExtensionSource::Folder(src.clone()))
+            .unwrap();
+        assert_eq!(first.name, "Mine");
+        let dir = extension_dir(folder.dir(), &first.id);
+        assert_eq!(fs::read_to_string(dir.join("js/bg.js")).unwrap(), "1");
+        assert!(!dir.join(".git").exists());
+
+        // Again from the same folder: the same extension, updated.
+        fs::write(
+            src.join("manifest.json"),
+            r#"{"name":"Mine","version":"2"}"#,
+        )
+        .unwrap();
+        let again = folder
+            .install(&ExtensionSource::Folder(src.clone()))
+            .unwrap();
+        assert_eq!((again.id, again.version.as_str()), (first.id, "2"));
+
+        // A key in the manifest gives the store's id.
+        let key = BASE64.encode(b"publisher key");
+        fs::write(
+            src.join("manifest.json"),
+            format!(r#"{{"name":"Mine","version":"3","key":"{key}"}}"#),
+        )
+        .unwrap();
+        let keyed = folder
+            .install(&ExtensionSource::Folder(src.clone()))
+            .unwrap();
+        let from_crx = folder.install(&ExtensionSource::File({
+            let crx = root.path().join("p.crx");
+            fs::write(&crx, package("Packed")).unwrap();
+            crx
+        }));
+        assert_eq!(keyed.id, from_crx.unwrap().id);
+
+        let err = folder.install(&ExtensionSource::Folder(root.path().join("extensions")));
+        assert!(err.unwrap_err().to_string().contains("manifest.json"));
     }
 
     #[test]

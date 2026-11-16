@@ -39,6 +39,8 @@ anyhow = "1"
 log = "0.4"
 env_logger = "0.11"
 image = { version = "0.25", default-features = false, features = ["png"] }
+# The system's file and folder pickers (extensions installed by hand).
+rfd = "0.18"
 
 [dev-dependencies]
 tempfile = "3"

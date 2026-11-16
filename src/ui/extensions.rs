@@ -25,11 +25,15 @@ pub struct ExtensionsRunner {
     rx: Receiver<Installed>,
 }
 
-/// What the input names: a `.crx` file, or a Web Store link or id.
+/// What the input names: a `.crx` file, an unpacked extension's folder, or
+/// a Web Store link or id.
 fn source_of(input: &str) -> Option<ExtensionSource> {
     let input = input.trim().trim_matches('"');
     if input.to_ascii_lowercase().ends_with(".crx") {
         return Some(ExtensionSource::File(input.into()));
+    }
+    if std::path::Path::new(input).is_dir() {
+        return Some(ExtensionSource::Folder(input.into()));
     }
     ExtensionId::from_store_input(input).map(ExtensionSource::Store)
 }
@@ -59,7 +63,9 @@ impl ExtensionsRunner {
     pub fn install(&mut self, input: &str) {
         let Some(source) = source_of(input) else {
             self.status = Some(Err(
-                "Paste a Chrome Web Store link, an extension id or the path of a .crx file.".into(),
+                "Paste a Chrome Web Store link, an extension id, or the path of a .crx file \
+                 or of an unpacked extension's folder."
+                    .into(),
             ));
             return;
         };
@@ -168,7 +174,7 @@ impl ExtensionsPanel {
             ExtensionSupport::Full => {}
         }
         let runner = view.runner;
-        ui.label("Chrome Web Store link, extension id or .crx file:");
+        ui.label("Chrome Web Store link, extension id, .crx file or unpacked folder:");
         let field = ui.add(
             TextEdit::singleline(&mut self.input)
                 .hint_text("https://chromewebstore.google.com/detail/…")
@@ -194,6 +200,41 @@ impl ExtensionsPanel {
                 && let Ok(store) = domain::WebAddress::parse("https://chromewebstore.google.com/")
             {
                 commands.push(Command::Open(store, Target::NewTab));
+            }
+        });
+        // By hand: a package, or an extension's folder (Chrome's "Load
+        // unpacked"; install it again to take changes).
+        ui.horizontal(|ui| {
+            let idle = !runner.is_installing();
+            if ui
+                .add_enabled(
+                    idle,
+                    Button::new(format!("{} Choose .crx…", icon::FILE_ARCHIVE)),
+                )
+                .on_hover_text("Install a packaged extension from this computer")
+                .clicked()
+                && let Some(file) = rfd::FileDialog::new()
+                    .set_title("Install an extension")
+                    .add_filter("Chrome extension", &["crx"])
+                    .pick_file()
+            {
+                commands.push(Command::InstallExtension(file.display().to_string()));
+            }
+            if ui
+                .add_enabled(
+                    idle,
+                    Button::new(format!("{} Load unpacked…", icon::FOLDER_OPEN)),
+                )
+                .on_hover_text(
+                    "Install an extension from its folder (the one with manifest.json); \
+                     load it again to take its changes",
+                )
+                .clicked()
+                && let Some(folder) = rfd::FileDialog::new()
+                    .set_title("Extension folder (with manifest.json)")
+                    .pick_folder()
+            {
+                commands.push(Command::InstallExtension(folder.display().to_string()));
             }
         });
         if let Some(what) = &runner.installing {
@@ -323,5 +364,10 @@ mod tests {
             Some(ExtensionSource::File("C:\\Downloads\\My Ext.CRX".into()))
         );
         assert_eq!(source_of("hello"), None);
+        let dir = std::env::temp_dir();
+        assert_eq!(
+            source_of(&dir.display().to_string()),
+            Some(ExtensionSource::Folder(dir))
+        );
     }
 }

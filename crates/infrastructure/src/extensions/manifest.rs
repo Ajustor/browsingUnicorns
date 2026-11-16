@@ -217,6 +217,12 @@ pub fn messages(dir: &Path) -> Map<String, Value> {
         .unwrap_or_default()
 }
 
+/// The publisher's public key (base64 DER) the manifest declares, if any.
+pub fn key(dir: &Path) -> Option<String> {
+    let m = load(dir).ok()?;
+    text(&m, &["key"]).map(str::to_owned)
+}
+
 /// Writes the publisher's public key (base64 DER) into the manifest: an
 /// unpacked extension then has the same id as in the Web Store.
 pub fn set_key(dir: &Path, key_base64: &str) -> Result<(), String> {
