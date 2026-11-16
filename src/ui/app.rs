@@ -466,9 +466,18 @@ impl eframe::App for BrowserApp {
             commands.extend(super::shortcuts::from_page(&press));
         }
 
-        TopBottomPanel::top("tabs").show(ctx, |ui| {
-            tab_strip::show(ui, self.browser.session(), &mut commands);
-        });
+        TopBottomPanel::top("tabs")
+            .frame(egui::Frame::NONE.inner_margin(egui::Margin {
+                left: 8,
+                right: 8,
+                top: 6,
+                bottom: 0,
+            }))
+            .show_separator_line(false)
+            .show(ctx, |ui| {
+                super::theme::gradient(ui.painter(), ui.max_rect().expand2(egui::vec2(8.0, 6.0)));
+                tab_strip::show(ui, self.browser.session(), &mut commands);
+            });
         let actions = if infrastructure::builtin_extensions() {
             self.bar.actions(ctx, self.extensions.extensions())
         } else {

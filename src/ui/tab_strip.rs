@@ -1,4 +1,4 @@
-use egui::{Button, ScrollArea, Sense, Spinner};
+use egui::{Button, Color32, RichText, ScrollArea, Sense, Spinner};
 use egui_phosphor::regular as icon;
 
 use domain::Session;
@@ -8,6 +8,9 @@ use super::command::Command;
 const TITLE_CHARS: usize = 24;
 
 pub fn show(ui: &mut egui::Ui, session: &Session, commands: &mut Vec<Command>) {
+    use super::theme;
+
+    ui.spacing_mut().item_spacing.x = 3.0;
     ui.horizontal(|ui| {
         // As wide as the tabs: the + follows the last one (room kept for it
         // when they overflow).
@@ -18,38 +21,101 @@ pub fn show(ui: &mut egui::Ui, session: &Session, commands: &mut Vec<Command>) {
                 ui.horizontal(|ui| {
                     for tab in session.tabs() {
                         let active = session.active_id() == Some(tab.id());
-                        ui.group(|ui| {
-                            if tab.is_loading() {
-                                ui.add(Spinner::new().size(12.0));
-                            }
-                            let title = truncate(tab.display_title(), TITLE_CHARS);
-                            let label = ui
-                                .selectable_label(active, title)
-                                .interact(Sense::click())
-                                .on_hover_text(tab.display_title());
-                            if label.clicked() {
-                                commands.push(Command::Activate(tab.id()));
-                            }
-                            if label.middle_clicked()
-                                || ui
-                                    .add(Button::new(icon::X).frame(false).small())
-                                    .on_hover_text("Close tab (Ctrl+W)")
-                                    .clicked()
-                            {
-                                commands.push(Command::CloseTab(tab.id()));
-                            }
-                        });
+                        tab_button(ui, tab, active, commands);
                     }
                 });
             });
-        if ui
-            .add(Button::new(icon::PLUS).frame(false))
-            .on_hover_text("New tab (Ctrl+T)")
-            .clicked()
-        {
+        let plus = ui
+            .add(
+                Button::new(RichText::new(icon::PLUS).color(Color32::WHITE).size(16.0))
+                    .frame(false),
+            )
+            .on_hover_text("New tab (Ctrl+T)");
+        if plus.clicked() {
             commands.push(Command::NewTab);
         }
     });
+
+    fn tab_button(ui: &mut egui::Ui, tab: &domain::Tab, active: bool, commands: &mut Vec<Command>) {
+        let (fill, text) = if active {
+            (theme::NIGHT, Color32::WHITE)
+        } else {
+            (Color32::TRANSPARENT, theme::TAB_TEXT)
+        };
+        let frame = egui::Frame::NONE
+            .fill(fill)
+            .corner_radius(egui::CornerRadius {
+                nw: 10,
+                ne: 10,
+                sw: 0,
+                se: 0,
+            })
+            .inner_margin(egui::Margin {
+                left: 12,
+                right: 8,
+                top: 7,
+                bottom: 7,
+            });
+        let response = frame
+            .show(ui, |ui| {
+                ui.set_min_width(110.0);
+                ui.set_max_width(190.0);
+                ui.horizontal(|ui| {
+                    if tab.is_loading() {
+                        ui.add(Spinner::new().size(12.0).color(text));
+                    }
+                    let title = truncate(tab.display_title(), TITLE_CHARS);
+                    let label = ui
+                        .add(
+                            egui::Label::new(RichText::new(title).color(text))
+                                .selectable(false)
+                                .sense(Sense::click()),
+                        )
+                        .on_hover_text(tab.display_title());
+                    if label.clicked() {
+                        commands.push(Command::Activate(tab.id()));
+                    }
+                    if label.middle_clicked() {
+                        commands.push(Command::CloseTab(tab.id()));
+                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let close = ui
+                            .add(
+                                Button::new(
+                                    RichText::new(icon::X)
+                                        .color(text.gamma_multiply(0.6))
+                                        .small(),
+                                )
+                                .frame(false),
+                            )
+                            .on_hover_text("Close tab (Ctrl+W)");
+                        if close.clicked() {
+                            commands.push(Command::CloseTab(tab.id()));
+                        }
+                    });
+                });
+            })
+            .response;
+        let response = response.interact(Sense::click());
+        if !active && response.hovered() {
+            ui.painter().rect_filled(
+                response.rect,
+                egui::CornerRadius {
+                    nw: 10,
+                    ne: 10,
+                    sw: 0,
+                    se: 0,
+                },
+                Color32::from_white_alpha(28),
+            );
+        }
+        if response.clicked() {
+            commands.push(Command::Activate(tab.id()));
+        }
+        if response.middle_clicked() {
+            commands.push(Command::CloseTab(tab.id()));
+        }
+    }
 }
 
 pub fn truncate(title: &str, max: usize) -> String {
