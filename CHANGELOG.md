@@ -4,7 +4,7 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
-## [Unreleased]
+## [0.10.0] - 2026-11-16
 
 ### Ajouté
 
@@ -15,6 +15,12 @@ Toutes les évolutions notables de browsingUnicorns. Format :
   que les listes nomment sont masqués. Un bouclier à côté du cadenas compte
   ce qui est bloqué sur la page (sauf sous macOS et Linux) et coupe le
   blocage pour un site ou partout ; ces réglages se synchronisent.
+
+### Corrigé
+
+- La popup des extensions s'ouvrait trop étroite (Bitwarden) : sa largeur
+  était mesurée avant que sa page ait ses styles. Elle est remesurée jusqu'à
+  ce que la page soit chargée et stable.
 
 ## [0.9.4] - 2026-11-16
 
