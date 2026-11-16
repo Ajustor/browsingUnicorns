@@ -84,7 +84,20 @@ fn wrap(token: &str, bridge: Bridge, call: &str) -> String {
     )
 }
 
-/// The files' contents, one after the other, `separator` between them.
+/// What an extension runs in a tab (`scripting.executeScript`): `body` (a
+/// function body) with the extension's `chrome.*`, as its content scripts
+/// get it. An expression whose value is what `body` returns. `config` is
+/// the extension's `owner`, `origin`, `messages` and `manifest`, as JSON.
+pub fn injected_script(token: &str, bridge: Bridge, config: &str, body: &str) -> String {
+    format!(
+        "(function () {{\nconst TOKEN = {};\nconst CHANNEL = {};\nconst BRIDGE = {};\n{RUNTIME}\n\
+         return injected({config}, function (chrome, browser) {{\n{body}\n}});\n}})()",
+        json!(token),
+        json!(new_token()),
+        json!(bridge.name()),
+    )
+}
+
 /// The runtime of an extension page (background, popup, options), with
 /// its configuration (`owner`, `context`, `origin`, `messages`, `manifest`,
 /// `installReason`) as JSON.
@@ -92,6 +105,7 @@ pub fn extension_page_runtime(token: &str, bridge: Bridge, config: &str) -> Stri
     wrap(token, bridge, &format!("extensionPage({config});"))
 }
 
+/// The files' contents, one after the other, `separator` between them.
 fn read_files(root: &Path, files: &[String], separator: &str) -> Option<String> {
     let mut out = String::new();
     for f in files {

@@ -4,6 +4,21 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [Unreleased]
+
+### Corrigé
+
+- Le remplissage automatique de Bitwarden ne marchait pas, pour deux
+  raisons :
+  - les scripts qu'une extension injecte à la demande
+    (`scripting.executeScript`, c'est ainsi que Bitwarden pose son
+    remplissage) tournaient sans `chrome.*` : ils plantaient au démarrage.
+    Ils reçoivent désormais l'API de l'extension, comme ses content scripts ;
+  - quand plusieurs scripts d'une extension sont dans la page, le premier
+    qui n'avait rien à répondre à un `tabs.sendMessage` fermait l'échange
+    avant que celui qui répond le fasse. Comme dans Chrome, « pas de
+    réponse » ne vaut plus qu'une fois tous les scripts passés.
+
 ## [0.12.1] - 2026-11-16
 
 ### Corrigé

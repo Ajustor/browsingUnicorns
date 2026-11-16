@@ -21,7 +21,7 @@ use crate::extension_server::Origins;
 use crate::extensions::state::ExtensionState;
 use crate::extensions::{dnr, extension_dir, manifest};
 use crate::native_messaging::{self, FromHost, NativeMessaging};
-use crate::page_scripts::{BLOCKER_OWNER, Bridge};
+use crate::page_scripts::{self, BLOCKER_OWNER, Bridge};
 use crate::script_storage::{Message, ScriptStorage, new_token, valid_owner};
 
 /// A tab, as the extension APIs describe it.
@@ -803,10 +803,12 @@ impl Hub {
             "scripting.executeScript" => {
                 let ext = ext?;
                 let tab = tab_id(&field("tabId")).or_else(|| self.active_tab(host))?;
-                let code = match field("code").as_str() {
-                    Some(code) => code.to_owned(),
+                // The files, or the function, run with the extension's
+                // `chrome.*` (Bitwarden's autofill is injected so).
+                let body = match field("code").as_str() {
+                    Some(code) => format!("return ({code});"),
                     None => {
-                        let mut code = String::new();
+                        let mut body = String::new();
                         for f in field("files")
                             .as_array()
                             .into_iter()
@@ -815,14 +817,20 @@ impl Hub {
                         {
                             match self.extension_file(&ext, f) {
                                 Some(text) => {
-                                    code.push_str(&format!("(function () {{\n{text}\n}})();\n"))
+                                    body.push_str(&format!("(function () {{\n{text}\n}})();\n"))
                                 }
                                 None => return Some(Err(format!("Could not load file: '{f}'."))),
                             }
                         }
-                        format!("(function () {{ {code} }})()")
+                        body
                     }
                 };
+                let code = page_scripts::injected_script(
+                    &self.token,
+                    self.bridge,
+                    &self.injected_config(&ext),
+                    &body,
+                );
                 let nonce = new_token();
                 self.scripts.insert(
                     nonce.clone(),
@@ -998,6 +1006,21 @@ impl Hub {
                 .map(|(i, t)| tab_json(t, i))
                 .collect(),
         )
+    }
+
+    /// What [`page_scripts::injected_script`] needs to know of `ext`.
+    fn injected_config(&self, ext: &ExtensionId) -> String {
+        let dir = extension_dir(&self.extensions_dir, ext);
+        let (name, version) = manifest::read(&dir)
+            .map(|m| (m.name, m.version))
+            .unwrap_or_default();
+        json!({
+            "owner": format!("ext:{ext}"),
+            "origin": self.origins().origin(ext),
+            "messages": manifest::messages(&dir),
+            "manifest": {"name": name, "version": version},
+        })
+        .to_string()
     }
 
     fn extension_file(&self, ext: &ExtensionId, path: &str) -> Option<String> {
@@ -1786,7 +1809,11 @@ mod tests {
         );
         let (ran_in, script) = host.ran.pop().unwrap();
         assert_eq!(ran_in, tab);
-        assert!(script.contains("await (document.title)"));
+        assert!(script.contains("return (document.title);"));
+        assert!(
+            script.contains("return injected("),
+            "with the extension's chrome.*"
+        );
         let nonce = script.split("nonce: \"").nth(1).unwrap()[..32].to_owned();
         // A guessed nonce does nothing; the right one answers once.
         hub.handle(

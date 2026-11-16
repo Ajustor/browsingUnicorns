@@ -27,7 +27,11 @@ if (!Object.getOwnPropertyDescriptor(window, "__buReply")) {
   const hook = (msg) => {
     if (!msg) return;
     if (msg.event !== undefined) {
-      for (const l of listeners) if (l.owner === msg.owner) l.f(msg);
+      const to = listeners.filter((l) => l.owner === msg.owner);
+      // A message reaches every script of the extension in the page: the
+      // first answer wins, "no answer" only once none of them has one.
+      if (msg.event === "message") msg.answer = { left: to.length, done: false };
+      for (const l of to) l.f(msg);
       return;
     }
     const to = channels.get(msg.ch);
@@ -422,11 +426,12 @@ function makeChrome(entry) {
   // Rust's events for this extension.
   onEvents(owner, (msg) => {
     if (msg.event === "message") {
-      let responded = false;
+      // Shared by the extension's scripts in this page (see the hook).
+      const answer = msg.answer || { left: 1, done: false };
       let async = false;
       const sendResponse = (r) => {
-        if (responded) return;
-        responded = true;
+        if (answer.done) return;
+        answer.done = true;
         send(owner, "respond", { rid: msg.rid, payload: r === undefined ? null : r }).catch(() => {});
       };
       for (const ret of onMessage.fire(msg.payload, msg.sender || {}, sendResponse)) {
@@ -436,7 +441,11 @@ function makeChrome(entry) {
           ret.then(sendResponse, () => sendResponse(undefined));
         }
       }
-      if (!responded && !async) send(owner, "respond", { rid: msg.rid, none: true }).catch(() => {});
+      if (!async) answer.left -= 1;
+      if (!answer.done && answer.left <= 0) {
+        answer.done = true;
+        send(owner, "respond", { rid: msg.rid, none: true }).catch(() => {});
+      }
     } else if (msg.event === "storage") {
       changed.fire(msg.changes, msg.area);
       const a = api.storage[msg.area];
@@ -930,6 +939,14 @@ function contentScript(entry, code) {
   if (!code) return;
   const api = makeChrome(entry);
   at(entry.runAt, () => code.call(window, api, api));
+}
+
+// A script an extension runs in the tab (`scripting.executeScript`): like
+// its content scripts, it gets the extension's `chrome.*`; its result is
+// returned.
+function injected(entry, fn) {
+  const api = makeChrome(entry);
+  return fn.call(window, api, api);
 }
 
 // The built-in ad blocker's site-specific cosmetic filters: the browser
