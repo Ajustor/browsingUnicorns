@@ -1,0 +1,549 @@
+//! The built-in ad blocker: EasyList and EasyPrivacy through adblock-rust
+//! (Brave's engine). The lists are downloaded and cached under the app's
+//! data folder with the compiled engine; the request hooks (WebView2,
+//! Android) and the cosmetic page script consult it through a
+//! [`BlockerHandle`].
+
+use std::collections::HashSet;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, RwLock};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use adblock::Engine;
+use adblock::lists::{FilterSet, ParseOptions, parse_filter};
+use adblock::request::Request;
+use domain::{ResourceType, Settings, WebAddress, allowlisted};
+use serde::{Deserialize, Serialize};
+
+use crate::extensions::Download;
+use crate::files;
+
+/// The lists: file name in the cache, address.
+pub const LISTS: [(&str, &str); 2] = [
+    ("easylist.txt", "https://easylist.to/easylist/easylist.txt"),
+    (
+        "easyprivacy.txt",
+        "https://easylist.to/easylist/easyprivacy.txt",
+    ),
+];
+
+const ENGINE_FILE: &str = "engine.dat";
+const STATE_FILE: &str = "state.json";
+/// How often the lists are checked.
+const CHECK_EVERY: Duration = Duration::from_secs(24 * 60 * 60);
+/// Selectors per CSS rule: one invalid selector drops its whole rule.
+const SELECTORS_PER_RULE: usize = 500;
+/// An address no list names: its cosmetic selectors are the generic ones.
+const NO_SITE: &str = "https://no-site.invalid/";
+
+/// A compiled set of lists.
+pub struct Blocker {
+    engine: Engine,
+    /// Selectors adblock hands every site; left out, only the site-specific
+    /// ones are applied.
+    generic: HashSet<String>,
+    /// When the lists were downloaded.
+    updated: SystemTime,
+}
+
+/// `list` has at least one rule adblock understands.
+fn has_rules(list: &str) -> bool {
+    list.lines()
+        .any(|line| parse_filter(line, false, ParseOptions::default()).is_ok())
+}
+
+/// adblock's name for a request type; `None` for the page itself, never
+/// blocked.
+fn request_type(kind: Option<ResourceType>) -> Option<&'static str> {
+    Some(match kind {
+        Some(ResourceType::MainFrame) => return None,
+        Some(ResourceType::SubFrame) => "sub_frame",
+        Some(ResourceType::Stylesheet) => "stylesheet",
+        Some(ResourceType::Script) => "script",
+        Some(ResourceType::Image) => "image",
+        Some(ResourceType::Font) => "font",
+        Some(ResourceType::Object) => "object",
+        Some(ResourceType::XmlHttpRequest) => "xmlhttprequest",
+        Some(ResourceType::Ping) => "ping",
+        Some(ResourceType::CspReport) => "csp_report",
+        Some(ResourceType::Media) => "media",
+        Some(ResourceType::WebSocket) => "websocket",
+        Some(ResourceType::WebTransport | ResourceType::WebBundle | ResourceType::Other) | None => {
+            "other"
+        }
+    })
+}
+
+impl Blocker {
+    /// Compiles `lists`; `None` when none has a rule.
+    pub fn from_lists(lists: &[&str]) -> Option<Self> {
+        if !lists.iter().any(|l| has_rules(l)) {
+            return None;
+        }
+        let mut set = FilterSet::new(false);
+        for list in lists {
+            set.add_filter_list(list.to_string(), ParseOptions::default());
+        }
+        Some(Self::new(
+            Engine::new_with_filter_set(set),
+            SystemTime::now(),
+        ))
+    }
+
+    fn new(engine: Engine, updated: SystemTime) -> Self {
+        let generic = engine.url_cosmetic_resources(NO_SITE).hide_selectors;
+        Self {
+            engine,
+            generic,
+            updated,
+        }
+    }
+
+    /// When the lists were downloaded.
+    pub fn updated(&self) -> SystemTime {
+        self.updated
+    }
+
+    /// Whether the lists block `url`, loaded by the page `page_url` as
+    /// `kind`, `@@` exceptions included. The page itself never is.
+    pub fn should_block(&self, url: &str, page_url: &str, kind: Option<ResourceType>) -> bool {
+        let Some(kind) = request_type(kind) else {
+            return false;
+        };
+        Request::new(url, page_url, kind, "GET")
+            .is_ok_and(|r| self.engine.check_network_request(&r).should_block())
+    }
+
+    /// The style sheet hiding the ad slots the lists name for `url`'s site,
+    /// empty when none.
+    pub fn cosmetic_css(&self, url: &str) -> String {
+        let resources = self.engine.url_cosmetic_resources(url);
+        let mut selectors: Vec<&str> = resources
+            .hide_selectors
+            .iter()
+            .filter(|s| !self.generic.contains(*s))
+            .map(String::as_str)
+            .collect();
+        selectors.sort_unstable();
+        selectors
+            .chunks(SELECTORS_PER_RULE)
+            .map(|chunk| format!("{}{{display:none!important}}", chunk.join(",")))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// The compiled engine, to start without parsing the lists again.
+    pub fn serialize(&self) -> Vec<u8> {
+        self.engine.serialize()
+    }
+
+    /// An engine from [`Self::serialize`]; `None` when unreadable (another
+    /// version of adblock-rust, corrupt file).
+    pub fn deserialize(bytes: &[u8]) -> Option<Self> {
+        let mut engine = Engine::default();
+        engine.deserialize(bytes).ok()?;
+        Some(Self::new(engine, UNIX_EPOCH))
+    }
+}
+
+/// Where the blocker applies, from the settings.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlockerPolicy {
+    pub enabled: bool,
+    /// Hosts where it is off (each covers its subdomains).
+    pub allowlist: Vec<String>,
+}
+
+impl Default for BlockerPolicy {
+    fn default() -> Self {
+        Self::from_settings(&Settings::default())
+    }
+}
+
+impl BlockerPolicy {
+    pub fn from_settings(settings: &Settings) -> Self {
+        Self {
+            enabled: settings.blocker,
+            allowlist: settings.blocker_allowlist.clone(),
+        }
+    }
+
+    /// Whether the blocker works on the page at `page_url`.
+    pub fn applies_to(&self, page_url: &str) -> bool {
+        self.enabled
+            && !WebAddress::parse(page_url)
+                .ok()
+                .and_then(|a| a.host().map(|h| allowlisted(&self.allowlist, h)))
+                .unwrap_or(false)
+    }
+}
+
+/// The current engine (none until the lists arrive) and policy, shared by
+/// the hooks; the engine is replaced at once when the lists are updated.
+#[derive(Clone, Default)]
+pub struct BlockerHandle {
+    engine: Arc<RwLock<Option<Arc<Blocker>>>>,
+    policy: Arc<RwLock<BlockerPolicy>>,
+}
+
+impl BlockerHandle {
+    pub fn get(&self) -> Option<Arc<Blocker>> {
+        self.engine
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+    }
+
+    pub fn set(&self, blocker: Blocker) {
+        *self.engine.write().unwrap_or_else(|p| p.into_inner()) = Some(Arc::new(blocker));
+    }
+
+    pub fn policy(&self) -> BlockerPolicy {
+        self.policy
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+    }
+
+    pub fn set_policy(&self, policy: BlockerPolicy) {
+        *self.policy.write().unwrap_or_else(|p| p.into_inner()) = policy;
+    }
+
+    /// Whether `url`, loaded by `page_url` as `kind`, is blocked: the policy
+    /// applies to the page and the lists block it.
+    pub fn should_block(&self, url: &str, page_url: &str, kind: Option<ResourceType>) -> bool {
+        let Some(blocker) = self.get() else {
+            return false;
+        };
+        self.policy
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .applies_to(page_url)
+            && blocker.should_block(url, page_url, kind)
+    }
+
+    /// The style sheet hiding `url`'s ad slots; empty when the policy does
+    /// not apply or no list is loaded.
+    pub fn cosmetic_css(&self, url: &str) -> String {
+        match self.get() {
+            Some(blocker) if self.policy().applies_to(url) => blocker.cosmetic_css(url),
+            _ => String::new(),
+        }
+    }
+}
+
+/// `state.json`: when the lists were last checked and last downloaded (unix
+/// seconds).
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct State {
+    #[serde(default)]
+    last_check: Option<u64>,
+    #[serde(default)]
+    updated: Option<u64>,
+}
+
+fn unix(t: SystemTime) -> u64 {
+    t.duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
+}
+
+/// The lists' cache folder: the raw lists, the compiled engine, the state.
+pub struct BlockerLists {
+    dir: PathBuf,
+    download: Download,
+}
+
+impl BlockerLists {
+    pub fn new(dir: impl Into<PathBuf>, download: Download) -> Self {
+        Self {
+            dir: dir.into(),
+            download,
+        }
+    }
+
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+
+    fn state(&self) -> State {
+        fs::read_to_string(self.dir.join(STATE_FILE))
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default()
+    }
+
+    fn save_state(&self, state: &State) {
+        let path = self.dir.join(STATE_FILE);
+        let text = serde_json::to_string(state).expect("plain struct");
+        if let Err(e) = files::write(&path, &text) {
+            log::warn!("blocker: {e}");
+        }
+    }
+
+    fn save_engine(&self, blocker: &Blocker) {
+        if let Err(e) = files::write_bytes(&self.dir.join(ENGINE_FILE), &blocker.serialize()) {
+            log::warn!("blocker: {e}");
+        }
+    }
+
+    /// The engine from the cached lists.
+    fn build(&self) -> Option<Blocker> {
+        let lists: Vec<String> = LISTS
+            .iter()
+            .filter_map(|(name, _)| fs::read_to_string(self.dir.join(name)).ok())
+            .collect();
+        Blocker::from_lists(&lists.iter().map(String::as_str).collect::<Vec<_>>())
+    }
+
+    /// The cached engine (`engine.dat`), or one rebuilt from the cached
+    /// lists when it is unreadable; `None` when nothing is cached.
+    pub fn load_cached(&self) -> Option<Blocker> {
+        let engine_path = self.dir.join(ENGINE_FILE);
+        let mut blocker = match fs::read(&engine_path)
+            .ok()
+            .and_then(|b| Blocker::deserialize(&b))
+        {
+            Some(blocker) => blocker,
+            None => {
+                let blocker = self.build()?;
+                self.save_engine(&blocker);
+                blocker
+            }
+        };
+        blocker.updated = match self.state().updated {
+            Some(secs) => UNIX_EPOCH + Duration::from_secs(secs),
+            None => fs::metadata(&engine_path)
+                .and_then(|m| m.modified())
+                .unwrap_or(UNIX_EPOCH),
+        };
+        Some(blocker)
+    }
+
+    /// Downloads the lists and rebuilds the engine. A list that fails to
+    /// download or has no rule keeps its cached copy; an error when none
+    /// could be downloaded.
+    pub fn refresh(&self) -> Result<Blocker, String> {
+        let mut fetched = 0;
+        for (name, url) in LISTS {
+            let text = (self.download)(url)
+                .and_then(|bytes| String::from_utf8(bytes).map_err(|e| e.to_string()));
+            match text {
+                Ok(text) if has_rules(&text) => {
+                    files::write(&self.dir.join(name), &text).map_err(|e| e.to_string())?;
+                    fetched += 1;
+                }
+                Ok(_) => log::warn!("blocker: {url} has no rule, the cached copy is kept"),
+                Err(e) => log::warn!("blocker: {url}: {e}"),
+            }
+        }
+        if fetched == 0 {
+            return Err("no list could be downloaded".into());
+        }
+        let now = SystemTime::now();
+        let mut blocker = self.build().ok_or("no list")?;
+        blocker.updated = now;
+        self.save_engine(&blocker);
+        self.save_state(&State {
+            last_check: Some(unix(now)),
+            updated: Some(unix(now)),
+        });
+        Ok(blocker)
+    }
+
+    /// The lists were never checked, or not for a day.
+    pub fn due(&self) -> bool {
+        self.due_at(SystemTime::now())
+    }
+
+    fn due_at(&self, now: SystemTime) -> bool {
+        self.state()
+            .last_check
+            .is_none_or(|t| unix(now).saturating_sub(t) >= CHECK_EVERY.as_secs())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const LIST: &str = "\
+[Adblock Plus 2.0]
+! Title: test
+||ads.test^
+/banner/*
+@@||ads.test/allowed.js
+a.test##.ad
+b.test##.other-ad
+##div[data-generic-ad]
+";
+
+    fn blocker() -> Blocker {
+        Blocker::from_lists(&[LIST]).unwrap()
+    }
+
+    const PAGE: &str = "https://site.test/";
+
+    #[test]
+    fn ads_are_blocked_and_the_rest_allowed() {
+        let b = blocker();
+        assert!(b.should_block("https://ads.test/x.js", PAGE, Some(ResourceType::Script)));
+        assert!(b.should_block(
+            "https://cdn.test/banner/1.png",
+            PAGE,
+            Some(ResourceType::Image)
+        ));
+        assert!(!b.should_block("https://cdn.test/app.js", PAGE, Some(ResourceType::Script)));
+    }
+
+    #[test]
+    fn exceptions_are_honoured() {
+        assert!(!blocker().should_block(
+            "https://ads.test/allowed.js",
+            PAGE,
+            Some(ResourceType::Script)
+        ));
+    }
+
+    #[test]
+    fn the_page_itself_is_never_blocked() {
+        assert!(!blocker().should_block(
+            "https://ads.test/",
+            "https://ads.test/",
+            Some(ResourceType::MainFrame)
+        ));
+    }
+
+    #[test]
+    fn an_empty_list_gives_no_blocker() {
+        assert!(Blocker::from_lists(&["! only a comment\n", ""]).is_none());
+    }
+
+    #[test]
+    fn cosmetic_css_is_the_sites_own() {
+        let b = blocker();
+        let css = b.cosmetic_css("https://www.a.test/page");
+        assert_eq!(css, ".ad{display:none!important}");
+        assert!(!css.contains("other-ad"));
+        assert!(!css.contains("generic"));
+        assert_eq!(b.cosmetic_css("https://c.test/"), "");
+    }
+
+    #[test]
+    fn cosmetic_css_is_split_into_rules() {
+        let list: String = (0..SELECTORS_PER_RULE + 1)
+            .map(|i| format!("a.test##.ad{i}\n"))
+            .collect();
+        let css = Blocker::from_lists(&[&list])
+            .unwrap()
+            .cosmetic_css("https://a.test/");
+        assert_eq!(css.lines().count(), 2);
+    }
+
+    #[test]
+    fn a_deserialized_engine_decides_the_same() {
+        let b = Blocker::deserialize(&blocker().serialize()).unwrap();
+        assert!(b.should_block("https://ads.test/x.js", PAGE, Some(ResourceType::Script)));
+        assert!(!b.should_block(
+            "https://ads.test/allowed.js",
+            PAGE,
+            Some(ResourceType::Script)
+        ));
+        assert_eq!(
+            b.cosmetic_css("https://a.test/"),
+            ".ad{display:none!important}"
+        );
+        assert!(Blocker::deserialize(b"not an engine").is_none());
+    }
+
+    #[test]
+    fn the_handle_follows_the_policy() {
+        let handle = BlockerHandle::default();
+        let ad = "https://ads.test/x.js";
+        assert!(!handle.should_block(ad, PAGE, Some(ResourceType::Script)));
+        handle.set(blocker());
+        assert!(handle.should_block(ad, PAGE, Some(ResourceType::Script)));
+        assert!(!handle.cosmetic_css("https://a.test/").is_empty());
+
+        handle.set_policy(BlockerPolicy {
+            enabled: true,
+            allowlist: vec!["site.test".into(), "a.test".into()],
+        });
+        assert!(!handle.should_block(ad, "https://www.site.test/", Some(ResourceType::Script)));
+        assert!(handle.cosmetic_css("https://a.test/").is_empty());
+
+        handle.set_policy(BlockerPolicy {
+            enabled: false,
+            allowlist: Vec::new(),
+        });
+        assert!(!handle.should_block(ad, PAGE, Some(ResourceType::Script)));
+    }
+
+    fn fake(lists: Vec<Result<&'static str, &'static str>>) -> Download {
+        let lists = std::sync::Mutex::new(lists.into_iter());
+        Arc::new(move |_: &str| {
+            let next = lists.lock().unwrap().next().expect("one answer per list");
+            next.map(|t| t.as_bytes().to_vec()).map_err(String::from)
+        })
+    }
+
+    #[test]
+    fn refresh_downloads_and_caches_the_lists() {
+        let dir = tempfile::tempdir().unwrap();
+        let lists = BlockerLists::new(dir.path(), fake(vec![Ok(LIST), Err("offline")]));
+        assert!(lists.load_cached().is_none());
+        assert!(lists.due());
+        let b = lists.refresh().unwrap();
+        assert!(b.should_block("https://ads.test/x.js", PAGE, Some(ResourceType::Script)));
+        assert!(!lists.due());
+
+        let cached = lists.load_cached().unwrap();
+        assert!(cached.should_block("https://ads.test/x.js", PAGE, Some(ResourceType::Script)));
+        assert_eq!(unix(cached.updated()), unix(b.updated()));
+    }
+
+    #[test]
+    fn a_failed_or_empty_download_keeps_the_cached_list() {
+        let dir = tempfile::tempdir().unwrap();
+        BlockerLists::new(dir.path(), fake(vec![Ok(LIST), Err("offline")]))
+            .refresh()
+            .unwrap();
+        let lists = BlockerLists::new(
+            dir.path(),
+            fake(vec![
+                Ok("! no rule
+"),
+                Err("offline"),
+            ]),
+        );
+        assert!(lists.refresh().is_err());
+        assert_eq!(
+            fs::read_to_string(dir.path().join("easylist.txt")).unwrap(),
+            LIST
+        );
+        let b = lists.load_cached().unwrap();
+        assert!(b.should_block("https://ads.test/x.js", PAGE, Some(ResourceType::Script)));
+    }
+
+    #[test]
+    fn the_engine_is_rebuilt_from_the_lists_when_unreadable() {
+        let dir = tempfile::tempdir().unwrap();
+        let lists = BlockerLists::new(dir.path(), fake(vec![Ok(LIST), Ok(LIST)]));
+        lists.refresh().unwrap();
+        fs::write(dir.path().join(ENGINE_FILE), b"garbage").unwrap();
+        let b = lists.load_cached().unwrap();
+        assert!(b.should_block("https://ads.test/x.js", PAGE, Some(ResourceType::Script)));
+    }
+
+    #[test]
+    fn the_lists_are_due_after_a_day() {
+        let dir = tempfile::tempdir().unwrap();
+        let lists = BlockerLists::new(dir.path(), fake(vec![]));
+        let now = SystemTime::now();
+        lists.save_state(&State {
+            last_check: Some(unix(now)),
+            updated: None,
+        });
+        assert!(!lists.due_at(now + Duration::from_secs(60)));
+        assert!(lists.due_at(now + CHECK_EVERY));
+    }
+}

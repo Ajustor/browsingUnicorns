@@ -22,6 +22,11 @@ pub fn read(path: &Path) -> Result<Option<String>, RepositoryError> {
 /// Replaces the file in one step (temporary file then rename), so a crash
 /// mid-write never leaves it truncated.
 pub fn write(path: &Path, contents: &str) -> Result<(), RepositoryError> {
+    write_bytes(path, contents.as_bytes())
+}
+
+/// [`write`] for bytes.
+pub fn write_bytes(path: &Path, contents: &[u8]) -> Result<(), RepositoryError> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).map_err(|e| error(path, e))?;
     }

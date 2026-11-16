@@ -29,8 +29,14 @@ impl Settings {
     /// neither `host` nor one of its parents is allowlisted. Case and a
     /// leading `www.` are ignored.
     pub fn blocks_on(&self, host: &str) -> bool {
-        self.blocker && !self.blocker_allowlist.iter().any(|a| host_covers(a, host))
+        self.blocker && !allowlisted(&self.blocker_allowlist, host)
     }
+}
+
+/// `host` is one of `allowlist`'s hosts or one of their subdomains. Case
+/// and a leading `www.` are ignored.
+pub fn allowlisted(allowlist: &[String], host: &str) -> bool {
+    allowlist.iter().any(|a| host_covers(a, host))
 }
 
 /// `host` is `allowed` or one of its subdomains.

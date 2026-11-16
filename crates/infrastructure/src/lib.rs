@@ -3,6 +3,7 @@
 //! The `desktop` feature (default) adds the system web view and the HTTP
 //! sync transport; the Android app builds without it.
 
+pub mod blocker;
 #[cfg(feature = "desktop")]
 pub mod certificates;
 mod clock;
@@ -55,6 +56,12 @@ pub fn profile_dir() -> Option<PathBuf> {
         Some(dir) if !dir.is_empty() => Some(dir.into()),
         _ => dirs::data_dir().map(|d| d.join("browsing-unicorns")),
     }
+}
+
+/// `<data dir>/browsing-unicorns/blocker`: the ad blocker's lists, shared
+/// by the profiles.
+pub fn blocker_dir() -> Option<PathBuf> {
+    profile_dir().map(|d| d.join("blocker"))
 }
 
 /// The user's profile: JSON files in `dir`, settings in `settings`.

@@ -30,7 +30,7 @@ pub use page_scripts::{RunAt, UrlPattern, UserScript, UserScriptId, UserScriptMe
 pub use profiles::{PROFILE_COLORS, Profile, ProfileError, ProfileId, Profiles};
 pub use search::SearchEngine;
 pub use session::{Session, SessionSnapshot};
-pub use settings::Settings;
+pub use settings::{Settings, allowlisted};
 pub use sync::{DeviceId, DeviceRecord, RemoteTab};
 pub use tab::{LoadState, Tab, TabId};
 pub use visits::{BrowsingHistory, Timestamp, Visit};

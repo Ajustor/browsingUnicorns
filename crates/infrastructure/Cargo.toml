@@ -53,6 +53,10 @@ ureq = { version = "3", features = ["platform-verifier"], optional = true }
 x509-parser = { version = "0.18", optional = true }
 # Extensions: unpacking the .crx (a zip after a signed header).
 zip = { version = "9.6", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+# The built-in ad blocker (Brave's engine). Without `single-thread`, the
+# engine is Send + Sync, shared by the request hooks; `content-blocking`:
+# WebKit's rule format.
+adblock = { version = "0.13", default-features = false, features = ["embedded-domain-resolver", "full-regex-handling", "content-blocking"] }
 
 # A child web view on Linux needs GTK initialised and its loop advanced.
 # WebKitGTK's content filters (extensions' rules) through its C API: the
