@@ -9,8 +9,10 @@ const TITLE_CHARS: usize = 24;
 
 pub fn show(ui: &mut egui::Ui, session: &Session, commands: &mut Vec<Command>) {
     ui.horizontal(|ui| {
+        // As wide as the tabs: the + follows the last one (room kept for it
+        // when they overflow).
         ScrollArea::horizontal()
-            .auto_shrink([false, true])
+            .auto_shrink([true, true])
             .max_width(ui.available_width() - 32.0)
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
