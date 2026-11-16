@@ -4,6 +4,13 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.6.1] - 2026-11-16
+
+### Corrigé
+
+- Android : la version 0.6.0 n'a pas pu être construite (lint de la demande
+  de permission des téléchargements) ; 0.6.1 publie ses nouveautés.
+
 ## [0.6.0] - 2026-11-16
 
 ### Ajouté
