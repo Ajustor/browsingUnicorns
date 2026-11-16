@@ -3,7 +3,8 @@
 //! extension engine. Each extension gets its own origin:
 //!
 //! - macOS, Linux: `bu-ext://<id>/<path>` (a custom scheme of the web view);
-//! - Windows: `http://bu-ext.<id>/<path>` (wry's form of custom schemes);
+//! - Windows: `https://bu-ext.<id>/<path>` (wry's form of custom schemes;
+//!   https, so the pages are a secure context: `crypto.subtle`...);
 //! - Android: `https://<id>.bu-ext.invalid/<path>` (`shouldInterceptRequest`).
 //!
 //! The extension pages' HTML gets the runtime (`chrome.*`) first. The runtime
@@ -27,7 +28,7 @@ use crate::script_storage::new_token;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Origins {
     CustomScheme,
-    WindowsHttp,
+    WindowsHttps,
     Android,
 }
 
@@ -38,7 +39,7 @@ impl Origins {
     /// What the desktop web view uses on this platform.
     pub fn desktop() -> Self {
         if cfg!(windows) {
-            Self::WindowsHttp
+            Self::WindowsHttps
         } else {
             Self::CustomScheme
         }
@@ -48,7 +49,7 @@ impl Origins {
     pub fn origin(self, id: &ExtensionId) -> String {
         match self {
             Self::CustomScheme => format!("{SCHEME}://{id}"),
-            Self::WindowsHttp => format!("http://{SCHEME}.{id}"),
+            Self::WindowsHttps => format!("https://{SCHEME}.{id}"),
             Self::Android => format!("https://{id}.{SCHEME}.invalid"),
         }
     }
@@ -65,7 +66,7 @@ impl Origins {
         let rest = url
             .strip_prefix(&format!("{SCHEME}://"))
             .or_else(|| match self {
-                Self::WindowsHttp => url.strip_prefix(&format!("http://{SCHEME}.")),
+                Self::WindowsHttps => url.strip_prefix(&format!("https://{SCHEME}.")),
                 Self::Android => url.strip_prefix("https://"),
                 Self::CustomScheme => None,
             })?;
@@ -401,7 +402,7 @@ mod tests {
     fn origins() {
         for o in [
             Origins::CustomScheme,
-            Origins::WindowsHttp,
+            Origins::WindowsHttps,
             Origins::Android,
         ] {
             let url = o.url(&id(), "/popup.html?x=1");
@@ -417,8 +418,8 @@ mod tests {
             );
         }
         assert_eq!(
-            Origins::WindowsHttp.origin(&id()),
-            format!("http://bu-ext.{ID}")
+            Origins::WindowsHttps.origin(&id()),
+            format!("https://bu-ext.{ID}")
         );
         assert_eq!(Origins::Android.parse("https://example.com/"), None);
         assert_eq!(Origins::CustomScheme.parse("https://x/"), None);

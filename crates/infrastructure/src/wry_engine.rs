@@ -147,7 +147,11 @@ fn base_builder<'a>(
     #[cfg(windows)]
     let builder = {
         use wry::WebViewBuilderExtWindows as _;
-        builder.with_browser_extensions_enabled(!builtin_extensions())
+        // https://bu-ext.<id>: the extensions' pages are a secure context
+        // (crypto.subtle...), as in Chrome.
+        builder
+            .with_browser_extensions_enabled(!builtin_extensions())
+            .with_https_scheme(true)
     };
     let builder = builder
         .with_devtools(true)
