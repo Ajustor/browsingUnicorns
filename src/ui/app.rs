@@ -102,6 +102,7 @@ impl BrowserApp {
         self.notice = Some(Notice {
             error: true,
             text: error.to_string(),
+            file: None,
         });
     }
 
@@ -327,6 +328,10 @@ impl BrowserApp {
                 self.hub.handle(from, body, &mut host);
                 continue;
             }
+            if let Some(notice) = super::downloads::notice(&event) {
+                self.notice = Some(notice);
+                continue;
+            }
             if let Err(e) = self.browser.handle(event) {
                 self.report(e);
             }
@@ -361,7 +366,17 @@ impl BrowserApp {
                 } else {
                     ui.label(&notice.text);
                 }
-dismissed = ui.small_button("OK").clicked();
+                if let Some(file) = &notice.file {
+                    if ui.small_button("Open").clicked() {
+                        super::downloads::open(file);
+                        dismissed = true;
+                    }
+                    if ui.small_button("Show in folder").clicked() {
+                        super::downloads::reveal(file);
+                        dismissed = true;
+                    }
+                }
+                dismissed |= ui.small_button("OK").clicked();
             });
         });
         if dismissed {

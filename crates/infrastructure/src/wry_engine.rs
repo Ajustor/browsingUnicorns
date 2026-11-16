@@ -451,6 +451,8 @@ impl WebEngine for WryEngine {
         let on_load = emit.clone();
         let on_title = emit.clone();
         let on_message = emit.clone();
+        let on_download = emit.clone();
+        let on_downloaded = emit.clone();
         let builder = base_builder(
             &mut self.context,
             self.server.as_ref(),
@@ -483,6 +485,17 @@ impl WebEngine for WryEngine {
             })
             .with_document_title_changed_handler(move |title| {
                 on_title(EngineEvent::TitleChanged { tab, title });
+            })
+            // Into the user's Downloads folder (WebView2 picks a free name).
+            .with_download_started_handler(move |_url, file| {
+                on_download(EngineEvent::DownloadStarted { file: file.clone() });
+                true
+            })
+            .with_download_completed_handler(move |url, file, ok| {
+                on_downloaded(EngineEvent::DownloadFinished {
+                    url,
+                    file: file.filter(|_| ok),
+                });
             })
             .with_new_window_req_handler(move |url, _features| {
                 if let Ok(address) = WebAddress::parse(&url) {

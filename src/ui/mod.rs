@@ -4,6 +4,7 @@
 mod app;
 mod bookmarks_bar;
 mod command;
+mod downloads;
 mod extension_bar;
 mod extensions;
 mod library;

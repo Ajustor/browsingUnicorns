@@ -100,6 +100,15 @@ pub enum EngineEvent {
         from: PageSource,
         body: String,
     },
+    /// A page started downloading a file, saved to `file`.
+    DownloadStarted {
+        file: std::path::PathBuf,
+    },
+    /// A download ended: `file` when it succeeded.
+    DownloadFinished {
+        url: String,
+        file: Option<std::path::PathBuf>,
+    },
 }
 
 /// Where page scripts run: a tab, an extension's background page, the

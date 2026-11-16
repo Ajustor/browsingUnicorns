@@ -19,6 +19,8 @@ pub struct Updates {
 pub struct Notice {
     pub error: bool,
     pub text: String,
+    /// A downloaded file, to open or show in its folder.
+    pub file: Option<std::path::PathBuf>,
 }
 
 impl Updates {
@@ -62,7 +64,11 @@ impl Updates {
             // The banner shows these.
             UpdateEvent::Available(_) | UpdateEvent::Ready => return None,
         };
-        Some(Notice { error, text })
+        Some(Notice {
+            error,
+            text,
+            file: None,
+        })
     }
 
     pub fn banner(&self, ctx: &egui::Context, commands: &mut Vec<Command>) {
