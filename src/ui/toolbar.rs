@@ -9,10 +9,19 @@ use super::library::LibraryView;
 use super::omnibox::Omnibox;
 use super::profiles::avatar;
 
+/// The ad blocker's button: whether it blocks on the page, and what it
+/// stopped there (`None` where the web view doesn't tell).
+pub struct ShieldButton {
+    pub on: bool,
+    pub blocked: Option<u32>,
+}
+
+#[allow(clippy::too_many_arguments)]
 pub fn show(
     ui: &mut egui::Ui,
     active: Option<&Tab>,
     bookmarked: bool,
+    shield: &ShieldButton,
     omnibox: &mut Omnibox,
     actions: &[Action],
     profile: &Profile,
@@ -63,6 +72,9 @@ pub fn show(
                 if button(ui, glyph, tip, true) {
                     commands.push(Command::ToggleSiteInfo);
                 }
+                if shield_button(ui, shield) {
+                    commands.push(Command::ToggleShield);
+                }
             }
             None => {
                 ui.label(icon::MAGNIFYING_GLASS);
@@ -108,6 +120,44 @@ pub fn show(
             omnibox.show(ui, address.map(|a| a.as_str()), commands);
         });
     });
+}
+
+/// The shield, with the count in a badge over its corner.
+fn shield_button(ui: &mut egui::Ui, shield: &ShieldButton) -> bool {
+    let (glyph, tip) = if shield.on {
+        (
+            RichText::new(icon::SHIELD_CHECK).color(super::theme::CYAN),
+            "Ad blocker: on for this site",
+        )
+    } else {
+        (
+            RichText::new(icon::SHIELD_SLASH),
+            "Ad blocker: off for this site",
+        )
+    };
+    let response = ui
+        .add(Button::new(glyph.size(16.0)).frame(false))
+        .on_hover_text(tip);
+    if let Some(count) = shield.blocked.filter(|&n| n > 0 && shield.on) {
+        let text = if count > 99 {
+            "99+".to_owned()
+        } else {
+            count.to_string()
+        };
+        let font = egui::FontId::proportional(9.0);
+        let galley = ui.painter().layout_no_wrap(text, font, super::theme::NIGHT);
+        let size = egui::vec2((galley.size().x + 6.0).max(12.0), 11.0);
+        let corner = response.rect.right_top() + egui::vec2(2.0, -2.0);
+        let badge = egui::Rect::from_min_size(corner - egui::vec2(size.x, 0.0), size);
+        let painter = ui.painter();
+        painter.rect_filled(badge, 5.5, super::theme::CYAN);
+        painter.galley(
+            badge.center() - galley.size() / 2.0,
+            galley,
+            super::theme::NIGHT,
+        );
+    }
+    response.clicked()
 }
 
 fn button(ui: &mut egui::Ui, glyph: impl Into<egui::WidgetText>, tip: &str, enabled: bool) -> bool {

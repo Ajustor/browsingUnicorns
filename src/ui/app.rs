@@ -15,9 +15,11 @@ use super::extensions::{ExtensionsRunner, ExtensionsView};
 use super::library::{Library, LibraryData, LibraryView};
 use super::omnibox::Omnibox;
 use super::profiles::{ProfileCommand, ProfilesRunner};
+use super::shield::{Shield, ShieldView, allowlist_with};
 use super::site_info::SiteInfo;
 use super::sync::SyncRunner;
 use super::sync_panel::SyncView;
+use super::toolbar::ShieldButton;
 use super::updates::{Notice, Updates};
 use super::user_scripts::UserScriptsRunner;
 use super::{APP_NAME, bookmarks_bar, tab_strip, toolbar};
@@ -43,6 +45,8 @@ pub struct BrowserApp {
     notice: Option<Notice>,
     /// The padlock's bar, when open.
     site_info: Option<SiteInfo>,
+    /// The ad blocker's bar, when open.
+    shield: Option<Shield>,
     window_title: String,
     last_persist: Instant,
     close_requested: bool,
@@ -101,6 +105,7 @@ impl BrowserApp {
             library: Library::default(),
             notice: None,
             site_info: None,
+            shield: None,
             window_title: String::new(),
             last_persist: Instant::now(),
             close_requested: false,
@@ -196,6 +201,16 @@ impl BrowserApp {
                 self.hub.forget(&format!("us:{id}"));
                 return self.report_err(r);
             }
+            Command::SetBlockerForSite(host, on) => {
+                let mut settings = self.browser.settings().clone();
+                settings.blocker_allowlist = allowlist_with(&settings.blocker_allowlist, &host, on);
+                self.change_blocker(settings)
+            }
+            Command::SetBlocker(on) => {
+                let mut settings = self.browser.settings().clone();
+                settings.blocker = on;
+                self.change_blocker(settings)
+            }
             other => {
                 self.run_ui(other);
                 Ok(())
@@ -258,6 +273,7 @@ impl BrowserApp {
                 .open_devtools(&PageSource::Background(id)),
             Command::ToggleLibrary(view) => self.library.toggle(view),
             Command::ToggleSiteInfo => self.toggle_site_info(),
+            Command::ToggleShield => self.toggle_shield(),
             Command::CheckForUpdates => self.updates.check_now(),
             Command::InstallUpdate => self.updates.updater.install(),
             Command::UpdateLater => self.updates.updater.later(),
@@ -283,6 +299,8 @@ impl BrowserApp {
             | Command::InstallUserScript(_)
             | Command::SetUserScriptEnabled(..)
             | Command::RemoveUserScript(_)
+            | Command::SetBlockerForSite(..)
+            | Command::SetBlocker(_)
             | Command::Profile(_)
             | Command::ToggleExtensionPopup { .. } => unreachable!("handled by run"),
         }
@@ -305,12 +323,72 @@ impl BrowserApp {
         }
     }
 
+    /// Saves the ad blocker's new settings, hands them to the hooks at
+    /// once, and reloads the page to apply them.
+    fn change_blocker(
+        &mut self,
+        settings: domain::Settings,
+    ) -> Result<(), application::BrowserError> {
+        self.browser.update_settings(settings)?;
+        self.blocker.follow_settings(self.browser.settings());
+        self.browser.reload();
+        Ok(())
+    }
+
+    /// Opens the ad blocker's bar on the active site, or closes it (the
+    /// padlock's bar closes).
+    fn toggle_shield(&mut self) {
+        if self.shield.take().is_some() {
+            return;
+        }
+        let Some(address) = self.browser.session().active().and_then(|t| t.address()) else {
+            return;
+        };
+        self.shield = Some(Shield {
+            address: address.clone(),
+        });
+        self.site_info = None;
+    }
+
+    /// Shows the ad blocker's bar while the active page stays the same.
+    fn shield_bar(&mut self, ctx: &egui::Context, commands: &mut Vec<Command>) {
+        let Some(shield) = &self.shield else {
+            return;
+        };
+        let active = self.browser.session().active();
+        if active.and_then(|t| t.address()) != Some(&shield.address) {
+            self.shield = None;
+            return;
+        }
+        let settings = self.browser.settings();
+        let view = ShieldView {
+            enabled: settings.blocker,
+            on_site: settings.blocks_on(shield.address.host().unwrap_or("")),
+            blocked: active.and_then(|t| self.browser.engine().blocked_count(t.id())),
+            updated: self.blocker.handle.get().map(|b| b.updated()),
+        };
+        if !shield.show(ctx, &view, commands) {
+            self.shield = None;
+        }
+    }
+
+    /// The toolbar's shield for the active page.
+    fn shield_button(&self) -> ShieldButton {
+        let active = self.browser.session().active();
+        let host = active.and_then(|t| t.address()).and_then(|a| a.host());
+        ShieldButton {
+            on: host.is_some_and(|h| self.browser.settings().blocks_on(h)),
+            blocked: active.and_then(|t| self.browser.engine().blocked_count(t.id())),
+        }
+    }
+
     /// Opens the padlock's bar on the active site (asking its certificate),
-    /// or closes it.
+    /// or closes it (the shield's bar closes).
     fn toggle_site_info(&mut self) {
         if self.site_info.take().is_some() {
             return;
         }
+        self.shield = None;
         let Some(tab) = self.browser.session().active() else {
             return;
         };
@@ -491,6 +569,7 @@ impl eframe::App for BrowserApp {
         } else {
             Vec::new()
         };
+        let shield = self.shield_button();
         TopBottomPanel::top("toolbar")
             .frame(super::theme::chrome_frame())
             .show_separator_line(false)
@@ -500,6 +579,7 @@ impl eframe::App for BrowserApp {
                     ui,
                     self.browser.session().active(),
                     self.browser.is_active_bookmarked(),
+                    &shield,
                     &mut self.omnibox,
                     &actions,
                     self.profiles.current(),
@@ -507,6 +587,7 @@ impl eframe::App for BrowserApp {
                 );
             });
         self.site_info_bar(ctx);
+        self.shield_bar(ctx, &mut commands);
         if !self.browser.bookmarks().is_empty() {
             TopBottomPanel::top("bookmarks")
                 .frame(super::theme::chrome_frame().inner_margin(egui::Margin::symmetric(10, 3)))

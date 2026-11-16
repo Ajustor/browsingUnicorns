@@ -72,6 +72,11 @@ impl BlockerRunner {
             self.spawn(false);
         }
         self.focused = focused;
+        self.follow_settings(settings);
+    }
+
+    /// Hands the settings' changes to the hooks.
+    pub fn follow_settings(&self, settings: &Settings) {
         let policy = self.handle.policy();
         if policy.enabled != settings.blocker || policy.allowlist != settings.blocker_allowlist {
             self.handle

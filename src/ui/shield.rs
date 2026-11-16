@@ -1,0 +1,170 @@
+//! The ad blocker's shield: a bar under the toolbar (the page's native view
+//! would hide anything drawn over it) with what was blocked on the page and
+//! the switches.
+
+use std::time::SystemTime;
+
+use domain::{WebAddress, allowlisted};
+use egui::{RichText, TopBottomPanel};
+use egui_phosphor::regular as icon;
+
+use super::command::Command;
+
+/// The site whose shield is shown.
+pub struct Shield {
+    pub address: WebAddress,
+}
+
+/// What the bar shows.
+pub struct ShieldView {
+    /// The ad blocker is on.
+    pub enabled: bool,
+    /// It blocks on this site.
+    pub on_site: bool,
+    /// What it stopped on the page; `None` where the web view doesn't tell
+    /// (WebKit).
+    pub blocked: Option<u32>,
+    /// When the lists were downloaded; `None` before they first arrive.
+    pub updated: Option<SystemTime>,
+}
+
+impl Shield {
+    /// Shows the bar; false once closed.
+    pub fn show(
+        &self,
+        ctx: &egui::Context,
+        view: &ShieldView,
+        commands: &mut Vec<Command>,
+    ) -> bool {
+        let mut open = true;
+        let host = self
+            .address
+            .host()
+            .unwrap_or(self.address.as_str())
+            .to_owned();
+        TopBottomPanel::top("shield").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                let glyph = if view.enabled && view.on_site {
+                    icon::SHIELD_CHECK
+                } else {
+                    icon::SHIELD_SLASH
+                };
+                ui.label(RichText::new(format!("{glyph} {host}")).strong());
+                ui.label(status(view));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.small_button(icon::X).on_hover_text("Close").clicked() {
+                        open = false;
+                    }
+                });
+            });
+            ui.horizontal(|ui| {
+                let mut on_site = view.on_site;
+                let site = ui.add_enabled(
+                    view.enabled,
+                    egui::Checkbox::new(&mut on_site, "Block on this site"),
+                );
+                if site.changed() {
+                    commands.push(Command::SetBlockerForSite(host.clone(), on_site));
+                }
+                let mut enabled = view.enabled;
+                if ui.checkbox(&mut enabled, "Ad blocker").changed() {
+                    commands.push(Command::SetBlocker(enabled));
+                }
+            });
+            ui.label(RichText::new(lists_line(view.updated, SystemTime::now())).weak());
+        });
+        open
+    }
+}
+
+/// The bar's first line.
+fn status(view: &ShieldView) -> String {
+    if !view.enabled {
+        return "The ad blocker is off.".into();
+    }
+    if !view.on_site {
+        return "Not blocking on this site.".into();
+    }
+    match view.blocked {
+        Some(1) => "1 item blocked on this page.".into(),
+        Some(n) => format!("{n} items blocked on this page."),
+        None => "Active: blocking ads and trackers.".into(),
+    }
+}
+
+/// Which lists, and how fresh they are.
+fn lists_line(updated: Option<SystemTime>, now: SystemTime) -> String {
+    match updated {
+        None => "Lists: EasyList, EasyPrivacy · not downloaded yet".into(),
+        Some(at) => {
+            let age = now.duration_since(at).map_or(0, |d| d.as_secs());
+            let age = match super::library::ago_secs(age) {
+                now if now == "now" => "just now".to_owned(),
+                age => format!("{age} ago"),
+            };
+            format!("Lists: EasyList, EasyPrivacy · updated {age}")
+        }
+    }
+}
+
+/// `allowlist` once the blocker is switched `on` (or off) for `host`:
+/// turning it on removes every entry covering the host, turning it off adds
+/// the host (lowercase, without `www.`).
+pub fn allowlist_with(allowlist: &[String], host: &str, on: bool) -> Vec<String> {
+    let mut out: Vec<String> = allowlist
+        .iter()
+        .filter(|a| !allowlisted(std::slice::from_ref(*a), host))
+        .cloned()
+        .collect();
+    if !on {
+        let host = host.trim().to_ascii_lowercase();
+        out.push(host.strip_prefix("www.").map(str::to_owned).unwrap_or(host));
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+
+    fn list(hosts: &[&str]) -> Vec<String> {
+        hosts.iter().map(|h| h.to_string()).collect()
+    }
+
+    #[test]
+    fn switching_a_site_off_and_on() {
+        let off = allowlist_with(&list(&["a.com"]), "www.LeMonde.fr", false);
+        assert_eq!(off, list(&["a.com", "lemonde.fr"]));
+        // On again for a subdomain: the parent entry goes too.
+        let on = allowlist_with(&off, "news.lemonde.fr", true);
+        assert_eq!(on, list(&["a.com"]));
+    }
+
+    #[test]
+    fn the_status_says_what_happens() {
+        let mut view = ShieldView {
+            enabled: true,
+            on_site: true,
+            blocked: Some(3),
+            updated: None,
+        };
+        assert_eq!(status(&view), "3 items blocked on this page.");
+        view.blocked = None;
+        assert_eq!(status(&view), "Active: blocking ads and trackers.");
+        view.on_site = false;
+        assert_eq!(status(&view), "Not blocking on this site.");
+        view.enabled = false;
+        assert_eq!(status(&view), "The ad blocker is off.");
+    }
+
+    #[test]
+    fn the_lists_line_tells_their_age() {
+        let now = SystemTime::now();
+        assert!(lists_line(None, now).ends_with("not downloaded yet"));
+        assert!(lists_line(Some(now), now).ends_with("updated just now"));
+        let earlier = now - Duration::from_secs(3 * 3_600);
+        assert!(lists_line(Some(earlier), now).ends_with("updated 3 h ago"));
+    }
+}
