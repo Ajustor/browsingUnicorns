@@ -4,6 +4,25 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.7.0] - 2026-11-16
+
+### Ajouté
+
+- Extensions installées à la main : *Choose .crx…* (un paquet) et *Load
+  unpacked…* (le dossier d'une extension décompressée, comme « Charger
+  l'extension non empaquetée » de Chrome) dans l'onglet *Extensions* ; le
+  chemin d'un dossier marche aussi dans le champ. Recharger le même dossier
+  met l'extension à jour.
+
+### Corrigé
+
+- Extensions : celles dont le script de fond est découpé en morceaux
+  (webpack) ne démarraient jamais (« Unexpected identifier 'found' »).
+- Windows : ce qu'on tapait dans la barre d'adresse partait dans les champs
+  de la page.
+- Le bouton `+` de nouvel onglet suit le dernier onglet au lieu d'être au
+  bout de la barre.
+
 ## [0.6.1] - 2026-11-16
 
 ### Corrigé

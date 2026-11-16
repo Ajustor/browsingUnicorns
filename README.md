@@ -40,8 +40,10 @@ binaire reste petit et le moteur profite des mises à jour de sécurité de l'OS
   que des données chiffrées
 - 🧩 Extensions Chrome : onglet *Extensions* du panneau latéral (menu
   *Extensions* sur Android), installation par lien du Chrome Web Store, id ou
-  fichier `.crx`, activation, suppression. Sur Android, la page d'une
-  extension du Web Store propose de l'installer.
+  fichier `.crx`, activation, suppression. Sur ordinateur, *Choose .crx…*
+  et *Load unpacked…* installent un paquet ou le dossier d'une extension
+  décompressée (le recharger reprend ses modifications). Sur Android, la page
+  d'une extension du Web Store propose de l'installer.
   - Le navigateur les fait tourner lui-même sur toutes les plateformes :
     règles de blocage (`declarativeNetRequest`, converties au format des
     *content blockers* de Safari sur WebKit, appliquées par
