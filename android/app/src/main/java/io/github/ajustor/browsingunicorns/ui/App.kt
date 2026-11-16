@@ -4,6 +4,7 @@ import android.view.ViewGroup
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -65,6 +66,7 @@ import io.github.ajustor.browsingunicorns.AppUpdates
 import io.github.ajustor.browsingunicorns.BrowserController
 import io.github.ajustor.browsingunicorns.UpdateState
 import io.github.ajustor.browsingunicorns.Screen
+import uniffi.mobile.SuggestionInfo
 
 @Composable
 fun App(c: BrowserController) {
@@ -181,6 +183,7 @@ private fun UpdateBanner(u: AppUpdates) {
 private fun AddressBar(c: BrowserController) {
     val url = c.state.activeUrl ?: ""
     var text by remember(url) { mutableStateOf(url) }
+    var focused by remember { mutableStateOf(false) }
     val focus = LocalFocusManager.current
     var siteInfo by remember { mutableStateOf(false) }
     var shield by remember { mutableStateOf(false) }
@@ -211,58 +214,107 @@ private fun AddressBar(c: BrowserController) {
             c.views.addressBarFocused = false
         }
     }
-    TextField(
-        value = text,
-        onValueChange = { text = it },
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)
-            .border(1.dp, Unicorn.Outline, RoundedCornerShape(24.dp))
-            .onFocusChanged { c.views.addressBarFocused = it.isFocused },
-        singleLine = true,
-        placeholder = { Text("Search or enter an address") },
-        leadingIcon = {
-            if (c.activePrivate) {
-                Row(Modifier.padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(MaskIcon, contentDescription = "Private tab", modifier = Modifier.size(20.dp))
-                    if (url.isNotEmpty()) SiteButton(c) { siteInfo = true }
+    // Typed, not the page's address: past searches and pages of the history.
+    val suggestions = remember(text, focused) {
+        if (focused && text != url) c.suggest(text) else emptyList()
+    }
+    Column {
+        TextField(
+            value = text,
+            onValueChange = { text = it },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)
+                .border(1.dp, Unicorn.Outline, RoundedCornerShape(24.dp))
+                .onFocusChanged {
+                    focused = it.isFocused
+                    c.views.addressBarFocused = it.isFocused
+                },
+            singleLine = true,
+            placeholder = { Text("Search or enter an address") },
+            leadingIcon = {
+                if (c.activePrivate) {
+                    Row(Modifier.padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(MaskIcon, contentDescription = "Private tab", modifier = Modifier.size(20.dp))
+                        if (url.isNotEmpty()) SiteButton(c) { siteInfo = true }
+                    }
+                } else if (url.isEmpty()) {
+                    Icon(Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(18.dp))
+                } else {
+                    SiteButton(c) { siteInfo = true }
                 }
-            } else if (url.isEmpty()) {
-                Icon(Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(18.dp))
-            } else {
-                SiteButton(c) { siteInfo = true }
+            },
+            trailingIcon = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (url.isNotEmpty() && blocker != null) {
+                        ShieldButton(blocker) { shield = true }
+                    }
+                    IconButton(onClick = { c.act { reload() } }) {
+                        Icon(Icons.Filled.Refresh, contentDescription = "Reload")
+                    }
+                }
+            },
+            shape = RoundedCornerShape(24.dp),
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = Unicorn.NightDeep,
+                unfocusedContainerColor = Unicorn.NightDeep,
+                focusedTextColor = Unicorn.OnNight,
+                unfocusedTextColor = Unicorn.OnNight,
+                cursorColor = Unicorn.Cyan,
+                focusedLeadingIconColor = Unicorn.OnNight,
+                unfocusedLeadingIconColor = Unicorn.OnNight,
+                focusedTrailingIconColor = Unicorn.OnNight,
+                unfocusedTrailingIconColor = Unicorn.OnNight,
+                focusedPlaceholderColor = Unicorn.OnNight.copy(alpha = 0.6f),
+                unfocusedPlaceholderColor = Unicorn.OnNight.copy(alpha = 0.6f),
+                focusedIndicatorColor = Color.Transparent,
+                unfocusedIndicatorColor = Color.Transparent,
+            ),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go),
+            keyboardActions = KeyboardActions(onGo = {
+                c.act { submit(text, false) }
+                focus.clearFocus()
+            }),
+        )
+        for (s in suggestions) {
+            SuggestionRow(s) {
+                c.open(s.url)
+                focus.clearFocus()
             }
-        },
-        trailingIcon = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (url.isNotEmpty() && blocker != null) {
-                    ShieldButton(blocker) { shield = true }
-                }
-                IconButton(onClick = { c.act { reload() } }) {
-                    Icon(Icons.Filled.Refresh, contentDescription = "Reload")
-                }
+        }
+    }
+}
+
+/** A past search, or a page of the history with its address. */
+@Composable
+private fun SuggestionRow(s: SuggestionInfo, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            if (s.search) Icons.Filled.Search else HistoryIcon,
+            contentDescription = if (s.search) "Search" else "Page visited",
+            tint = Unicorn.OnNight.copy(alpha = 0.7f),
+            modifier = Modifier.size(18.dp),
+        )
+        Column(Modifier.padding(start = 14.dp)) {
+            Text(
+                s.text.ifBlank { s.url },
+                color = Unicorn.OnNight,
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (!s.search && s.text.isNotBlank()) {
+                Text(
+                    s.url,
+                    color = Unicorn.OnNight.copy(alpha = 0.6f),
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
-        },
-        shape = RoundedCornerShape(24.dp),
-        colors = TextFieldDefaults.colors(
-            focusedContainerColor = Unicorn.NightDeep,
-            unfocusedContainerColor = Unicorn.NightDeep,
-            focusedTextColor = Unicorn.OnNight,
-            unfocusedTextColor = Unicorn.OnNight,
-            cursorColor = Unicorn.Cyan,
-            focusedLeadingIconColor = Unicorn.OnNight,
-            unfocusedLeadingIconColor = Unicorn.OnNight,
-            focusedTrailingIconColor = Unicorn.OnNight,
-            unfocusedTrailingIconColor = Unicorn.OnNight,
-            focusedPlaceholderColor = Unicorn.OnNight.copy(alpha = 0.6f),
-            unfocusedPlaceholderColor = Unicorn.OnNight.copy(alpha = 0.6f),
-            focusedIndicatorColor = Color.Transparent,
-            unfocusedIndicatorColor = Color.Transparent,
-        ),
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go),
-        keyboardActions = KeyboardActions(onGo = {
-            c.act { submit(text, false) }
-            focus.clearFocus()
-        }),
-    )
+        }
+    }
 }
 
 /** The padlock: the connection and its certificate. */

@@ -158,6 +158,28 @@ fn tabs_and_navigation_go_through_the_host() {
 }
 
 #[test]
+fn tabs_move_and_the_address_bar_suggests() {
+    let dir = tempfile::tempdir().unwrap();
+    let http = Arc::new(FakeHttp::default());
+    let (b, _host) = browser(&dir, "phone", &http);
+    b.restore_session().unwrap();
+    let first = b.state().active.unwrap();
+    b.on_load_finished(first, "https://duckduckgo.com/?q=rust+book".into());
+    b.on_load_finished(first, "https://doc.rust-lang.org/book/".into());
+    b.on_title_changed(first, "The Rust Book".into());
+    let second = b.open_tab(None, false).unwrap();
+    b.move_tab(second, 0);
+    let order: Vec<u64> = b.state().tabs.iter().map(|t| t.id).collect();
+    assert_eq!(order, vec![second, first]);
+
+    let s = b.suggest("rust".into(), 8);
+    assert_eq!(s.len(), 2);
+    assert!(s[0].search && s[0].text == "rust book");
+    assert_eq!(s[0].url, "https://duckduckgo.com/?q=rust+book");
+    assert!(!s[1].search && s[1].text == "The Rust Book");
+}
+
+#[test]
 fn private_tabs_leave_nothing_behind() {
     let dir = tempfile::tempdir().unwrap();
     let http = Arc::new(FakeHttp::default());
@@ -178,9 +200,11 @@ fn private_tabs_leave_nothing_behind() {
     b.on_load_finished(private, "https://secret.test/".into());
     b.on_title_changed(private, "Secret".into());
     // A page of the private tab opens a private tab too.
-    b.on_new_window("https://secret.test/popup".into()).unwrap();
+    b.on_new_window(private, "https://secret.test/popup".into())
+        .unwrap();
     let state = b.state();
     assert_eq!(state.tabs.iter().filter(|t| t.private).count(), 2);
+    assert_eq!(state.active, Some(private), "the link opens behind");
     assert!(!state.tabs.iter().find(|t| t.id == normal).unwrap().private);
 
     let history = b.history(String::new(), 10);

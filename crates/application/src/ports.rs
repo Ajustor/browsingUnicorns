@@ -95,8 +95,10 @@ pub enum EngineEvent {
         tab: TabId,
         title: String,
     },
-    /// A page asked for a new window (`target="_blank"`, `window.open`).
+    /// A page asked for a new window (`target="_blank"`, `window.open`,
+    /// a link opened in a new tab). `opener` is its tab, when known.
     NewTabRequested {
+        opener: Option<TabId>,
         address: WebAddress,
     },
     /// A message of the scripts the browser runs in pages (extension

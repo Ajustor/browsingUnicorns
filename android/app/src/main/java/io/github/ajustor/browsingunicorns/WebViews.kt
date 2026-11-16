@@ -235,6 +235,9 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
     /** Called after each page event, to refresh the screen. */
     var onChange: () -> Unit = {}
 
+    /** A link opened in a new tab, behind the one shown. */
+    var onLinkTab: () -> Unit = {}
+
     /** Called with the page's load progress (0-100). */
     var onProgress: (Int) -> Unit = {}
 
@@ -387,7 +390,8 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
             }
 
             // target="_blank" / window.open: a throwaway WebView catches the
-            // address, which opens in a new tab.
+            // address, which opens in a new tab next to this one, this one
+            // staying shown.
             override fun onCreateWindow(
                 view: WebView,
                 isDialog: Boolean,
@@ -398,8 +402,9 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
                 if (private) usePrivateProfile(catcher)
                 catcher.webViewClient = object : WebViewClient() {
                     override fun shouldOverrideUrlLoading(v: WebView, request: WebResourceRequest): Boolean {
-                        runCatching { browser.onNewWindow(request.url.toString()) }
+                        runCatching { browser.onNewWindow(tab, request.url.toString()) }
                         onChange()
+                        onLinkTab()
                         v.destroy()
                         return true
                     }

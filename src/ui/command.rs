@@ -14,6 +14,8 @@ pub enum Command {
     CloseTab(TabId),
     CloseActiveTab,
     Activate(TabId),
+    /// Moves a tab to that index of the tab strip.
+    MoveTab(TabId, usize),
     CycleTabs(isize),
     Back,
     Forward,

@@ -8,6 +8,12 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 
 ### Ajouté
 
+- Réorganisation des onglets : glisser-déposer dans la barre d'onglets sur
+  ordinateur, appui long puis glisser sur l'écran des onglets Android.
+- Suggestions dans la barre d'adresse : les recherches déjà faites
+  (retrouvées dans l'historique, quel que soit le moteur courant ou un moteur
+  connu) puis les pages de l'historique, classées par début de saisie,
+  fréquence et récence. ↑/↓ et Entrée, ou un clic, sur ordinateur.
 - Navigation privée. Sur ordinateur, une fenêtre privée (Ctrl+Shift+N ou le
   bouton masque à gauche de l'avatar) : rien n'est écrit dans le profil, ni
   historique ni onglets à rouvrir ; cookies, cache et stockage des sites
@@ -19,6 +25,13 @@ Toutes les évolutions notables de browsingUnicorns. Format :
   des onglets privés : une bascule *Normal / Private* sur l'écran des
   onglets, une WebView à part dont les cookies et données sont supprimés
   avec le dernier onglet privé, hors historique, session et synchro.
+
+### Modifié
+
+- Un nouvel onglet (Ctrl+T, `+`) s'ouvre en dernière position.
+- Un lien ouvert dans un nouvel onglet (`target="_blank"`, clic molette,
+  `window.open`) s'ouvre juste après sa page, en arrière-plan : on reste sur
+  la page courante. Sur Android, un message le signale.
 
 ## [0.10.0] - 2026-11-16
 

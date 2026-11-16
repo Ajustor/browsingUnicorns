@@ -14,6 +14,7 @@ import uniffi.mobile.BrowserState
 import uniffi.mobile.ExtensionInfo
 import uniffi.mobile.MobileBrowser
 import uniffi.mobile.MobileException
+import uniffi.mobile.SuggestionInfo
 import uniffi.mobile.SyncInfo
 import uniffi.mobile.UserScriptInfo
 
@@ -79,6 +80,7 @@ class BrowserController(
             refreshBlocker()
         }
         views.onPanel = { popup = it }
+        views.onLinkTab = { message = "Opened in a new tab" }
         updates.onMessage = { message = it }
         refreshExtensions()
     }
@@ -117,6 +119,16 @@ class BrowserController(
             message = reason(e)
         }
         refresh()
+    }
+
+    /** What the address bar proposes for [input]: past searches, then pages of the history. */
+    fun suggest(input: String): List<SuggestionInfo> =
+        if (input.isBlank()) emptyList() else browser.suggest(input, 6u)
+
+    /** Moves tab [id] where tab [target] is (both of the same series). */
+    fun moveTab(id: ULong, target: ULong) {
+        val to = state.tabs.indexOfFirst { it.id == target }
+        if (to >= 0) act { moveTab(id, to.toUInt()) }
     }
 
     fun open(url: String, newTab: Boolean = false) {

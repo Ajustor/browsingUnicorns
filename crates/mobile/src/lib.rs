@@ -99,6 +99,15 @@ pub struct PageLink {
     pub title: String,
 }
 
+/// A past search (`search`, `text` its terms) or a page of the history
+/// (`text` its title) the address bar proposes.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct SuggestionInfo {
+    pub search: bool,
+    pub text: String,
+    pub url: String,
+}
+
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct VisitInfo {
     pub url: String,
@@ -468,6 +477,34 @@ impl MobileBrowser {
         self.hub_tick();
     }
 
+    /// Moves tab `id` to index `to` of all the tabs (private ones included).
+    pub fn move_tab(&self, id: u64, to: u32) {
+        self.lock().browser.move_tab(TabId::new(id), to as usize);
+        self.hub_tick();
+    }
+
+    /// What the address bar proposes for `input`: past searches, then
+    /// pages of the history.
+    pub fn suggest(&self, input: String, limit: u32) -> Vec<SuggestionInfo> {
+        self.lock()
+            .browser
+            .suggest(&input, limit as usize)
+            .into_iter()
+            .map(|s| match s {
+                domain::Suggestion::Search { terms, address } => SuggestionInfo {
+                    search: true,
+                    text: terms,
+                    url: address.to_string(),
+                },
+                domain::Suggestion::Page { title, address } => SuggestionInfo {
+                    search: false,
+                    text: title,
+                    url: address.to_string(),
+                },
+            })
+            .collect()
+    }
+
     pub fn activate(&self, id: u64) {
         self.lock().browser.activate(TabId::new(id));
         self.hub_tick();
@@ -550,13 +587,19 @@ impl MobileBrowser {
         self.hub_tick();
     }
 
-    /// A page asked for a new window.
-    pub fn on_new_window(&self, url: String) -> Result<(), MobileError> {
+    /// The page of `tab` asked for a new window: a tab next to it, `tab`
+    /// staying shown.
+    pub fn on_new_window(&self, tab: u64, url: String) -> Result<(), MobileError> {
         let address = parse(&url)?;
         self.lock()
             .browser
-            .handle(application::ports::EngineEvent::NewTabRequested { address })
-            .map_err(MobileError::new)
+            .handle(application::ports::EngineEvent::NewTabRequested {
+                opener: Some(TabId::new(tab)),
+                address,
+            })
+            .map_err(MobileError::new)?;
+        self.hub_tick();
+        Ok(())
     }
 
     /// Saves history and open tabs (call when the app goes to background).

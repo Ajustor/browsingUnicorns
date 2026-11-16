@@ -4,6 +4,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,7 +20,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -34,15 +37,27 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.toOffset
+import androidx.compose.ui.zIndex
 import io.github.ajustor.browsingunicorns.BrowserController
 import io.github.ajustor.browsingunicorns.Screen
 
@@ -90,15 +105,42 @@ fun TabsScreen(c: BrowserController) {
                 modifier = Modifier.padding(24.dp),
             )
         }
+        val grid = rememberLazyGridState()
+        val drag = remember { TabDrag() }
         LazyVerticalGrid(
+            state = grid,
             columns = GridCells.Fixed(2),
             contentPadding = PaddingValues(8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxSize().navigationBarsPadding(),
+            modifier = Modifier.fillMaxSize().navigationBarsPadding().pointerInput(Unit) {
+                // Long press on a card, then drag: it takes the place of the
+                // cards it goes over.
+                detectDragGesturesAfterLongPress(
+                    onDragStart = { drag.start(grid, it) },
+                    onDrag = { change, amount ->
+                        change.consume()
+                        drag.move(grid, amount) { id, target -> c.moveTab(id, target) }
+                    },
+                    onDragEnd = { drag.stop() },
+                    onDragCancel = { drag.stop() },
+                )
+            },
         ) {
             items(tabs, key = { it.id.toLong() }) { tab ->
+                val dragged = drag.tab == tab.id
                 TabCard(
+                    modifier = if (dragged) {
+                        Modifier.zIndex(1f).graphicsLayer {
+                            translationX = drag.offset.x
+                            translationY = drag.offset.y
+                            scaleX = 1.04f
+                            scaleY = 1.04f
+                            shadowElevation = 12f
+                        }
+                    } else {
+                        Modifier.animateItem()
+                    },
                     title = tab.title.ifBlank { tab.url ?: "New tab" },
                     host = tab.url?.let { android.net.Uri.parse(it).host } ?: "",
                     active = tab.id == c.state.active,
@@ -115,6 +157,52 @@ fun TabsScreen(c: BrowserController) {
     }
 }
 
+/** The card being dragged, and how far it is from its place in the grid. */
+private class TabDrag {
+    var tab by mutableStateOf<ULong?>(null)
+        private set
+    var offset by mutableStateOf(Offset.Zero)
+        private set
+
+    /** Where the card goes once the grid has moved it: until then, no new move. */
+    private var awaited: IntOffset? = null
+
+    fun start(grid: LazyGridState, at: Offset) {
+        val item = grid.layoutInfo.visibleItemsInfo.firstOrNull {
+            Rect(it.offset.toOffset(), Size(it.size.width.toFloat(), it.size.height.toFloat())).contains(at)
+        } ?: return
+        tab = (item.key as Long).toULong()
+        offset = Offset.Zero
+        awaited = null
+    }
+
+    fun move(grid: LazyGridState, by: Offset, moveTab: (ULong, ULong) -> Unit) {
+        val id = tab ?: return
+        offset += by
+        val items = grid.layoutInfo.visibleItemsInfo
+        val item = items.firstOrNull { it.key == id.toLong() } ?: return
+        awaited?.let { if (item.offset != it) return }
+        awaited = null
+        val center = item.offset.toOffset() + offset +
+            Offset(item.size.width / 2f, item.size.height / 2f)
+        val target = items.firstOrNull {
+            it.key != item.key &&
+                Rect(it.offset.toOffset(), Size(it.size.width.toFloat(), it.size.height.toFloat()))
+                    .contains(center)
+        } ?: return
+        moveTab(id, (target.key as Long).toULong())
+        // The card now sits where the target was: it stays under the finger.
+        offset += (item.offset - target.offset).toOffset()
+        awaited = target.offset
+    }
+
+    fun stop() {
+        tab = null
+        offset = Offset.Zero
+        awaited = null
+    }
+}
+
 /** The switch's colors, on the header's gradient. */
 @Composable
 private fun seriesColors() = SegmentedButtonDefaults.colors(
@@ -128,6 +216,7 @@ private fun seriesColors() = SegmentedButtonDefaults.colors(
 
 @Composable
 private fun TabCard(
+    modifier: Modifier = Modifier,
     title: String,
     host: String,
     active: Boolean,
@@ -140,7 +229,7 @@ private fun TabCard(
         shape = RoundedCornerShape(14.dp),
         color = MaterialTheme.colorScheme.surfaceVariant,
         border = if (active) BorderStroke(2.dp, Unicorn.Cyan) else null,
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen),
+        modifier = modifier.fillMaxWidth().clickable(onClick = onOpen),
     ) {
         Column {
             Row(Modifier.padding(start = 10.dp), verticalAlignment = Alignment.CenterVertically) {

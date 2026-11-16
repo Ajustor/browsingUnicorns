@@ -60,31 +60,64 @@ impl Session {
         self.tabs.iter().position(|t| t.id() == id)
     }
 
-    /// Opens an empty tab right after the active one and shows it.
+    /// Opens an empty tab after the last one and shows it.
     pub fn open_tab(&mut self) -> TabId {
-        self.open(false)
+        let id = self.insert(self.tabs.len(), false, None);
+        self.active = Some(id);
+        id
     }
 
     /// [`Self::open_tab`] for a private tab.
     pub fn open_private_tab(&mut self) -> TabId {
-        self.open(true)
+        let id = self.insert(self.tabs.len(), true, None);
+        self.active = Some(id);
+        id
     }
 
-    fn open(&mut self, private: bool) -> TabId {
+    /// Opens a tab for a link of `opener`'s page, without showing it: right
+    /// after `opener` and the tabs it already opened, so a series of links
+    /// keeps its order. Private when `opener` is. `None` when `opener` is
+    /// not open.
+    pub fn open_tab_from(&mut self, opener: TabId) -> Option<TabId> {
+        let index = self.position(opener)?;
+        let private = self.tabs[index].is_private();
+        let at = index
+            + 1
+            + self.tabs[index + 1..]
+                .iter()
+                .take_while(|t| t.opener() == Some(opener))
+                .count();
+        Some(self.insert(at, private, Some(opener)))
+    }
+
+    fn insert(&mut self, at: usize, private: bool, opener: Option<TabId>) -> TabId {
         self.next_id += 1;
         let id = TabId::new(self.next_id);
-        let at = self
-            .active
-            .and_then(|a| self.position(a))
-            .map_or(self.tabs.len(), |i| i + 1);
-        let tab = if private {
+        let mut tab = if private {
             Tab::new_private(id)
         } else {
             Tab::new(id)
         };
+        tab.opener = opener;
         self.tabs.insert(at, tab);
-        self.active = Some(id);
         id
+    }
+
+    /// Moves `id` to index `to` (clamped to the last place), the other tabs
+    /// shifting around it. Returns whether the order changed.
+    pub fn move_tab(&mut self, id: TabId, to: usize) -> bool {
+        let Some(from) = self.position(id) else {
+            return false;
+        };
+        let to = to.min(self.tabs.len() - 1);
+        if from == to {
+            return false;
+        }
+        let mut tab = self.tabs.remove(from);
+        // Placed by hand: it no longer belongs to its opener's series.
+        tab.opener = None;
+        self.tabs.insert(to, tab);
+        true
     }
 
     /// Closes `id`. When it was the active tab, its right neighbour (else its
@@ -145,14 +178,67 @@ mod tests {
     }
 
     #[test]
-    fn opening_activates_and_inserts_after_active() {
+    fn a_new_tab_goes_last_and_shows() {
         let mut s = Session::new();
         let a = s.open_tab();
         let b = s.open_tab();
         s.activate(a);
         let c = s.open_tab();
-        assert_eq!(ids(&s), vec![a.get(), c.get(), b.get()]);
+        assert_eq!(ids(&s), vec![a.get(), b.get(), c.get()]);
         assert_eq!(s.active_id(), Some(c));
+    }
+
+    #[test]
+    fn links_open_after_their_opener_in_order_without_showing() {
+        let mut s = Session::new();
+        let a = s.open_tab();
+        let b = s.open_tab();
+        s.activate(a);
+        let l1 = s.open_tab_from(a).unwrap();
+        let l2 = s.open_tab_from(a).unwrap();
+        assert_eq!(ids(&s), vec![a.get(), l1.get(), l2.get(), b.get()]);
+        assert_eq!(s.active_id(), Some(a), "the opener stays shown");
+        assert_eq!(s.tab(l1).unwrap().opener(), Some(a));
+        assert!(s.open_tab_from(TabId::new(99)).is_none());
+    }
+
+    #[test]
+    fn a_private_tab_opens_private_links() {
+        let mut s = Session::new();
+        let p = s.open_private_tab();
+        let link = s.open_tab_from(p).unwrap();
+        assert!(s.tab(link).unwrap().is_private());
+    }
+
+    #[test]
+    fn tabs_can_be_moved() {
+        let mut s = Session::new();
+        let a = s.open_tab();
+        let b = s.open_tab();
+        let c = s.open_tab();
+        assert!(s.move_tab(a, 2));
+        assert_eq!(ids(&s), vec![b.get(), c.get(), a.get()]);
+        assert!(s.move_tab(a, 0));
+        assert_eq!(ids(&s), vec![a.get(), b.get(), c.get()]);
+        assert!(s.move_tab(b, 99), "clamped to the end");
+        assert_eq!(ids(&s), vec![a.get(), c.get(), b.get()]);
+        assert!(!s.move_tab(b, 2));
+        assert!(!s.move_tab(TabId::new(99), 0));
+        assert_eq!(
+            s.active_id(),
+            Some(c),
+            "moving does not change the active tab"
+        );
+    }
+
+    #[test]
+    fn a_moved_link_leaves_its_openers_series() {
+        let mut s = Session::new();
+        let a = s.open_tab();
+        let l1 = s.open_tab_from(a).unwrap();
+        s.move_tab(l1, 0);
+        let l2 = s.open_tab_from(a).unwrap();
+        assert_eq!(ids(&s), vec![l1.get(), a.get(), l2.get()]);
     }
 
     #[test]

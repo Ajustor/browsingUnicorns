@@ -276,6 +276,7 @@ impl BrowserApp {
             Command::CloseTab(id) => self.browser.close_tab(id),
             Command::CloseActiveTab => self.browser.close_active_tab(),
             Command::Activate(id) => self.browser.activate(id),
+            Command::MoveTab(id, to) => self.browser.move_tab(id, to),
             Command::CycleTabs(offset) => self.browser.cycle_tabs(offset),
             Command::Back => self.browser.go_back(),
             Command::Forward => self.browser.go_forward(),
@@ -645,6 +646,11 @@ impl eframe::App for BrowserApp {
                     &mut commands,
                 );
             });
+        if let Some(query) = self.omnibox.stale_query().map(str::to_owned) {
+            let found = self.browser.suggest(&query, super::omnibox::SUGGESTIONS);
+            self.omnibox.set_suggestions(query, found);
+        }
+        self.omnibox.show_suggestions(ctx, &chrome, &mut commands);
         self.site_info_bar(ctx);
         self.shield_bar(ctx, &mut commands);
         if !self.browser.bookmarks().is_empty() {

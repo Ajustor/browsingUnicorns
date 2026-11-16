@@ -630,7 +630,10 @@ impl WebEngine for WryEngine {
             })
             .with_new_window_req_handler(move |url, _features| {
                 if let Ok(address) = WebAddress::parse(&url) {
-                    emit(EngineEvent::NewTabRequested { address });
+                    emit(EngineEvent::NewTabRequested {
+                        opener: Some(tab),
+                        address,
+                    });
                 }
                 NewWindowResponse::Deny
             })

@@ -1,6 +1,6 @@
 use domain::{
     Bookmarks, BrowsingHistory, DeviceId, DeviceRecord, RemoteTab, Session, SessionSnapshot,
-    Settings, TabId, Timestamp, WebAddress, resolve_omnibox,
+    Settings, Suggestion, TabId, Timestamp, WebAddress, resolve_omnibox, suggest,
 };
 
 use crate::BrowserError;
@@ -68,7 +68,7 @@ impl<E: WebEngine> Browser<E> {
     pub fn restore_session(&mut self) -> Result<usize, BrowserError> {
         let snapshot = self.profile.session.load().unwrap_or_default();
         let mut ids = Vec::with_capacity(snapshot.tabs.len());
-        // Each new tab opens after the active one, i.e. the previous one.
+        // Each new tab opens after the last one.
         for address in &snapshot.tabs {
             ids.push(self.open_tab(Some(address.clone()))?);
         }
@@ -252,6 +252,40 @@ impl<E: WebEngine> Browser<E> {
         &mut self.engine
     }
 
+    /// Opens a tab for a link of `opener`'s page, next to it, and leaves
+    /// `opener` shown. Without `opener` (or when it is closed), a tab after
+    /// the last one, shown.
+    pub fn open_link_tab(
+        &mut self,
+        opener: Option<TabId>,
+        address: WebAddress,
+    ) -> Result<TabId, BrowserError> {
+        let Some(id) = opener.and_then(|o| self.session.open_tab_from(o)) else {
+            return self.open_tab_in(Some(address), self.active_is_private());
+        };
+        let opened = if self.session.tab(id).is_some_and(|t| t.is_private()) {
+            self.engine.open_private_view(id, &address)
+        } else {
+            self.engine.open_view(id, &address)
+        };
+        if let Err(e) = opened {
+            self.session.close_tab(id);
+            return Err(e.into());
+        }
+        Ok(id)
+    }
+
+    /// Moves tab `id` to index `to` of the tab strip.
+    pub fn move_tab(&mut self, id: TabId, to: usize) {
+        self.session.move_tab(id, to);
+    }
+
+    /// What the address bar proposes for `input`: past searches and pages
+    /// of the history.
+    pub fn suggest(&self, input: &str, limit: usize) -> Vec<Suggestion> {
+        suggest(input, &self.history, &self.settings.search_engine, limit)
+    }
+
     /// Opens a tab on `address` (the home page when `None`) and shows it.
     pub fn open_tab(&mut self, address: Option<WebAddress>) -> Result<TabId, BrowserError> {
         self.open_tab_in(address, false)
@@ -410,8 +444,8 @@ impl<E: WebEngine> Browser<E> {
                     }
                 }
             }
-            EngineEvent::NewTabRequested { address } => {
-                self.open_tab_in(Some(address), self.active_is_private())?;
+            EngineEvent::NewTabRequested { opener, address } => {
+                self.open_link_tab(opener, address)?;
             }
             // Answered by the presentation (page scripts' bridge).
             EngineEvent::PageMessage { .. } => {}
@@ -816,14 +850,64 @@ mod tests {
     }
 
     #[test]
-    fn new_window_requests_open_a_tab() {
+    fn links_open_in_a_tab_next_to_their_page_which_stays_shown() {
         let mut b = browser();
-        b.open_tab(None).unwrap();
+        let page = b.open_tab(None).unwrap();
+        let last = b.open_tab(None).unwrap();
+        b.activate(page);
+        take_calls(&mut b);
         b.handle(EngineEvent::NewTabRequested {
-            address: addr("https://popup.com/"),
+            opener: Some(page),
+            address: addr("https://link.com/"),
         })
         .unwrap();
+        let tabs: Vec<TabId> = b.session().tabs().iter().map(|t| t.id()).collect();
+        assert_eq!(tabs.len(), 3);
+        let link = tabs[1];
+        assert_eq!(tabs, vec![page, link, last]);
+        assert_eq!(b.session().active_id(), Some(page));
+        assert_eq!(
+            take_calls(&mut b),
+            vec![Call::Open(link.get(), "https://link.com/".into())],
+            "opened but not shown"
+        );
+    }
+
+    #[test]
+    fn new_window_requests_without_opener_open_a_shown_tab() {
+        let mut b = browser();
+        b.open_tab(None).unwrap();
+        let id = b.open_link_tab(None, addr("https://popup.com/")).unwrap();
         assert_eq!(b.session().len(), 2);
+        assert_eq!(b.session().active_id(), Some(id));
+    }
+
+    #[test]
+    fn tabs_are_moved_and_saved_in_their_new_order() {
+        let store = Store::default();
+        let mut b = browser_with(&store);
+        let a = b.open_tab(None).unwrap();
+        finish(&mut b, a, "https://a.com/");
+        let c = b.open_tab(None).unwrap();
+        finish(&mut b, c, "https://c.com/");
+        b.move_tab(c, 0);
+        b.persist().unwrap();
+        let saved = store.session.lock().unwrap().clone().unwrap();
+        assert_eq!(
+            saved.tabs,
+            vec![addr("https://c.com/"), addr("https://a.com/")]
+        );
+    }
+
+    #[test]
+    fn suggestions_come_from_the_history() {
+        let mut b = browser();
+        let id = b.open_tab(None).unwrap();
+        finish(&mut b, id, "https://duckduckgo.com/?q=rust+book");
+        finish(&mut b, id, "https://doc.rust-lang.org/book/");
+        let s = b.suggest("rust", 8);
+        assert_eq!(s.len(), 2);
+        assert!(matches!(&s[0], Suggestion::Search { terms, .. } if terms == "rust book"));
     }
 
     #[test]

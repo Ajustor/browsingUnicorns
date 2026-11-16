@@ -37,6 +37,8 @@ pub struct Tab {
     load_state: LoadState,
     /// Left out of the history, the saved session and sync.
     private: bool,
+    /// The tab whose page opened this one (a link opened in a new tab).
+    pub(crate) opener: Option<TabId>,
 }
 
 impl Tab {
@@ -49,6 +51,7 @@ impl Tab {
             history: History::default(),
             load_state: LoadState::Idle,
             private: false,
+            opener: None,
         }
     }
 
@@ -66,6 +69,11 @@ impl Tab {
 
     pub fn is_private(&self) -> bool {
         self.private
+    }
+
+    /// The tab whose page opened this one, if any.
+    pub fn opener(&self) -> Option<TabId> {
+        self.opener
     }
 
     pub fn address(&self) -> Option<&WebAddress> {

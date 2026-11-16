@@ -11,10 +11,15 @@ binaire reste petit et le moteur profite des mises à jour de sécurité de l'OS
 
 ## Fonctionnalités
 
-- 🗂️ Onglets : ouverture (Ctrl+T, bouton `+`), fermeture (Ctrl+W, `×`, clic
-  molette), passage d'un onglet à l'autre (Ctrl+Tab / Ctrl+Shift+Tab)
+- 🗂️ Onglets : ouverture (Ctrl+T, bouton `+`) en dernière position,
+  fermeture (Ctrl+W, `×`, clic molette), passage d'un onglet à l'autre
+  (Ctrl+Tab / Ctrl+Shift+Tab), réorganisation par glisser-déposer (appui
+  long puis glisser sur Android). Un lien ouvert dans un nouvel onglet
+  s'ouvre en arrière-plan, juste après sa page, qui reste affichée
 - 🔎 Barre d'adresse unique : une adresse complète, un nom d'hôte
-  (`rust-lang.org`, `localhost:3000`) ou une recherche (Ctrl+L / F6)
+  (`rust-lang.org`, `localhost:3000`) ou une recherche (Ctrl+L / F6). En
+  tapant, elle propose les recherches déjà faites et les pages de
+  l'historique (↑/↓ puis Entrée, ou un clic)
 - ⬅️ Précédent / suivant (Alt+←/→), recharger (F5 / Ctrl+R), accueil (Alt+Home)
 - 🛠️ Outils de développement de l'onglet actif : F12, Ctrl+Shift+I
   (Cmd+Option+I sur macOS) ou le bouton `</>`, dans leur propre fenêtre ;
