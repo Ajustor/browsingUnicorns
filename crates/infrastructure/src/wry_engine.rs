@@ -89,6 +89,8 @@ pub struct WryEngine {
     /// Its content's size in physical pixels, as last measured.
     panel_size: Arc<std::sync::Mutex<Option<(u32, u32)>>>,
     panel_measured: Option<std::time::Instant>,
+    /// Where the popup was last placed (moved only when it changes).
+    panel_area: Option<Viewport>,
     /// Extensions to hand to the web view profile once a view exists.
     #[cfg_attr(not(windows), allow(dead_code))]
     pending_extensions: Option<Extensions>,
@@ -227,6 +229,7 @@ impl WryEngine {
             panel: None,
             panel_size: Arc::default(),
             panel_measured: None,
+            panel_area: None,
             pending_extensions: None,
             #[cfg(windows)]
             managed_extensions: Default::default(),
@@ -739,18 +742,27 @@ impl WebEngine for WryEngine {
     fn show_panel_page(&mut self, url: Option<&str>, area: Viewport) {
         let Some(url) = url else {
             self.panel = None;
+            self.panel_area = None;
             return;
         };
-        *self.panel_size.lock().unwrap_or_else(|p| p.into_inner()) = None;
-        self.panel_measured = None;
+        // Called every frame: the same popup only moves (or takes its
+        // measured size). Its size is forgotten only for a new popup, or
+        // it would fall back to the default size and be measured again
+        // each frame (it blinked).
         if let Some((current, view)) = &self.panel
             && current == url
         {
-            if let Err(e) = view.set_bounds(bounds(area)) {
-                log::warn!("panel: {e}");
+            if self.panel_area != Some(area) {
+                self.panel_area = Some(area);
+                if let Err(e) = view.set_bounds(bounds(area)) {
+                    log::warn!("panel: {e}");
+                }
             }
             return;
         }
+        self.panel_area = Some(area);
+        *self.panel_size.lock().unwrap_or_else(|p| p.into_inner()) = None;
+        self.panel_measured = None;
         let emit = self.emitter();
         let view = base_builder(
             &mut self.context,
