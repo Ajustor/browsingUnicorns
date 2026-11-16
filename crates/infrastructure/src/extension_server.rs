@@ -140,7 +140,23 @@ pub struct ExtensionServer {
 
 /// Nonces not used within this time are dropped.
 const NONCE_LIFETIME: Duration = Duration::from_secs(120);
-pub const BACKGROUND_PAGE: &str = "/__bu/background.html";
+pub const BACKGROUND_PAGE: &str = "__bu_background.html";
+
+/// Where the background page is served: in the folder of the extension's
+/// background script (or page). A service worker's relative addresses, and
+/// the chunks webpack finds from `self.location`, resolve from there.
+fn background_path(background: &manifest::Background) -> String {
+    let base = background
+        .page
+        .as_deref()
+        .or(background.scripts.last().map(String::as_str))
+        .unwrap_or("")
+        .trim_start_matches('/');
+    match base.rfind('/') {
+        Some(slash) => format!("/{}/{BACKGROUND_PAGE}", &base[..slash]),
+        None => format!("/{BACKGROUND_PAGE}"),
+    }
+}
 const RUNTIME_PATH: &str = "/__bu/runtime.js";
 
 fn safe_relative(path: &str) -> Option<PathBuf> {
@@ -241,7 +257,7 @@ impl ExtensionServer {
     /// The address of the background page of `id`, if it has one.
     pub fn background_url(&self, id: &ExtensionId) -> Option<String> {
         let dir = extension_dir(&self.dir, id);
-        manifest::background(&dir).map(|_| self.origins.url(id, BACKGROUND_PAGE))
+        manifest::background(&dir).map(|b| self.origins.url(id, &background_path(&b)))
     }
 
     /// "install", "update" or nothing, once per version.
@@ -279,8 +295,10 @@ impl ExtensionServer {
                 body: self.runtime(&id, &dir, context).into_bytes(),
             });
         }
-        if bare == BACKGROUND_PAGE {
-            let background = manifest::background(&dir)?;
+        if bare.rsplit('/').next() == Some(BACKGROUND_PAGE)
+            && let Some(background) =
+                manifest::background(&dir).filter(|b| background_path(b) == bare)
+        {
             let scripts: String = background
                 .scripts
                 .iter()
@@ -470,7 +488,8 @@ mod tests {
         );
         assert!(s.serve(&url("/__bu/runtime.js?n=guess")).is_none());
 
-        let bg = String::from_utf8(s.serve(&url(BACKGROUND_PAGE)).unwrap().body).unwrap();
+        let bg_page = format!("/{BACKGROUND_PAGE}");
+        let bg = String::from_utf8(s.serve(&url(&bg_page)).unwrap().body).unwrap();
         assert!(bg.contains("<script src=\"/sw.js\"></script>"), "{bg}");
         let js = String::from_utf8(
             s.serve(&url(&format!("/__bu/runtime.js?n={}", nonce_of(&bg))))
@@ -480,7 +499,7 @@ mod tests {
         .unwrap();
         assert!(js.contains("\"installReason\":\"install\""));
         // Installed once: no event on the next start.
-        let bg = String::from_utf8(s.serve(&url(BACKGROUND_PAGE)).unwrap().body).unwrap();
+        let bg = String::from_utf8(s.serve(&url(&bg_page)).unwrap().body).unwrap();
         let js = String::from_utf8(
             s.serve(&url(&format!("/__bu/runtime.js?n={}", nonce_of(&bg))))
                 .unwrap()
@@ -494,7 +513,35 @@ mod tests {
         assert!(s.serve(&url("/%2e%2e/x")).is_none());
         assert_eq!(
             s.background_url(&id()),
-            Some(format!("bu-ext://{ID}{BACKGROUND_PAGE}"))
+            Some(format!("bu-ext://{ID}/{BACKGROUND_PAGE}"))
+        );
+    }
+
+    #[test]
+    fn the_background_page_is_beside_its_worker() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = server(dir.path(), true);
+        let ext = extension_dir(&dir.path().join("ext"), &id());
+        fs::create_dir_all(ext.join("background")).unwrap();
+        fs::write(
+            ext.join("manifest.json"),
+            r#"{"name":"T","version":"1","background":{"service_worker":"background/sw.js"}}"#,
+        )
+        .unwrap();
+        let page = format!("/background/{BACKGROUND_PAGE}");
+        assert_eq!(
+            s.background_url(&id()),
+            Some(format!("bu-ext://{ID}{page}"))
+        );
+        let bg = String::from_utf8(s.serve(&format!("bu-ext://{ID}{page}")).unwrap().body).unwrap();
+        assert!(
+            bg.contains("<script src=\"/background/sw.js\"></script>"),
+            "{bg}"
+        );
+        // Only there.
+        assert!(
+            s.serve(&format!("bu-ext://{ID}/{BACKGROUND_PAGE}"))
+                .is_none()
         );
     }
 

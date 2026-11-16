@@ -564,10 +564,15 @@ function extensionPage(entry) {
     // Service worker globals, for MV3 workers run as a page.
     window.importScripts = (...urls) => {
       for (const url of urls) {
+        const absolute = new URL(url, location.href).href;
         const xhr = new XMLHttpRequest();
-        xhr.open("GET", url, false);
+        xhr.open("GET", absolute, false);
         xhr.send();
-        (0, eval)(xhr.responseText + "\n//# sourceURL=" + url);
+        // As in a worker: a missing script is an error, not code to run.
+        if (xhr.status < 200 || xhr.status >= 300) {
+          throw new DOMException(`Failed to load ${absolute} (${xhr.status})`, "NetworkError");
+        }
+        (0, eval)(xhr.responseText + "\n//# sourceURL=" + absolute);
       }
     };
     window.clients = {
