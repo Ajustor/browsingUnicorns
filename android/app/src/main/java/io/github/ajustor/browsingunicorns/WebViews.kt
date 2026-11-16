@@ -5,6 +5,7 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.os.Message
 import android.view.MotionEvent
 import android.view.View
@@ -20,6 +21,9 @@ import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.FileInputStream
 import java.util.concurrent.ConcurrentHashMap
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.webkit.ScriptHandler
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
@@ -41,6 +45,32 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
 
     /** Each tab's page, readable from the WebView's IO thread (blocking rules). */
     private val pages = ConcurrentHashMap<ULong, String>()
+
+    /** Each tab's page, reduced, as last seen (the tabs grid). Memory only. */
+    val thumbnails = mutableStateMapOf<ULong, ImageBitmap>()
+
+    /** Each tab's favicon, as the page announced it. */
+    val favicons = mutableStateMapOf<ULong, ImageBitmap>()
+
+    /** Captures [tab]'s page at a third of its size; nothing if it can't. */
+    private fun capture(tab: ULong) {
+        val view = views[tab] ?: return
+        if (view.width <= 0 || view.height <= 0) return
+        runCatching {
+            val bitmap = Bitmap.createBitmap(view.width / 3, view.height / 3, Bitmap.Config.RGB_565)
+            val canvas = Canvas(bitmap)
+            canvas.scale(1f / 3f, 1f / 3f)
+            // What is on screen, not the page's top.
+            canvas.translate(-view.scrollX.toFloat(), -view.scrollY.toFloat())
+            view.draw(canvas)
+            thumbnails[tab] = bitmap.asImageBitmap()
+        }
+    }
+
+    /** Captures the visible tab (before showing the tabs grid). */
+    fun captureActive() {
+        views.entries.firstOrNull { it.value.visibility == View.VISIBLE }?.let { capture(it.key) }
+    }
 
     /** The scripts injected into every page (extensions' content scripts, user scripts). */
     private var pageScripts: List<String> = emptyList()
@@ -199,6 +229,8 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
     override fun closeView(tab: ULong) {
         pages.remove(tab)
         injected.remove(tab)
+        thumbnails.remove(tab)
+        favicons.remove(tab)
         views.remove(tab)?.let {
             container.removeView(it)
             it.destroy()
@@ -206,6 +238,7 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
     }
 
     override fun show(tab: ULong?) {
+        captureActive()
         for ((id, view) in views) {
             view.visibility = if (id == tab) View.VISIBLE else View.GONE
         }
@@ -316,6 +349,10 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
 
             override fun onProgressChanged(view: WebView, newProgress: Int) {
                 if (view.visibility == View.VISIBLE) onProgress(newProgress)
+            }
+
+            override fun onReceivedIcon(view: WebView, icon: Bitmap?) {
+                icon?.let { favicons[tab] = it.asImageBitmap() }
             }
 
             // target="_blank" / window.open: a throwaway WebView catches the
