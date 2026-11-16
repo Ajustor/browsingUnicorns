@@ -8,6 +8,7 @@ use egui::{CentralPanel, Frame, TopBottomPanel, ViewportCommand};
 use infrastructure::WryEngine;
 use updater::ExitAction;
 
+use super::blocker::BlockerRunner;
 use super::command::Command;
 use super::extension_bar::{DEFAULT_POPUP, ExtensionBar};
 use super::extensions::{ExtensionsRunner, ExtensionsView};
@@ -34,6 +35,7 @@ pub struct BrowserApp {
     user_scripts: UserScriptsRunner,
     hub: Hub,
     bar: ExtensionBar,
+    blocker: BlockerRunner,
     profiles: ProfilesRunner,
     exit_slot: ExitSlot,
     omnibox: Omnibox,
@@ -54,6 +56,8 @@ pub struct AddOns {
     pub user_scripts: UserScriptsRunner,
     /// The browser side of the extension APIs (storage, messages, tabs...).
     pub hub: Hub,
+    /// The built-in ad blocker's lists and policy.
+    pub blocker: BlockerRunner,
 }
 
 /// History and session are written at most this often (and on exit).
@@ -74,6 +78,7 @@ impl BrowserApp {
             bar,
             user_scripts,
             hub,
+            blocker,
         } = add_ons;
         updates.check_if_due();
         let mut browser = browser;
@@ -89,6 +94,7 @@ impl BrowserApp {
             user_scripts,
             hub,
             bar,
+            blocker,
             profiles,
             exit_slot,
             omnibox: Omnibox::default(),
@@ -448,6 +454,7 @@ impl eframe::App for BrowserApp {
         self.browser.engine_mut().pump();
         self.drain_engine_events();
         self.drive_sync(ctx);
+        self.blocker.follow(ctx, self.browser.settings());
         self.extensions.poll(self.browser.engine_mut());
         self.user_scripts.poll(self.browser.engine_mut());
         let mut host = BrowserHub {

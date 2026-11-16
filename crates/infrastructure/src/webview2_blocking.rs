@@ -1,9 +1,9 @@
-//! The extensions' network rules on Windows, when the browser runs the
-//! extensions itself: every request of a tab goes through
-//! `WebResourceRequested`, which the shared matcher answers (block, or serve
-//! the extension's stand-in file).
+//! The network filters on Windows: every request of a tab goes through
+//! `WebResourceRequested`, answered first by the extensions' rules (when
+//! the browser runs the extensions itself: block, or serve the extension's
+//! stand-in file), then by the built-in ad blocker.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -26,6 +26,7 @@ use windows::Win32::UI::Shell::SHCreateMemStream;
 use windows_core::{HSTRING, Interface, PWSTR};
 use wry::{WebView, WebViewExtWindows};
 
+use crate::blocker::BlockerHandle;
 use crate::extension_server::mime_type;
 use crate::extensions::extension_dir;
 
@@ -58,14 +59,18 @@ fn stand_in(dir: &Path, id: &domain::ExtensionId, path: &str) -> Option<Vec<u8>>
     fs::read(extension_dir(dir, id).join(relative)).ok()
 }
 
-/// Filters every request of `view` through `rules`. `page` is the address
-/// of the tab's page (its top-level navigations), kept up to date by the
-/// engine.
+/// Filters every request of `view` through `rules`, then `blocker`. `page`
+/// is the address of the tab's page (its top-level navigations), kept up to
+/// date by the engine; `blocked` counts the requests the blocker stopped,
+/// `on_blocked` is called after each.
 pub fn attach(
     view: &WebView,
     rules: Arc<RwLock<RuleSet>>,
     extensions_dir: PathBuf,
     page: Rc<RefCell<String>>,
+    blocker: BlockerHandle,
+    blocked: Rc<Cell<u32>>,
+    on_blocked: impl Fn() + 'static,
 ) -> windows_core::Result<()> {
     let webview = view.webview();
     let environment = unsafe { webview.cast::<ICoreWebView2_2>()?.Environment()? };
@@ -78,7 +83,7 @@ pub fn attach(
     let handler = WebResourceRequestedEventHandler::create(Box::new(move |_, args| {
         let Some(args) = args else { return Ok(()) };
         let rules = rules.read().unwrap_or_else(|p| p.into_inner());
-        if rules.is_empty() {
+        if rules.is_empty() && blocker.get().is_none() {
             return Ok(());
         }
         let request = unsafe { args.Request()? };
@@ -102,14 +107,35 @@ pub fn attach(
         } else {
             (resource_type(context), Some(page.as_str()))
         };
-        let initiator = document
-            .and_then(|d| Request::new(d, None, None, "GET"))
-            .map(|r| r.host);
-        let Some(request) = Request::new(&url, initiator, resource_type, &method) else {
-            return Ok(());
+        let verdict = if rules.is_empty() {
+            Verdict::Allow
+        } else {
+            let initiator = document
+                .and_then(|d| Request::new(d, None, None, "GET"))
+                .map(|r| r.host);
+            match Request::new(&url, initiator, resource_type, &method) {
+                Some(request) => rules.decide(&request, document),
+                None => Verdict::Allow,
+            }
         };
-        let response = match rules.decide(&request, document) {
-            Verdict::Allow => return Ok(()),
+        drop(rules);
+        let response = match verdict {
+            // The extensions let it through: the ad blocker's turn.
+            Verdict::Allow => {
+                if main_frame || !blocker.should_block(&url, &page, resource_type) {
+                    return Ok(());
+                }
+                blocked.set(blocked.get().saturating_add(1));
+                on_blocked();
+                unsafe {
+                    environment.CreateWebResourceResponse(
+                        None,
+                        403,
+                        &HSTRING::from("Blocked"),
+                        &HSTRING::new(),
+                    )?
+                }
+            }
             Verdict::Block => unsafe {
                 environment.CreateWebResourceResponse(
                     None,

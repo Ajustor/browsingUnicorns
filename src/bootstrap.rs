@@ -7,6 +7,7 @@ use anyhow::Context as _;
 use application::ports::{Repository, WebEngine as _};
 use application::{Browser, ExtensionManager, ProfileManager, Target, UserScriptManager};
 use domain::{ProfileId, Settings};
+use infrastructure::blocker::{BlockerHandle, BlockerLists, BlockerPolicy};
 use infrastructure::extension_hub::Hub;
 use infrastructure::extensions::ExtensionFolder;
 use infrastructure::page_scripts::Bridge;
@@ -22,8 +23,8 @@ use infrastructure::sync::SyncConfigFile;
 
 use crate::Args;
 use crate::ui::{
-    AddOns, BrowserApp, ExitSlot, ExtensionBar, ExtensionsRunner, ProfilesRunner, SyncRunner,
-    Updates, UserScriptsRunner,
+    AddOns, BlockerRunner, BrowserApp, ExitSlot, ExtensionBar, ExtensionsRunner, ProfilesRunner,
+    SyncRunner, Updates, UserScriptsRunner,
 };
 
 pub fn build(
@@ -68,6 +69,9 @@ pub fn build(
     let (sender, receiver) = mpsc::channel();
     let ctx = cc.egui_ctx.clone();
     let page_token = new_token();
+    // The ad blocker: on every tab, its lists arriving off the UI thread.
+    let blocker = BlockerHandle::default();
+    blocker.set_policy(BlockerPolicy::from_settings(&settings));
     let engine = WryEngine::new(
         parent,
         EngineFiles {
@@ -79,6 +83,7 @@ pub fn build(
         },
         sender,
         Arc::new(move || ctx.request_repaint()),
+        blocker.clone(),
     );
 
     let mut browser = Browser::new(
@@ -138,6 +143,13 @@ pub fn build(
     let extensions = ExtensionsRunner::new(extensions, move || ctx.request_repaint());
     let ctx = cc.egui_ctx.clone();
     let user_scripts = UserScriptsRunner::new(user_scripts, move || ctx.request_repaint());
+    let ctx = cc.egui_ctx.clone();
+    let blocker = BlockerRunner::start(
+        blocker,
+        infrastructure::blocker_dir()
+            .map(|dir| BlockerLists::new(dir, infrastructure::extensions::ureq_download())),
+        move || ctx.request_repaint(),
+    );
     let mut hub = Hub::new(
         script_storage,
         Bridge::Ipc,
@@ -157,6 +169,7 @@ pub fn build(
             bar: ExtensionBar::new(profile_dir.join("extensions")),
             user_scripts,
             hub,
+            blocker,
         },
         ProfilesRunner::new(profiles, lock),
         exit_slot,

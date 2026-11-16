@@ -2,6 +2,7 @@
 //! are native child views laid over the central area.
 
 mod app;
+mod blocker;
 mod bookmarks_bar;
 mod command;
 mod downloads;
@@ -21,6 +22,7 @@ mod toolbar;
 mod updates;
 mod user_scripts;
 
+pub use blocker::BlockerRunner;
 pub use extension_bar::ExtensionBar;
 pub use extensions::ExtensionsRunner;
 pub use profiles::ProfilesRunner;

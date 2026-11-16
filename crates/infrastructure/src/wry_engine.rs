@@ -17,6 +17,7 @@ use wry::http::Response;
 use wry::{NewWindowResponse, PageLoadEvent, Rect, WebContext, WebView, WebViewBuilder};
 
 use crate::ParentWindow;
+use crate::blocker::BlockerHandle;
 use crate::extension_server::{ExtensionServer, Origins, SCHEME};
 use crate::page_injection::{self, Handles};
 use crate::page_scripts::{Bridge, Sources, page_scripts};
@@ -117,6 +118,12 @@ pub struct WryEngine {
     blocking_rules: Arc<std::sync::RwLock<domain::RuleSet>>,
     #[cfg(windows)]
     tab_pages: HashMap<TabId, std::rc::Rc<std::cell::RefCell<String>>>,
+    /// The built-in ad blocker.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    blocker: BlockerHandle,
+    /// Windows: what the ad blocker stopped on each tab's page.
+    #[cfg(windows)]
+    blocked: HashMap<TabId, Rc<std::cell::Cell<u32>>>,
     /// Windows: the browser's shortcuts, taken from the pages' keys, and
     /// those pressed since the last look.
     #[cfg(windows)]
@@ -200,6 +207,7 @@ impl WryEngine {
         files: EngineFiles,
         events: Sender<EngineEvent>,
         waker: Waker,
+        blocker: BlockerHandle,
     ) -> Self {
         #[cfg(target_os = "linux")]
         if let Err(e) = gtk::init() {
@@ -248,6 +256,9 @@ impl WryEngine {
             blocking_rules: Arc::default(),
             #[cfg(windows)]
             tab_pages: HashMap::new(),
+            blocker,
+            #[cfg(windows)]
+            blocked: HashMap::new(),
             #[cfg(windows)]
             shortcuts: Default::default(),
             #[cfg(windows)]
@@ -501,6 +512,18 @@ impl WryEngine {
         }
     }
 
+    /// What the ad blocker stopped on `tab`'s page. Windows only: WebKit
+    /// doesn't tell what its content rules block.
+    pub fn blocked_count(&self, tab: TabId) -> Option<u32> {
+        #[cfg(windows)]
+        return self.blocked.get(&tab).map(|b| b.get());
+        #[cfg(not(windows))]
+        {
+            let _ = tab;
+            None
+        }
+    }
+
     /// Whether a page took the keyboard since the last call (the window's
     /// own fields must then let it go).
     pub fn take_page_focused(&mut self) -> bool {
@@ -538,14 +561,18 @@ impl WebEngine for WryEngine {
             PageSource::Tab(tab),
             on_message,
         );
-        // The page the tab shows, for the network rules.
+        // The page the tab shows, for the network rules, and what the ad
+        // blocker stopped on it (counted again on each new page).
         #[cfg(windows)]
         let page = std::rc::Rc::new(std::cell::RefCell::new(address.to_string()));
         #[cfg(windows)]
+        let blocked = Rc::new(std::cell::Cell::new(0));
+        #[cfg(windows)]
         let builder = {
-            let page = page.clone();
+            let (page, blocked) = (page.clone(), blocked.clone());
             builder.with_navigation_handler(move |url| {
                 *page.borrow_mut() = url;
+                blocked.set(0);
                 true
             })
         };
@@ -586,17 +613,24 @@ impl WebEngine for WryEngine {
             .map_err(engine_error)?;
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         self.rule_lists.attach(&view);
+        // On every tab: the ad blocker, and the extensions' rules when the
+        // browser runs them (empty otherwise).
         #[cfg(windows)]
-        if builtin_extensions() {
+        {
+            let waker = self.waker.clone();
             if let Err(e) = crate::webview2_blocking::attach(
                 &view,
                 self.blocking_rules.clone(),
                 self.files.extensions_dir.clone(),
                 page.clone(),
+                self.blocker.clone(),
+                blocked.clone(),
+                move || waker(),
             ) {
-                log::warn!("extensions: network rules in tab {tab}: {e}");
+                log::warn!("network rules in tab {tab}: {e}");
             }
             self.tab_pages.insert(tab, page);
+            self.blocked.insert(tab, blocked);
         }
         #[cfg(windows)]
         {
@@ -642,6 +676,8 @@ impl WebEngine for WryEngine {
         self.injected.remove(&tab);
         #[cfg(windows)]
         self.tab_pages.remove(&tab);
+        #[cfg(windows)]
+        self.blocked.remove(&tab);
         #[cfg(windows)]
         self.security.remove(&tab);
         if self.shown == Some(tab) {
