@@ -17,11 +17,18 @@ binaire reste petit et le moteur profite des mises à jour de sécurité de l'OS
   (`rust-lang.org`, `localhost:3000`) ou une recherche (Ctrl+L / F6)
 - ⬅️ Précédent / suivant (Alt+←/→), recharger (F5 / Ctrl+R), accueil (Alt+Home)
 - 🛠️ Outils de développement de l'onglet actif : F12, Ctrl+Shift+I
-  (Cmd+Option+I sur macOS) ou le bouton `</>` ; *Inspect* dans l'onglet
-  *Extensions* pour la page de fond d'une extension. Android : *Web debugging*
-  dans le menu, puis `chrome://inspect` sur un ordinateur
+  (Cmd+Option+I sur macOS) ou le bouton `</>`, dans un panneau à droite de la
+  page sous Windows (clic droit sur le bouton : dans une fenêtre), dans une
+  fenêtre ailleurs ; *Inspect* dans l'onglet *Extensions* pour la page de fond
+  d'une extension. Android : *Web debugging* dans le menu, puis
+  `chrome://inspect` sur un ordinateur
 - 🪟 Les liens `target="_blank"` et `window.open` s'ouvrent dans un nouvel onglet
-- 🔒 Indicateur HTTPS, titre de la page dans l'onglet et la fenêtre
+- 🔒 Indicateur HTTPS ; un clic sur le cadenas montre la connexion (protocole,
+  chiffrement) et la chaîne de certificats du site (Windows, Android). Titre
+  de la page dans l'onglet et la fenêtre
+- ⬇️ Téléchargements dans le dossier Téléchargements : la barre de
+  notification dit quand ils commencent et finissent (*Open*, *Show in
+  folder*) ; sur Android, le gestionnaire de téléchargement du système
 - ⭐ Favoris : étoile dans la barre d'adresse (Ctrl+D), barre de favoris sous
   la barre d'outils (clic molette : nouvel onglet)
 - 🕘 Historique avec recherche (Ctrl+H) ; favoris (Ctrl+Shift+O) dans le même
@@ -33,7 +40,8 @@ binaire reste petit et le moteur profite des mises à jour de sécurité de l'OS
   que des données chiffrées
 - 🧩 Extensions Chrome : onglet *Extensions* du panneau latéral (menu
   *Extensions* sur Android), installation par lien du Chrome Web Store, id ou
-  fichier `.crx`, activation, suppression.
+  fichier `.crx`, activation, suppression. Sur Android, la page d'une
+  extension du Web Store propose de l'installer.
   - Le navigateur les fait tourner lui-même sur toutes les plateformes :
     règles de blocage (`declarativeNetRequest`, converties au format des
     *content blockers* de Safari sur WebKit, appliquées par
@@ -72,8 +80,8 @@ name = "DuckDuckGo"
 template = "https://duckduckgo.com/?q={query}"
 ```
 
-> Les raccourcis ne sont reçus que lorsque l'interface a le focus : une page
-> qui a le focus clavier garde ses touches.
+> Sous Windows, les raccourcis marchent aussi quand une page a le focus.
+> Ailleurs, une page qui a le focus clavier garde ses touches.
 
 ## Architecture
 
@@ -182,4 +190,3 @@ demande un compte Pro et Pages réglé sur « GitHub Actions ».
 
 - Page de réglages dans l'interface
 - Navigation privée, bloqueur de contenu
-- Téléchargements

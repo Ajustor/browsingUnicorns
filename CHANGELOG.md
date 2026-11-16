@@ -4,6 +4,31 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.6.0] - 2026-11-16
+
+### Ajouté
+
+- Outils de développement dans un panneau à droite de la page (Windows) :
+  F12, Ctrl+Shift+I et le bouton `</>` l'affichent ou le masquent, il suit
+  l'onglet actif ; clic droit sur le bouton (ou bouton du panneau) pour les
+  ouvrir dans une fenêtre. Le moteur ouvre pour cela un port de débogage
+  local (127.0.0.1).
+- Cadenas : un clic montre si la connexion est chiffrée, son protocole et
+  son chiffrement, et la chaîne de certificats du site (émis pour, par,
+  domaines couverts, validité, numéro de série, SHA-256). Windows et Android.
+- Android : sur la page d'une extension du Chrome Web Store, un bandeau
+  propose de l'installer, sans copier le lien.
+
+### Corrigé
+
+- Windows : les raccourcis (Ctrl+T, Ctrl+W, Ctrl+L, F5...) ne marchaient pas
+  quand la page avait le focus clavier.
+- Téléchargements : sur ordinateur, les fichiers arrivaient dans
+  Téléchargements sans rien dire ; la barre de notification annonce leur
+  début et leur fin (*Open*, *Show in folder*). Sur Android, ils ne
+  marchaient pas du tout.
+- Android : la barre d'adresse perdait le focus pendant la saisie.
+
 ## [0.5.1] - 2026-11-15
 
 ### Ajouté
