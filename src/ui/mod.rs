@@ -14,6 +14,7 @@ mod shortcuts;
 mod site_info;
 mod sync;
 mod sync_panel;
+mod system_font;
 mod tab_strip;
 mod toolbar;
 mod updates;
