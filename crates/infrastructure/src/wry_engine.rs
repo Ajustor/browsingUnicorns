@@ -411,6 +411,7 @@ impl WryEngine {
             bridge: Bridge::Ipc,
             origins: Origins::desktop(),
             state_dir: Some(&self.files.state_dir),
+            blocker: true,
         };
         self.page_scripts = page_scripts(&sources);
         for (tab, view) in &self.views {

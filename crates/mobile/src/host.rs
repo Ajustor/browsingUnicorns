@@ -124,6 +124,7 @@ impl HostEngine {
             bridge: Bridge::Android,
             origins: infrastructure::extension_server::Origins::Android,
             state_dir: Some(&self.state_dir),
+            blocker: false,
         });
         self.host.set_page_scripts(scripts);
     }

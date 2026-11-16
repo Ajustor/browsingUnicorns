@@ -876,6 +876,19 @@ function contentScript(entry, code) {
   at(entry.runAt, () => code.call(window, api, api));
 }
 
+// The built-in ad blocker's site-specific cosmetic filters: the browser
+// gives the style sheet hiding this site's ad slots (empty when the blocker
+// is off here). Top frame only.
+function blockerCosmetic() {
+  if (!isTop) return;
+  send("blocker", "blocker.cosmetic", { url: location.href }).then(
+    (css) => {
+      if (css) addStyle(css);
+    },
+    () => {},
+  );
+}
+
 function userScript(entry, code) {
   if (entry.noFrames && !isTop) return;
   if (!matches(entry, location.href)) return;

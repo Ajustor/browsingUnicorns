@@ -54,7 +54,12 @@ pub struct Sources<'a> {
     pub origins: Origins,
     /// What extensions registered at run time.
     pub state_dir: Option<&'a Path>,
+    /// Add the ad blocker's cosmetic filters (asked from the hub).
+    pub blocker: bool,
 }
+
+/// The owner the ad blocker's page script speaks as.
+pub const BLOCKER_OWNER: &str = "blocker";
 
 /// `re("source", "flags")` of a pattern.
 fn regex(pattern: &UrlPattern) -> String {
@@ -103,6 +108,9 @@ fn read_files(root: &Path, files: &[String], separator: &str) -> Option<String> 
 /// The scripts to inject into every page, in order.
 pub fn page_scripts(sources: &Sources<'_>) -> Vec<String> {
     let mut out = Vec::new();
+    if sources.blocker {
+        out.push(wrap(sources.token, sources.bridge, "blockerCosmetic();"));
+    }
     for e in sources
         .extensions
         .map(|list| list.items())
@@ -248,6 +256,7 @@ mod tests {
             bridge: Bridge::Ipc,
             origins: Origins::CustomScheme,
             state_dir: None,
+            blocker: false,
         };
         let scripts = page_scripts(&sources(true));
         // `node --check` them: BU_DUMP_PAGE_SCRIPTS=<dir> cargo test …
@@ -272,5 +281,12 @@ mod tests {
         assert!(scripts[1].contains("const TOKEN = \"tok\";"));
         // WebView2 runs the extensions itself: only the user script.
         assert_eq!(page_scripts(&sources(false)).len(), 1);
+        // The ad blocker's cosmetic filters come first.
+        let with_blocker = page_scripts(&Sources {
+            blocker: true,
+            ..sources(false)
+        });
+        assert_eq!(with_blocker.len(), 2);
+        assert!(with_blocker[0].contains("\nblockerCosmetic();\n"));
     }
 }
