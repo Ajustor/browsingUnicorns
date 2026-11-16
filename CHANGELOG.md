@@ -4,6 +4,18 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [Unreleased]
+
+### Ajouté
+
+- Bloqueur de pubs intégré, sans extension à installer, sur ordinateur et
+  Android : les listes EasyList et EasyPrivacy (moteur `adblock-rust` de
+  Brave), téléchargées au premier lancement puis vérifiées une fois par
+  jour, bloquent publicités et traqueurs ; les emplacements de pub des sites
+  que les listes nomment sont masqués. Un bouclier à côté du cadenas compte
+  ce qui est bloqué sur la page (sauf sous macOS et Linux) et coupe le
+  blocage pour un site ou partout ; ces réglages se synchronisent.
+
 ## [0.9.4] - 2026-11-16
 
 ### Corrigé
