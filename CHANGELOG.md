@@ -4,7 +4,26 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
-## [Unreleased]
+## [0.8.0] - 2026-11-16
+
+### Modifié
+
+- Nouveau look « licorne », sur ordinateur (Windows, macOS, Linux) et
+  Android : dégradé violet → cyan de l'icône derrière les onglets (Android :
+  derrière la barre d'adresse et les en-têtes), barres nuit, barre d'adresse
+  en pilule, accents cyan. Le panneau latéral, les bandeaux et les écrans
+  secondaires suivent le thème clair ou sombre du système. Sur ordinateur,
+  la police de l'interface est celle du système (Segoe UI sous Windows).
+- Android : les onglets s'affichent en grille de cartes, avec un aperçu de
+  chaque page et son icône ; les couleurs ne suivent plus le fond d'écran.
+
+### Corrigé
+
+- Extensions sous Windows : leurs pages n'avaient pas `crypto.subtle`
+  (Bitwarden et d'autres ne démarraient pas : « Could not locate Subtle
+  crypto »). Ce qu'une extension gardait dans le stockage de ses propres
+  pages (IndexedDB, localStorage) repart de zéro ; son `chrome.storage` est
+  conservé.
 
 ### Retiré
 

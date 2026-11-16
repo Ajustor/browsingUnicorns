@@ -21,6 +21,9 @@ binaire reste petit et le moteur profite des mises à jour de sécurité de l'OS
   *Inspect* dans l'onglet *Extensions* pour la page de fond d'une extension. Android : *Web debugging* dans le menu, puis
   `chrome://inspect` sur un ordinateur
 - 🪟 Les liens `target="_blank"` et `window.open` s'ouvrent dans un nouvel onglet
+- 🦄 Look « licorne » : dégradé violet → cyan derrière les onglets, barres
+  nuit ; panneaux en thème clair ou sombre selon le système ; police de
+  l'interface du système. Sur Android, onglets en grille avec aperçus
 - 🔒 Indicateur HTTPS ; un clic sur le cadenas montre la connexion (protocole,
   chiffrement) et la chaîne de certificats du site (Windows, Android). Titre
   de la page dans l'onglet et la fenêtre
