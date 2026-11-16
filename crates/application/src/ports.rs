@@ -37,6 +37,11 @@ impl std::error::Error for EngineError {}
 pub trait WebEngine {
     /// Creates the view of `tab` and starts loading `address` in it.
     fn open_view(&mut self, tab: TabId, address: &WebAddress) -> Result<(), EngineError>;
+    /// [`Self::open_view`] for a private tab: its cookies and site storage
+    /// are kept apart from the others'. An error where the engine can't.
+    fn open_private_view(&mut self, _tab: TabId, _address: &WebAddress) -> Result<(), EngineError> {
+        Err(EngineError("private tabs are not available here".into()))
+    }
     fn close_view(&mut self, tab: TabId);
     /// Shows the view of `tab` (hides the others); `None` hides them all.
     fn show(&mut self, tab: Option<TabId>);

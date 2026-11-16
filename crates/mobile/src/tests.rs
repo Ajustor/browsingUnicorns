@@ -16,8 +16,12 @@ struct FakeHost(
 );
 
 impl WebViewHost for FakeHost {
-    fn open_view(&self, tab: u64, url: String) {
-        self.0.lock().unwrap().push(format!("open {tab} {url}"));
+    fn open_view(&self, tab: u64, url: String, private: bool) {
+        let kind = if private { "private " } else { "" };
+        self.0
+            .lock()
+            .unwrap()
+            .push(format!("open {kind}{tab} {url}"));
     }
     fn close_view(&self, tab: u64) {
         self.0.lock().unwrap().push(format!("close {tab}"));
@@ -157,13 +161,19 @@ fn tabs_and_navigation_go_through_the_host() {
 fn private_tabs_leave_nothing_behind() {
     let dir = tempfile::tempdir().unwrap();
     let http = Arc::new(FakeHttp::default());
-    let (b, _) = browser(&dir, "phone", &http);
+    let (b, host) = browser(&dir, "phone", &http);
     b.restore_session().unwrap();
     let normal = b.state().active.unwrap();
     b.on_load_finished(normal, "https://a.com/".into());
     let private = b
         .open_tab(Some("https://secret.test/".into()), true)
         .unwrap();
+    assert!(
+        host.0
+            .lock()
+            .unwrap()
+            .contains(&format!("open private {private} https://secret.test/"))
+    );
     b.on_load_started(private, "https://secret.test/".into());
     b.on_load_finished(private, "https://secret.test/".into());
     b.on_title_changed(private, "Secret".into());

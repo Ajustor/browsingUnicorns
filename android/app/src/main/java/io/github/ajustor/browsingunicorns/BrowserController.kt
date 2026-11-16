@@ -34,6 +34,20 @@ class BrowserController(
     var sync by mutableStateOf(browser.syncInfo())
         private set
     var screen by mutableStateOf(Screen.Browser)
+
+    /** The series the tabs grid shows: the private tabs, or the others. */
+    var showPrivate by mutableStateOf(false)
+
+    /** The tab shown is private (its bars turn anthracite). */
+    val activePrivate: Boolean
+        get() = state.tabs.firstOrNull { it.id == state.active }?.private == true
+
+    /** Shows the tabs grid on the series of the tab shown. */
+    fun openTabs() {
+        views.captureActive()
+        showPrivate = activePrivate
+        screen = Screen.Tabs
+    }
     var progress by mutableIntStateOf(100)
         private set
     var message by mutableStateOf<String?>(null)

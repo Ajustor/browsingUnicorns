@@ -24,6 +24,7 @@ import java.util.concurrent.ConcurrentHashMap
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.webkit.ProfileStore
 import androidx.webkit.ScriptHandler
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
@@ -89,6 +90,31 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
 
     init {
         WebView.setWebContentsDebuggingEnabled(webDebugging)
+        // What private tabs left: the process ended without closing them.
+        deletePrivateProfile()
+    }
+
+    /**
+     * Private tabs can be opened: their WebViews get a profile of their own
+     * (cookies, storage), deleted with the last of them. Without it, no
+     * private tabs (they would share the normal tabs' cookies).
+     */
+    val privateSupported = WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)
+
+    /** The private tabs' views. */
+    private val privateTabs = HashSet<ULong>()
+
+    /** Gives [view] the private tabs' profile; call right after creating it. */
+    private fun usePrivateProfile(view: WebView) {
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) return
+        ProfileStore.getInstance().getOrCreateProfile(PRIVATE_PROFILE)
+        WebViewCompat.setProfile(view, PRIVATE_PROFILE)
+    }
+
+    /** Deletes the private tabs' cookies and storage (not while a view uses them). */
+    private fun deletePrivateProfile() {
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) return
+        runCatching { ProfileStore.getInstance().deleteProfile(PRIVATE_PROFILE) }
     }
 
     /** The extensions' background pages, by extension id. */
@@ -179,7 +205,7 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
         // Called from any thread: WebViews are touched on the main one.
         container.post {
             pageScripts = scripts
-            for ((tab, view) in views) inject(tab, view)
+            for ((tab, view) in views) if (tab !in privateTabs) inject(tab, view)
         }
     }
 
@@ -214,10 +240,11 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
 
     fun active(): WebView? = views.values.firstOrNull { it.visibility == View.VISIBLE }
 
-    override fun openView(tab: ULong, url: String) {
-        val view = create(tab)
+    override fun openView(tab: ULong, url: String, private: Boolean) {
+        val view = create(tab, private)
         views[tab] = view
-        inject(tab, view)
+        // No extension or user script in private tabs.
+        if (private) privateTabs += tab else inject(tab, view)
         view.visibility = View.GONE
         container.addView(
             view,
@@ -235,6 +262,8 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
             container.removeView(it)
             it.destroy()
         }
+        // The last private tab: its cookies and storage go (once the view is gone).
+        if (privateTabs.remove(tab) && privateTabs.isEmpty()) container.post { deletePrivateProfile() }
     }
 
     override fun show(tab: ULong?) {
@@ -270,7 +299,8 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
     )
 
     @SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
-    private fun create(tab: ULong): WebView = WebView(context).apply {
+    private fun create(tab: ULong, private: Boolean): WebView = WebView(context).apply {
+        if (private) usePrivateProfile(this)
         setOnTouchListener { _, event ->
             if (event.actionMasked == MotionEvent.ACTION_DOWN) onPageTouched()
             false
@@ -289,7 +319,7 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
             override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
                 pages[tab] = url
                 // Older WebViews: the scripts run as early as the app can.
-                if (!documentStart) pageScripts.forEach { view.evaluateJavascript(it, null) }
+                if (!documentStart && !private) pageScripts.forEach { view.evaluateJavascript(it, null) }
                 browser.onLoadStarted(tab, url)
                 onChange()
             }
@@ -365,6 +395,7 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
                 resultMsg: Message,
             ): Boolean {
                 val catcher = WebView(context)
+                if (private) usePrivateProfile(catcher)
                 catcher.webViewClient = object : WebViewClient() {
                     override fun shouldOverrideUrlLoading(v: WebView, request: WebResourceRequest): Boolean {
                         runCatching { browser.onNewWindow(request.url.toString()) }
@@ -378,5 +409,10 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
                 return true
             }
         }
+    }
+
+    companion object {
+        /** The WebView profile of the private tabs. */
+        const val PRIVATE_PROFILE = "bu-private"
     }
 }

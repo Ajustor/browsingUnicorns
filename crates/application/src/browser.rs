@@ -270,7 +270,12 @@ impl<E: WebEngine> Browser<E> {
         } else {
             self.session.open_tab()
         };
-        if let Err(e) = self.engine.open_view(id, &address) {
+        let opened = if private {
+            self.engine.open_private_view(id, &address)
+        } else {
+            self.engine.open_view(id, &address)
+        };
+        if let Err(e) = opened {
             self.session.close_tab(id);
             return Err(e.into());
         }

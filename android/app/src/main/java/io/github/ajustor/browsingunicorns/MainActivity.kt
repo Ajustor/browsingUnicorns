@@ -76,6 +76,12 @@ class MainActivity : ComponentActivity() {
         controller.screen = Screen.Browser
     }
 
+    /**
+     * Saves history and the normal tabs. Private tabs stay open while the
+     * process lives (Android stops apps often, and swiping the app away can't
+     * be told apart): they are never saved, so a new process has none, and
+     * their WebView profile is deleted at start (WebViews).
+     */
     override fun onStop() {
         super.onStop()
         runCatching { controller.browser.persist() }

@@ -7,6 +7,11 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathFillType
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.addPathNodes
+import androidx.compose.ui.unit.dp
 
 /** The icon's night purple and cyan, as on the desktop. */
 object Unicorn {
@@ -37,6 +42,38 @@ object Unicorn {
 val UnicornGradient = Brush.linearGradient(
     listOf(Unicorn.GradientStart, Unicorn.GradientMiddle, Unicorn.GradientEnd),
 )
+
+/** A private tab's bars: anthracite, as the desktop's private window. */
+object Private {
+    val GradientStart = Color(0xFF2B2B33)
+    val GradientMiddle = Color(0xFF3A3A46)
+    val GradientEnd = Color(0xFF2B2B33)
+    /** Bottom bar. */
+    val Bar = Color(0xFF1F1F26)
+}
+
+/** The top bar's gradient when the tab shown is private. */
+val PrivateGradient = Brush.linearGradient(
+    listOf(Private.GradientStart, Private.GradientMiddle, Private.GradientEnd),
+)
+
+/** A domino mask: private tabs. */
+val MaskIcon: ImageVector = ImageVector.Builder(
+    name = "Mask",
+    defaultWidth = 24.dp,
+    defaultHeight = 24.dp,
+    viewportWidth = 24f,
+    viewportHeight = 24f,
+).addPath(
+    pathData = addPathNodes(
+        "M2.5,7.5 C6,6 9,6.5 12,8 C15,6.5 18,6 21.5,7.5 C22,11.5 20.5,15.5 16.5,15.5 " +
+            "C14.5,15.5 13.5,13.5 12,13.5 C10.5,13.5 9.5,15.5 7.5,15.5 C3.5,15.5 2,11.5 2.5,7.5 Z " +
+            "M6,10 C6.5,8.8 9,8.8 10,10.2 C9,11.4 6.8,11.4 6,10 Z " +
+            "M18,10 C17.5,8.8 15,8.8 14,10.2 C15,11.4 17.2,11.4 18,10 Z",
+    ),
+    pathFillType = PathFillType.EvenOdd,
+    fill = SolidColor(Color.Black),
+).build()
 
 /** The loading bar: violet to cyan. */
 val ProgressGradient = Brush.horizontalGradient(listOf(Color(0xFF8A5CFF), Unicorn.Cyan))

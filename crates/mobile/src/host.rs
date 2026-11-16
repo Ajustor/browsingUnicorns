@@ -63,7 +63,9 @@ pub struct BackgroundPage {
 /// One Android WebView per tab, only the shown one visible.
 #[uniffi::export(with_foreign)]
 pub trait WebViewHost: Send + Sync {
-    fn open_view(&self, tab: u64, url: String);
+    /// `private`: the view keeps its cookies and storage apart (and drops
+    /// them).
+    fn open_view(&self, tab: u64, url: String, private: bool);
     fn close_view(&self, tab: u64);
     /// Shows `tab`'s view (hides the others); `None` hides them all.
     fn show(&self, tab: Option<u64>);
@@ -132,7 +134,11 @@ impl HostEngine {
 
 impl WebEngine for HostEngine {
     fn open_view(&mut self, tab: TabId, address: &WebAddress) -> Result<(), EngineError> {
-        self.host.open_view(tab.get(), address.to_string());
+        self.host.open_view(tab.get(), address.to_string(), false);
+        Ok(())
+    }
+    fn open_private_view(&mut self, tab: TabId, address: &WebAddress) -> Result<(), EngineError> {
+        self.host.open_view(tab.get(), address.to_string(), true);
         Ok(())
     }
     fn close_view(&mut self, tab: TabId) {

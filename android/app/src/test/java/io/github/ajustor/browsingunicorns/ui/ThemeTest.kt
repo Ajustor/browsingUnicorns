@@ -24,5 +24,9 @@ class ThemeTest {
         readable(Color.White, Unicorn.LightAccent, 4.5)
         // Header titles on the gradient's lightest end.
         readable(Color.White, Unicorn.GradientEnd, 3.0)
+        // A private tab's bars.
+        readable(Unicorn.OnNight, Private.Bar, 4.5)
+        readable(Unicorn.OnNight, Private.GradientMiddle, 4.5)
+        readable(Color.White, Private.GradientMiddle, 4.5)
     }
 }

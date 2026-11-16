@@ -28,6 +28,9 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -43,15 +46,49 @@ import androidx.compose.ui.unit.dp
 import io.github.ajustor.browsingunicorns.BrowserController
 import io.github.ajustor.browsingunicorns.Screen
 
-/** The open tabs as cards: title, favicon and how the page last looked. */
+/**
+ * The open tabs as cards: title, favicon and how the page last looked. A
+ * switch shows the normal tabs or the private ones; + opens one of the
+ * series shown.
+ */
 @Composable
 fun TabsScreen(c: BrowserController) {
+    val private = c.showPrivate && c.views.privateSupported
+    val tabs = c.state.tabs.filter { it.private == private }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        Header(c, "Tabs (${c.state.tabs.size})") {
+        Header(c, "Tabs (${tabs.size})") {
             IconButton(onClick = {
-                c.act { openTab(null, false) }
+                c.act { openTab(null, private) }
                 c.screen = Screen.Browser
-            }) { Icon(Icons.Filled.Add, contentDescription = "New tab") }
+            }) { Icon(Icons.Filled.Add, contentDescription = if (private) "New private tab" else "New tab") }
+        }
+        if (c.views.privateSupported) {
+            SingleChoiceSegmentedButtonRow(
+                Modifier.fillMaxWidth().background(if (private) PrivateGradient else UnicornGradient)
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+            ) {
+                SegmentedButton(
+                    selected = !private,
+                    onClick = { c.showPrivate = false },
+                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                    colors = seriesColors(),
+                ) { Text("Normal") }
+                SegmentedButton(
+                    selected = private,
+                    onClick = { c.showPrivate = true },
+                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                    colors = seriesColors(),
+                    icon = { Icon(MaskIcon, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                ) { Text("Private") }
+            }
+        }
+        if (private && tabs.isEmpty()) {
+            Text(
+                "Private tabs leave no history, and their cookies and site data are deleted " +
+                    "when the last one closes.",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(24.dp),
+            )
         }
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
@@ -60,7 +97,7 @@ fun TabsScreen(c: BrowserController) {
             verticalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxSize().navigationBarsPadding(),
         ) {
-            items(c.state.tabs, key = { it.id.toLong() }) { tab ->
+            items(tabs, key = { it.id.toLong() }) { tab ->
                 TabCard(
                     title = tab.title.ifBlank { tab.url ?: "New tab" },
                     host = tab.url?.let { android.net.Uri.parse(it).host } ?: "",
@@ -77,6 +114,17 @@ fun TabsScreen(c: BrowserController) {
         }
     }
 }
+
+/** The switch's colors, on the header's gradient. */
+@Composable
+private fun seriesColors() = SegmentedButtonDefaults.colors(
+    activeContainerColor = Color.White.copy(alpha = 0.22f),
+    activeContentColor = Color.White,
+    activeBorderColor = Color.White.copy(alpha = 0.7f),
+    inactiveContainerColor = Color.Transparent,
+    inactiveContentColor = Color.White,
+    inactiveBorderColor = Color.White.copy(alpha = 0.7f),
+)
 
 @Composable
 private fun TabCard(

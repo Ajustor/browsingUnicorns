@@ -100,7 +100,8 @@ fun App(c: BrowserController) {
 @Composable
 private fun BrowserScreen(c: BrowserController) {
     Column(Modifier.fillMaxSize()) {
-        Box(Modifier.fillMaxWidth().background(UnicornGradient).statusBarsPadding()) {
+        val top = if (c.activePrivate) PrivateGradient else UnicornGradient
+        Box(Modifier.fillMaxWidth().background(top).statusBarsPadding()) {
             AddressBar(c)
         }
         if (c.progress < 100) {
@@ -219,17 +220,15 @@ private fun AddressBar(c: BrowserController) {
         singleLine = true,
         placeholder = { Text("Search or enter an address") },
         leadingIcon = {
-            if (url.isEmpty()) {
+            if (c.activePrivate) {
+                Row(Modifier.padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(MaskIcon, contentDescription = "Private tab", modifier = Modifier.size(20.dp))
+                    if (url.isNotEmpty()) SiteButton(c) { siteInfo = true }
+                }
+            } else if (url.isEmpty()) {
                 Icon(Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(18.dp))
             } else {
-                IconButton(onClick = { siteInfo = true }) {
-                    Icon(
-                        if (c.state.activeSecure) Icons.Filled.Lock else Icons.Filled.Info,
-                        contentDescription = if (c.state.activeSecure) "Secure connection: certificate" else "Not secure",
-                        tint = if (c.state.activeSecure) Unicorn.Cyan else Unicorn.OnNight,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
+                SiteButton(c) { siteInfo = true }
             }
         },
         trailingIcon = {
@@ -266,10 +265,24 @@ private fun AddressBar(c: BrowserController) {
     )
 }
 
+/** The padlock: the connection and its certificate. */
+@Composable
+private fun SiteButton(c: BrowserController, onClick: () -> Unit) {
+    IconButton(onClick = onClick) {
+        Icon(
+            if (c.state.activeSecure) Icons.Filled.Lock else Icons.Filled.Info,
+            contentDescription = if (c.state.activeSecure) "Secure connection: certificate" else "Not secure",
+            tint = if (c.state.activeSecure) Unicorn.Cyan else Unicorn.OnNight,
+            modifier = Modifier.size(18.dp),
+        )
+    }
+}
+
 @Composable
 private fun BottomBar(c: BrowserController) {
     var menu by remember { mutableStateOf(false) }
-    Surface(color = Unicorn.Night, contentColor = Unicorn.OnNight) {
+    val private = c.activePrivate
+    Surface(color = if (private) Private.Bar else Unicorn.Night, contentColor = Unicorn.OnNight) {
         Row(
             Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 4.dp),
             horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceAround,
@@ -291,7 +304,7 @@ private fun BottomBar(c: BrowserController) {
                     Icon(Icons.Outlined.Star, contentDescription = "Bookmark this page")
                 }
             }
-            IconButton(onClick = { c.views.captureActive(); c.screen = Screen.Tabs }) {
+            IconButton(onClick = { c.openTabs() }) {
                 Surface(
                     shape = RoundedCornerShape(6.dp),
                     border = BorderStroke(2.dp, Unicorn.OnNight),
@@ -300,7 +313,7 @@ private fun BottomBar(c: BrowserController) {
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Text(
-                            c.state.tabs.size.coerceAtMost(99).toString(),
+                            c.state.tabs.count { it.private == private }.coerceAtMost(99).toString(),
                             style = MaterialTheme.typography.labelMedium,
                             maxLines = 1,
                             overflow = TextOverflow.Clip,
