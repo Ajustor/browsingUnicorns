@@ -7,17 +7,27 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
 
-use webview2_com::AcceleratorKeyPressedEventHandler;
 use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_KEY_EVENT_KIND, COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN,
     COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN, COREWEBVIEW2_PHYSICAL_KEY_STATUS,
 };
+use webview2_com::{AcceleratorKeyPressedEventHandler, FocusChangedEventHandler};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetKeyState, VK_CONTROL, VK_F1, VK_F24, VK_HOME, VK_LEFT, VK_RIGHT, VK_SHIFT, VK_TAB,
 };
 use wry::{WebView, WebViewExtWindows};
 
 use crate::wry_engine::KeyPress;
+
+/// Calls `got_focus` when `view` takes the keyboard (a click in the page).
+pub fn on_focus(view: &WebView, got_focus: impl Fn() + 'static) -> windows_core::Result<()> {
+    let handler = FocusChangedEventHandler::create(Box::new(move |_, _| {
+        got_focus();
+        Ok(())
+    }));
+    let mut token = 0;
+    unsafe { view.controller().add_GotFocus(&handler, &mut token) }
+}
 
 /// The name of virtual key `vk`, as the shortcuts name it.
 fn key_name(vk: u32) -> Option<String> {

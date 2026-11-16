@@ -292,6 +292,23 @@ impl BrowserApp {
         }
     }
 
+    /// Keeps the keyboard where the user clicked last. The page is a native
+    /// child view: a click on the window's own widgets (the address bar)
+    /// doesn't take the keyboard back from it, and a click in the page
+    /// leaves the widget looking focused.
+    fn sync_keyboard_focus(&mut self, ctx: &egui::Context) {
+        if self.browser.engine_mut().take_page_focused() {
+            ctx.memory_mut(|m| {
+                if let Some(id) = m.focused() {
+                    m.surrender_focus(id);
+                }
+            });
+        }
+        if ctx.input(|i| i.pointer.any_pressed()) {
+            self.browser.engine().focus_window();
+        }
+    }
+
     /// The docked developer tools, at the right of the page.
     fn devtools_panel(&mut self, ctx: &egui::Context) {
         let tab = self.browser.session().active_id();
@@ -512,6 +529,7 @@ impl eframe::App for BrowserApp {
             self.notice = Some(notice);
         }
 
+        self.sync_keyboard_focus(ctx);
         let mut commands = Vec::new();
         super::shortcuts::collect(ctx, &mut commands);
         for press in self.browser.engine_mut().take_key_presses() {

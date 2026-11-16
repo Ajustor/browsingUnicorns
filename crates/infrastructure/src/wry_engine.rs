@@ -111,6 +111,9 @@ pub struct WryEngine {
     shortcuts: std::rc::Rc<std::cell::RefCell<std::collections::HashSet<KeyPress>>>,
     #[cfg(windows)]
     pressed: std::rc::Rc<std::cell::RefCell<Vec<KeyPress>>>,
+    /// Windows: a page took the keyboard since the last look.
+    #[cfg(windows)]
+    page_focused: Rc<std::cell::Cell<bool>>,
     /// Windows: the developer tools docked beside the page.
     #[cfg(windows)]
     devtools: Option<DevtoolsPanel>,
@@ -256,6 +259,8 @@ impl WryEngine {
             shortcuts: Default::default(),
             #[cfg(windows)]
             pressed: Default::default(),
+            #[cfg(windows)]
+            page_focused: Default::default(),
             #[cfg(windows)]
             security: HashMap::new(),
             #[cfg(windows)]
@@ -573,6 +578,15 @@ impl WryEngine {
         }
     }
 
+    /// Whether a page took the keyboard since the last call (the window's
+    /// own fields must then let it go).
+    pub fn take_page_focused(&mut self) -> bool {
+        #[cfg(windows)]
+        return self.page_focused.replace(false);
+        #[cfg(not(windows))]
+        false
+    }
+
     /// The shortcuts pressed in a page since the last call.
     pub fn take_key_presses(&mut self) -> Vec<KeyPress> {
         #[cfg(windows)]
@@ -671,6 +685,13 @@ impl WebEngine for WryEngine {
                 move || waker(),
             ) {
                 log::warn!("shortcuts in tab {tab}: {e}");
+            }
+            let (focused, waker) = (self.page_focused.clone(), self.waker.clone());
+            if let Err(e) = crate::webview2_keys::on_focus(&view, move || {
+                focused.set(true);
+                waker();
+            }) {
+                log::warn!("focus of tab {tab}: {e}");
             }
         }
         #[cfg(windows)]
