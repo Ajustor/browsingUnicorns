@@ -79,4 +79,5 @@ dependencies {
     // Play services bring Fragment 1.0, whose activity breaks the permission
     // requests of the ActivityResult API (downloads on Android 8-9).
     implementation("androidx.fragment:fragment:1.8.9")
+    testImplementation("junit:junit:4.13.2")
 }
