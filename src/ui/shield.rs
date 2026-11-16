@@ -4,7 +4,7 @@
 
 use std::time::SystemTime;
 
-use domain::{WebAddress, allowlisted};
+use domain::WebAddress;
 use egui::{RichText, TopBottomPanel};
 use egui_phosphor::regular as icon;
 
@@ -107,40 +107,11 @@ fn lists_line(updated: Option<SystemTime>, now: SystemTime) -> String {
     }
 }
 
-/// `allowlist` once the blocker is switched `on` (or off) for `host`:
-/// turning it on removes every entry covering the host, turning it off adds
-/// the host (lowercase, without `www.`).
-pub fn allowlist_with(allowlist: &[String], host: &str, on: bool) -> Vec<String> {
-    let mut out: Vec<String> = allowlist
-        .iter()
-        .filter(|a| !allowlisted(std::slice::from_ref(*a), host))
-        .cloned()
-        .collect();
-    if !on {
-        let host = host.trim().to_ascii_lowercase();
-        out.push(host.strip_prefix("www.").map(str::to_owned).unwrap_or(host));
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
 
     use super::*;
-
-    fn list(hosts: &[&str]) -> Vec<String> {
-        hosts.iter().map(|h| h.to_string()).collect()
-    }
-
-    #[test]
-    fn switching_a_site_off_and_on() {
-        let off = allowlist_with(&list(&["a.com"]), "www.LeMonde.fr", false);
-        assert_eq!(off, list(&["a.com", "lemonde.fr"]));
-        // On again for a subdomain: the parent entry goes too.
-        let on = allowlist_with(&off, "news.lemonde.fr", true);
-        assert_eq!(on, list(&["a.com"]));
-    }
 
     #[test]
     fn the_status_says_what_happens() {

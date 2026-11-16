@@ -15,7 +15,7 @@ use super::extensions::{ExtensionsRunner, ExtensionsView};
 use super::library::{Library, LibraryData, LibraryView};
 use super::omnibox::Omnibox;
 use super::profiles::{ProfileCommand, ProfilesRunner};
-use super::shield::{Shield, ShieldView, allowlist_with};
+use super::shield::{Shield, ShieldView};
 use super::site_info::SiteInfo;
 use super::sync::SyncRunner;
 use super::sync_panel::SyncView;
@@ -203,7 +203,7 @@ impl BrowserApp {
             }
             Command::SetBlockerForSite(host, on) => {
                 let mut settings = self.browser.settings().clone();
-                settings.blocker_allowlist = allowlist_with(&settings.blocker_allowlist, &host, on);
+                settings.set_blocks_on(&host, on);
                 self.change_blocker(settings)
             }
             Command::SetBlocker(on) => {

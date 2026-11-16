@@ -182,9 +182,21 @@ private fun AddressBar(c: BrowserController) {
     var text by remember(url) { mutableStateOf(url) }
     val focus = LocalFocusManager.current
     var siteInfo by remember { mutableStateOf(false) }
+    var shield by remember { mutableStateOf(false) }
+    val host = android.net.Uri.parse(url).host ?: url
+    val blocker = c.blocker
+    if (shield && blocker != null) {
+        ShieldDialog(
+            host = host,
+            info = blocker,
+            onSiteChange = { c.setBlockerForSite(host, it) },
+            onBlockerChange = { c.setBlocker(it) },
+            onDismiss = { shield = false },
+        )
+    }
     if (siteInfo) {
         SiteInfoDialog(
-            host = android.net.Uri.parse(url).host ?: url,
+            host = host,
             secure = c.state.activeSecure,
             certificate = c.views.active()?.certificate,
             onDismiss = { siteInfo = false },
@@ -221,8 +233,13 @@ private fun AddressBar(c: BrowserController) {
             }
         },
         trailingIcon = {
-            IconButton(onClick = { c.act { reload() } }) {
-                Icon(Icons.Filled.Refresh, contentDescription = "Reload")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (url.isNotEmpty() && blocker != null) {
+                    ShieldButton(blocker) { shield = true }
+                }
+                IconButton(onClick = { c.act { reload() } }) {
+                    Icon(Icons.Filled.Refresh, contentDescription = "Reload")
+                }
             }
         },
         shape = RoundedCornerShape(24.dp),

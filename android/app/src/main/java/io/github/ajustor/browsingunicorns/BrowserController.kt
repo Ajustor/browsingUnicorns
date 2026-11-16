@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import uniffi.mobile.BlockerInfo
 import uniffi.mobile.BrowserState
 import uniffi.mobile.ExtensionInfo
 import uniffi.mobile.MobileBrowser
@@ -45,6 +46,10 @@ class BrowserController(
     var userScripts by mutableStateOf<List<UserScriptInfo>>(emptyList())
         private set
 
+    /** The ad blocker on the active tab's page. */
+    var blocker by mutableStateOf<BlockerInfo?>(null)
+        private set
+
     /** The extension popup shown, and its title. */
     var popup by mutableStateOf<android.webkit.WebView?>(null)
         private set
@@ -55,7 +60,10 @@ class BrowserController(
 
     init {
         views.onChange = ::refresh
-        views.onProgress = { progress = it }
+        views.onProgress = {
+            progress = it
+            refreshBlocker()
+        }
         views.onPanel = { popup = it }
         updates.onMessage = { message = it }
         refreshExtensions()
@@ -80,6 +88,11 @@ class BrowserController(
 
     fun refresh() {
         state = browser.state()
+        refreshBlocker()
+    }
+
+    private fun refreshBlocker() {
+        blocker = state.active?.let { browser.blockerInfo(it) }
     }
 
     /** Runs [action], refreshes, and shows its error if it fails. */
@@ -102,6 +115,32 @@ class BrowserController(
         if (!view.canGoBack()) return false
         view.goBack()
         return true
+    }
+
+    // --- Ad blocker ---------------------------------------------------------
+
+    /** Loads the cached lists, and downloads them when due (once a day). */
+    fun updateBlockerLists() {
+        scope.launch {
+            withContext(Dispatchers.IO) { browser.updateBlockerLists() }
+            refresh()
+        }
+    }
+
+    /** Turns the ad blocker on or off, then reloads the page. */
+    fun setBlocker(enabled: Boolean) {
+        act {
+            setBlocker(enabled)
+            reload()
+        }
+    }
+
+    /** Turns the ad blocker on or off for [host], then reloads the page. */
+    fun setBlockerForSite(host: String, enabled: Boolean) {
+        act {
+            setBlockerForSite(host, enabled)
+            reload()
+        }
     }
 
     // --- Developer tools ----------------------------------------------------

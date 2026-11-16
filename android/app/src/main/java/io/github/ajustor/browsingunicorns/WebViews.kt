@@ -305,12 +305,13 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
                 onChange()
             }
 
-            // The extensions' network rules (ad and tracker blockers).
+            // The extensions' network rules, then the built-in ad blocker.
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
                 extensionFile(request.url.toString())?.let { return it }
                 val headers = request.requestHeaders
                 val verdict = runCatching {
                     browser.intercept(
+                        tab,
                         request.url.toString(),
                         pages[tab],
                         request.isForMainFrame,

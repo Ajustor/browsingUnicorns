@@ -31,6 +31,18 @@ impl Settings {
     pub fn blocks_on(&self, host: &str) -> bool {
         self.blocker && !allowlisted(&self.blocker_allowlist, host)
     }
+
+    /// Switches the ad blocker on (or off) for `host` and its subdomains:
+    /// on removes every allowlist entry covering it, off adds the host.
+    pub fn set_blocks_on(&mut self, host: &str, on: bool) {
+        self.blocker_allowlist.retain(|a| !host_covers(a, host));
+        if !on {
+            let host = normalize_host(host);
+            if !host.is_empty() {
+                self.blocker_allowlist.push(host);
+            }
+        }
+    }
 }
 
 /// `host` is one of `allowlist`'s hosts or one of their subdomains. Case
@@ -114,6 +126,18 @@ mod tests {
     fn allowlist_ignores_case_and_www() {
         assert!(!allowing(&["WWW.LeMonde.fr"]).blocks_on("lemonde.fr"));
         assert!(!allowing(&["lemonde.fr"]).blocks_on("www.LEMONDE.fr"));
+    }
+
+    #[test]
+    fn switching_a_site_off_and_on() {
+        let mut s = allowing(&["a.com"]);
+        s.set_blocks_on("www.LeMonde.fr", false);
+        assert_eq!(s.blocker_allowlist, vec!["a.com", "lemonde.fr"]);
+        assert!(!s.blocks_on("news.lemonde.fr"));
+        // On again for a subdomain: the parent entry goes too.
+        s.set_blocks_on("news.lemonde.fr", true);
+        assert_eq!(s.blocker_allowlist, vec!["a.com"]);
+        assert!(s.blocks_on("lemonde.fr"));
     }
 
     #[test]

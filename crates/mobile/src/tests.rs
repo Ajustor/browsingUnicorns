@@ -281,6 +281,7 @@ fn extensions_block_requests() {
     let page = Some("https://news.test/".to_owned());
     let intercept = |url: &str, dest: Option<&str>| {
         b.intercept(
+            1,
             url.into(),
             page.clone(),
             false,
@@ -330,6 +331,7 @@ fn extensions_block_requests() {
     // Top-level pages are left alone.
     assert_eq!(
         b.intercept(
+            1,
             "https://ads.test/".into(),
             None,
             true,
@@ -351,6 +353,7 @@ fn extensions_block_requests() {
     let (b, _) = browser(&dir, "phone", &http);
     assert_eq!(
         b.intercept(
+            1,
             "https://cdn.ads.test/x.png".into(),
             page.clone(),
             false,
@@ -364,6 +367,7 @@ fn extensions_block_requests() {
     assert!(b.extensions().is_empty());
     assert_eq!(
         b.intercept(
+            1,
             "https://cdn.ads.test/x.png".into(),
             page,
             false,
@@ -387,14 +391,15 @@ fn user_scripts_run_in_pages_with_their_storage() {
             .to_vec(),
     );
     let (b, host) = browser(&dir, "phone", &http);
-    assert!(host.1.lock().unwrap().is_empty());
+    // The ad blocker's cosmetic filters only.
+    assert_eq!(host.1.lock().unwrap().len(), 1);
 
     assert!(b.install_user_script("not a url".into()).is_err());
     assert_eq!(b.install_user_script(url.into()).unwrap(), "Counter 2");
     let scripts = host.1.lock().unwrap().clone();
-    assert_eq!(scripts.len(), 1);
-    assert!(scripts[0].contains("GM_setValue('n', 1);"));
-    assert!(scripts[0].contains("const BRIDGE = \"android\";"));
+    assert_eq!(scripts.len(), 2);
+    assert!(scripts[1].contains("GM_setValue('n', 1);"));
+    assert!(scripts[1].contains("const BRIDGE = \"android\";"));
 
     // The page script's storage goes through `page_message`, with its token.
     let token = scripts[0]
@@ -423,7 +428,104 @@ fn user_scripts_run_in_pages_with_their_storage() {
     );
 
     b.set_user_script_enabled(id.clone(), false).unwrap();
-    assert!(host.1.lock().unwrap().is_empty());
+    assert_eq!(host.1.lock().unwrap().len(), 1);
     b.remove_user_script(id).unwrap();
     assert!(b.user_scripts().is_empty());
+}
+
+const LIST: &str = "[Adblock Plus 2.0]\n||ads.test^\nnews.test##.ad\n";
+
+#[test]
+fn the_ad_blocker_blocks_and_counts() {
+    let dir = tempfile::tempdir().unwrap();
+    let http = Arc::new(FakeHttp::default());
+    let (b, host) = browser(&dir, "phone", &http);
+    let tab = b.open_tab(Some("https://news.test/".into())).unwrap();
+    b.on_load_finished(tab, "https://news.test/".into());
+    let page = Some("https://news.test/".to_owned());
+    let intercept = |url: &str, main_frame: bool| {
+        b.intercept(
+            tab,
+            url.into(),
+            (!main_frame).then(|| page.clone()).flatten(),
+            main_frame,
+            "GET".into(),
+            None,
+            Some("script".into()),
+        )
+    };
+    // No list yet (offline): nothing blocked.
+    b.update_blocker_lists();
+    assert_eq!(
+        intercept("https://ads.test/a.js", false),
+        Interception::Allow
+    );
+    assert_eq!(b.blocker_info(tab).lists_updated, None);
+
+    http.0.lock().unwrap().insert(
+        infrastructure::blocker::LISTS[0].1.to_owned(),
+        LIST.as_bytes().to_vec(),
+    );
+    b.update_blocker_lists();
+    // Checked a moment ago: the next call loads nothing.
+    b.update_blocker_lists();
+    assert!(b.blocker_info(tab).lists_updated.is_some());
+    assert_eq!(intercept("https://news.test/", true), Interception::Allow);
+    assert_eq!(
+        intercept("https://ads.test/a.js", false),
+        Interception::Block
+    );
+    assert_eq!(
+        intercept("https://ads.test/b.js", false),
+        Interception::Block
+    );
+    assert_eq!(
+        intercept("https://cdn.test/app.js", false),
+        Interception::Allow
+    );
+    let info = b.blocker_info(tab);
+    assert!(info.enabled && !info.site_allowed);
+    assert_eq!(info.blocked, 2);
+    // A new page counts again.
+    assert_eq!(
+        intercept("https://news.test/next", true),
+        Interception::Allow
+    );
+    assert_eq!(b.blocker_info(tab).blocked, 0);
+
+    // The page script asks the site's cosmetic filters.
+    let scripts = host.1.lock().unwrap().clone();
+    let token = scripts[0]
+        .split("const TOKEN = \"")
+        .nth(1)
+        .and_then(|s| s.split('"').next())
+        .unwrap()
+        .to_owned();
+    assert!(scripts[0].contains("blockerCosmetic();"));
+    b.page_message(
+        PageTarget::Tab { tab },
+        format!(
+            r#"{{"t":"{token}","ch":"c","id":1,"owner":"blocker","ctx":"content","op":"blocker.cosmetic","url":"https://news.test/"}}"#
+        ),
+    );
+    assert!(host.last_reply().contains(".ad{display:none!important}"));
+
+    b.set_blocker_for_site("www.news.test".into(), false)
+        .unwrap();
+    assert!(b.blocker_info(tab).site_allowed);
+    assert_eq!(
+        intercept("https://ads.test/a.js", false),
+        Interception::Allow
+    );
+    b.set_blocker_for_site("news.test".into(), true).unwrap();
+    assert_eq!(
+        intercept("https://ads.test/a.js", false),
+        Interception::Block
+    );
+    b.set_blocker(false).unwrap();
+    assert!(!b.blocker_info(tab).enabled);
+    assert_eq!(
+        intercept("https://ads.test/a.js", false),
+        Interception::Allow
+    );
 }

@@ -1,6 +1,6 @@
 //! Extensions on Android: installed like on the desktop (Chrome Web Store),
 //! their network rules applied to the WebViews' requests through
-//! [`MobileBrowser::intercept`].
+//! [`MobileBrowser::intercept`], with the built-in ad blocker's.
 
 use std::path::{Component, Path, PathBuf};
 
@@ -244,12 +244,16 @@ impl MobileBrowser {
         self.hub_lock().panel_closed();
     }
 
-    /// What to do with a request of a WebView (`shouldInterceptRequest`):
-    /// called on the WebView's IO thread, for every request. `document_url`
-    /// is the page that makes it; `accept` and `fetch_dest` its `Accept` and
-    /// `Sec-Fetch-Dest` headers, when the WebView gives them.
+    /// What to do with a request of `tab`'s WebView
+    /// (`shouldInterceptRequest`): called on the WebView's IO thread, for
+    /// every request. `document_url` is the page that makes it; `accept` and
+    /// `fetch_dest` its `Accept` and `Sec-Fetch-Dest` headers, when the
+    /// WebView gives them. The extensions' rules decide first, then the ad
+    /// blocker.
+    #[allow(clippy::too_many_arguments)]
     pub fn intercept(
         &self,
+        tab: u64,
         url: String,
         document_url: Option<String>,
         main_frame: bool,
@@ -257,8 +261,12 @@ impl MobileBrowser {
         accept: Option<String>,
         fetch_dest: Option<String>,
     ) -> Interception {
+        // A new page: the ad blocker counts again.
+        if main_frame {
+            self.blocked_lock().insert(tab, 0);
+        }
         let rules = self.rules.read().unwrap_or_else(|p| p.into_inner());
-        if rules.is_empty() {
+        if rules.is_empty() && self.blocker.get().is_none() {
             return Interception::Allow;
         }
         let resource_type = if main_frame {
@@ -271,15 +279,29 @@ impl MobileBrowser {
                 .or_else(|| ResourceType::guess(&url, accept.as_deref().unwrap_or("")))
         };
         let document = if main_frame { None } else { document_url };
-        let initiator = document
-            .as_deref()
-            .and_then(|d| Request::new(d, None, None, "GET"))
-            .map(|r| r.host);
-        let Some(request) = Request::new(&url, initiator, resource_type, &method) else {
-            return Interception::Allow;
+        let verdict = if rules.is_empty() {
+            Verdict::Allow
+        } else {
+            let initiator = document
+                .as_deref()
+                .and_then(|d| Request::new(d, None, None, "GET"))
+                .map(|r| r.host);
+            match Request::new(&url, initiator, resource_type, &method) {
+                Some(request) => rules.decide(&request, document.as_deref()),
+                None => Verdict::Allow,
+            }
         };
-        match rules.decide(&request, document.as_deref()) {
-            Verdict::Allow => Interception::Allow,
+        drop(rules);
+        match verdict {
+            Verdict::Allow => match document {
+                Some(page) if self.blocker.should_block(&url, &page, resource_type) => {
+                    let mut blocked = self.blocked_lock();
+                    let count = blocked.entry(tab).or_insert(0);
+                    *count = count.saturating_add(1);
+                    Interception::Block
+                }
+                _ => Interception::Allow,
+            },
             Verdict::Block => Interception::Block,
             Verdict::Redirect { extension, path } => {
                 match served_file(&self.extensions_dir, &extension, &path) {

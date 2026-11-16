@@ -58,6 +58,7 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 controller.updates.checkIfDue()
+                controller.updateBlockerLists()
                 controller.syncLoop()
             }
         }

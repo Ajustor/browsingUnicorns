@@ -11,13 +11,16 @@
 mod extensions;
 mod host;
 
+use std::collections::HashMap;
 use std::fmt;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 
 use application::sync::sync_round;
 use application::{Browser, ExtensionManager, Target, UserScriptManager};
-use domain::{RuleSet, TabId, WebAddress};
+use domain::{RuleSet, Settings, TabId, WebAddress, allowlisted};
+use infrastructure::blocker::{BlockerHandle, BlockerLists, BlockerPolicy};
 use infrastructure::extension_hub::{BrowserHub, Hub};
 use infrastructure::extension_server::{ExtensionServer, Origins};
 use infrastructure::extensions::ExtensionFolder;
@@ -120,6 +123,20 @@ pub struct SyncInfo {
     pub devices: Vec<DeviceInfo>,
 }
 
+/// The ad blocker's state for a tab, for its shield.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct BlockerInfo {
+    /// The ad blocker is on.
+    pub enabled: bool,
+    /// The tab's site is allowlisted: the blocker is off there.
+    pub site_allowed: bool,
+    /// What it stopped on the tab's page.
+    pub blocked: u32,
+    /// When the lists were downloaded (unix seconds); `None` before they
+    /// first arrive.
+    pub lists_updated: Option<i64>,
+}
+
 struct Inner {
     browser: Browser<HostEngine>,
     sync: Option<SyncConfig>,
@@ -141,6 +158,13 @@ pub struct MobileBrowser {
     server: Arc<ExtensionServer>,
     /// The extensions' network rules, read for every request.
     rules: Arc<RwLock<RuleSet>>,
+    /// The built-in ad blocker, read for every request after the rules.
+    blocker: BlockerHandle,
+    blocker_lists: BlockerLists,
+    /// The lists are being loaded or downloaded.
+    blocker_busy: AtomicBool,
+    /// What the ad blocker stopped on each tab's page.
+    blocked: Mutex<HashMap<u64, u32>>,
     extensions_dir: PathBuf,
     sync_file: SyncConfigFile,
     http: Arc<dyn SyncHttp>,
@@ -173,6 +197,25 @@ impl MobileBrowser {
 
     fn hub_lock(&self) -> MutexGuard<'_, Hub> {
         self.hub.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// Never held while taking another lock.
+    fn blocked_lock(&self) -> MutexGuard<'_, HashMap<u64, u32>> {
+        self.blocked.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// Changes the settings, then hands the ad blocker its new policy.
+    fn change_settings(&self, change: impl FnOnce(&mut Settings)) -> Result<(), MobileError> {
+        let mut inner = self.lock();
+        let mut settings = inner.browser.settings().clone();
+        change(&mut settings);
+        inner
+            .browser
+            .update_settings(settings)
+            .map_err(MobileError::new)?;
+        self.blocker
+            .set_policy(BlockerPolicy::from_settings(inner.browser.settings()));
+        Ok(())
     }
 
     /// `tabs.on*` events for the extensions, after the tabs changed.
@@ -235,6 +278,17 @@ impl MobileBrowser {
             clock: Box::new(SystemClock),
         };
         let initial = application::ports::Repository::load(&settings).unwrap_or_default();
+        let blocker = BlockerHandle::default();
+        blocker.set_policy(BlockerPolicy::from_settings(&initial));
+        let blocker_http = http.clone();
+        let blocker_lists = BlockerLists::new(
+            dir.join("blocker"),
+            Arc::new(move |url: &str| {
+                blocker_http
+                    .download(url.to_owned())
+                    .map_err(|e| e.to_string())
+            }),
+        );
         let rules = Arc::new(RwLock::new(RuleSet::default()));
         let extensions_dir = dir.join("extensions");
         let user_scripts_dir = dir.join("userscripts");
@@ -313,12 +367,13 @@ impl MobileBrowser {
             browser.engine_mut(),
             user_scripts.scripts(),
         );
-        let hub = Hub::new(
+        let mut hub = Hub::new(
             ScriptStorage::new(dir.join("script-storage"), page_token),
             Bridge::Android,
             extensions_dir.clone(),
             state_dir,
         );
+        hub.set_blocker(blocker.clone());
         let sync_file = SyncConfigFile::new(dir.join("sync.json"));
         let sync = sync_file.load();
         Arc::new(Self {
@@ -333,6 +388,10 @@ impl MobileBrowser {
             hub: Mutex::new(hub),
             server,
             rules,
+            blocker,
+            blocker_lists,
+            blocker_busy: AtomicBool::new(false),
+            blocked: Mutex::default(),
             extensions_dir,
             sync_file,
             http,
@@ -390,6 +449,7 @@ impl MobileBrowser {
 
     pub fn close_tab(&self, id: u64) {
         self.lock().browser.close_tab(TabId::new(id));
+        self.blocked_lock().remove(&id);
         self.hub_tick();
     }
 
@@ -624,16 +684,81 @@ impl MobileBrowser {
             Ok(records) => {
                 inner.last_sync_at = Some(now());
                 inner.last_error = None;
-                inner
+                let applied = inner
                     .browser
                     .apply_remote(&records)
-                    .map_err(MobileError::new)
+                    .map_err(MobileError::new);
+                // Another device's settings may have come along.
+                self.blocker
+                    .set_policy(BlockerPolicy::from_settings(inner.browser.settings()));
+                applied
             }
             Err(e) => {
                 inner.last_error = Some(e.to_string());
                 Err(MobileError::new(e))
             }
         }
+    }
+
+    // --- Ad blocker ----------------------------------------------------
+
+    /// Loads the cached lists when none is loaded, then downloads them when
+    /// due (once a day). Blocking (network): call it off the main thread,
+    /// at start and when the app comes back.
+    pub fn update_blocker_lists(&self) {
+        if self.blocker_busy.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        if self.blocker.get().is_none()
+            && let Some(blocker) = self.blocker_lists.load_cached()
+        {
+            self.blocker.set(blocker);
+        }
+        if self.blocker_lists.due() {
+            match self.blocker_lists.refresh() {
+                Ok(blocker) => self.blocker.set(blocker),
+                Err(e) => eprintln!("ad blocker lists: {e}"),
+            }
+        }
+        self.blocker_busy.store(false, Ordering::Release);
+    }
+
+    /// The ad blocker's state for `tab`'s page.
+    pub fn blocker_info(&self, tab: u64) -> BlockerInfo {
+        let inner = self.lock();
+        let settings = inner.browser.settings();
+        let host = inner
+            .browser
+            .session()
+            .tabs()
+            .iter()
+            .find(|t| t.id().get() == tab)
+            .and_then(|t| t.address())
+            .and_then(|a| a.host())
+            .map(str::to_owned);
+        BlockerInfo {
+            enabled: settings.blocker,
+            site_allowed: host
+                .as_deref()
+                .is_some_and(|h| allowlisted(&settings.blocker_allowlist, h)),
+            blocked: self.blocked_lock().get(&tab).copied().unwrap_or(0),
+            lists_updated: self.blocker.get().map(|b| {
+                b.updated()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_secs() as i64)
+            }),
+        }
+    }
+
+    /// Turns the ad blocker on or off (reload the page to apply it).
+    pub fn set_blocker(&self, enabled: bool) -> Result<(), MobileError> {
+        self.change_settings(|s| s.blocker = enabled)
+    }
+
+    /// Turns the ad blocker on or off for `host` and its subdomains (reload
+    /// the page to apply it).
+    pub fn set_blocker_for_site(&self, host: String, enabled: bool) -> Result<(), MobileError> {
+        self.change_settings(|s| s.set_blocks_on(&host, enabled))
     }
 }
 
