@@ -274,7 +274,7 @@ private fun BottomBar(c: BrowserController) {
                     Icon(Icons.Outlined.Star, contentDescription = "Bookmark this page")
                 }
             }
-            IconButton(onClick = { c.screen = Screen.Tabs }) {
+            IconButton(onClick = { c.views.captureActive(); c.screen = Screen.Tabs }) {
                 Surface(
                     shape = RoundedCornerShape(6.dp),
                     border = BorderStroke(2.dp, Unicorn.OnNight),

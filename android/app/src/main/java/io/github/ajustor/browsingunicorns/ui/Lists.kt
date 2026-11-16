@@ -13,8 +13,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -91,35 +89,6 @@ fun PageRow(
                 )
             }
             trailing()
-        }
-    }
-}
-
-@Composable
-fun TabsScreen(c: BrowserController) {
-    Column(Modifier.fillMaxSize()) {
-        Header(c, "Tabs (${c.state.tabs.size})") {
-            IconButton(onClick = {
-                c.act { openTab(null) }
-                c.screen = Screen.Browser
-            }) { Icon(Icons.Filled.Add, contentDescription = "New tab") }
-        }
-        LazyColumn {
-            items(c.state.tabs, key = { it.id.toLong() }) { tab ->
-                val active = tab.id == c.state.active
-                PageRow(
-                    title = (if (active) "● " else "") + tab.title,
-                    url = tab.url ?: "",
-                    onClick = {
-                        c.act { activate(tab.id) }
-                        c.screen = Screen.Browser
-                    },
-                ) {
-                    IconButton(onClick = { c.act { closeTab(tab.id) } }) {
-                        Icon(Icons.Filled.Close, contentDescription = "Close tab")
-                    }
-                }
-            }
         }
     }
 }
