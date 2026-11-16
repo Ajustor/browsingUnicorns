@@ -16,6 +16,7 @@ mod sync;
 mod sync_panel;
 mod system_font;
 mod tab_strip;
+pub mod theme;
 mod toolbar;
 mod updates;
 mod user_scripts;
@@ -30,9 +31,3 @@ pub use user_scripts::UserScriptsRunner;
 pub use app::{AddOns, BrowserApp, ExitSlot};
 
 pub const APP_NAME: &str = "Browsing Unicorns";
-
-pub fn install_fonts(ctx: &egui::Context) {
-    let mut fonts = egui::FontDefinitions::default();
-    egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
-    ctx.set_fonts(fonts);
-}

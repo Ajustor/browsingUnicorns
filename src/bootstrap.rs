@@ -31,7 +31,7 @@ pub fn build(
     exit_slot: ExitSlot,
     args: Args,
 ) -> anyhow::Result<BrowserApp> {
-    crate::ui::install_fonts(&cc.egui_ctx);
+    crate::ui::theme::install(&cc.egui_ctx);
 
     let dirs = ProfileDirs::default_location()
         .context("no data directory to keep history and bookmarks in")?;
