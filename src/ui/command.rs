@@ -9,6 +9,8 @@ use super::profiles::ProfileCommand;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
     NewTab,
+    /// A private window on this profile (its own process).
+    OpenPrivateWindow,
     CloseTab(TabId),
     CloseActiveTab,
     Activate(TabId),

@@ -34,6 +34,8 @@ pub struct LibraryData<'a> {
     pub sync: SyncView<'a>,
     pub extensions: ExtensionsView<'a>,
     pub profiles: &'a ProfilesRunner,
+    /// A private window: no sync, extensions or profiles.
+    pub private: bool,
 }
 
 #[derive(Default)]
@@ -71,6 +73,7 @@ impl Library {
             sync,
             extensions,
             profiles,
+            private,
         } = data;
         SidePanel::right("library")
             .resizable(true)
@@ -122,6 +125,15 @@ impl Library {
                         commands.push(Command::ToggleLibrary(view));
                     }
                 });
+                let not_private = matches!(
+                    view,
+                    LibraryView::Sync | LibraryView::Extensions | LibraryView::Profiles
+                );
+                if private && not_private {
+                    ui.separator();
+                    ui.weak(infrastructure::NOT_IN_PRIVATE);
+                    return;
+                }
                 match view {
                     LibraryView::About => {
                         ui.separator();

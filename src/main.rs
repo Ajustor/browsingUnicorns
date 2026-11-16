@@ -3,7 +3,7 @@
 //! This crate is the presentation layer (egui) and the composition root that
 //! wires the infrastructure adapters into the application use cases.
 //!
-//! Usage: `browsingUnicorns [--profile <id>] [address or search]`
+//! Usage: `browsingUnicorns [--profile <id>] [--private] [address or search]`
 
 // No console window on Windows, debug builds included. Launched from a
 // terminal (`cargo run`), the inherited handles still show the logs.
@@ -61,6 +61,8 @@ fn main() -> eframe::Result<()> {
 pub struct Args {
     /// `--profile <id>`: the profile to run (the default one otherwise).
     pub profile: Option<String>,
+    /// `--private`: a private window, which leaves nothing behind.
+    pub private: bool,
     /// An address or a search to open (a terminal, the OS opening a link).
     pub start_page: Option<String>,
 }
@@ -73,6 +75,8 @@ impl Args {
                 parsed.profile = args.next();
             } else if let Some(id) = arg.strip_prefix("--profile=") {
                 parsed.profile = Some(id.to_owned());
+            } else if arg == "--private" {
+                parsed.private = true;
             } else if parsed.start_page.is_none() {
                 parsed.start_page = Some(arg);
             }
@@ -106,5 +110,14 @@ mod tests {
         assert_eq!(args.profile.as_deref(), Some("work"));
         assert_eq!(args.start_page.as_deref(), Some("example.com"));
         assert_eq!(parse(&["--profile=home"]).profile.as_deref(), Some("home"));
+    }
+
+    #[test]
+    fn private_window() {
+        assert!(!parse(&["example.com"]).private);
+        let args = parse(&["--profile", "work", "--private", "example.com"]);
+        assert!(args.private);
+        assert_eq!(args.profile.as_deref(), Some("work"));
+        assert_eq!(args.start_page.as_deref(), Some("example.com"));
     }
 }

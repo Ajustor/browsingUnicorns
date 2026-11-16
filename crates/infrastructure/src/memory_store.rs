@@ -2,7 +2,11 @@
 
 use std::sync::Mutex;
 
-use application::ports::{Repository, RepositoryError};
+use application::ports::{
+    ExtensionError, ExtensionPackages, ExtensionSource, Repository, RepositoryError,
+    UserScriptPackages,
+};
+use domain::{Extension, ExtensionId, Extensions, UserScript, UserScriptId, UserScripts};
 
 /// The message of a write refused in a private window.
 pub const NOT_IN_PRIVATE: &str = "Not available in a private window.";
@@ -57,6 +61,34 @@ impl<T, R: Repository<T>> Repository<T> for ReadOnlyRepository<R> {
     fn save(&self, _value: &T) -> Result<(), RepositoryError> {
         Err(RepositoryError(NOT_IN_PRIVATE.into()))
     }
+}
+
+/// Extensions and user scripts where none may run (a private window):
+/// installs are refused, and nothing on disk is touched.
+pub struct NoPackages;
+
+impl ExtensionPackages for NoPackages {
+    fn install(&self, _source: &ExtensionSource) -> Result<Extension, ExtensionError> {
+        Err(ExtensionError(NOT_IN_PRIVATE.into()))
+    }
+
+    fn remove(&self, _id: &ExtensionId) -> Result<(), ExtensionError> {
+        Ok(())
+    }
+
+    fn prune(&self, _keep: &Extensions) {}
+}
+
+impl UserScriptPackages for NoPackages {
+    fn install(&self, _url: &str) -> Result<UserScript, ExtensionError> {
+        Err(ExtensionError(NOT_IN_PRIVATE.into()))
+    }
+
+    fn remove(&self, _id: &UserScriptId) -> Result<(), ExtensionError> {
+        Ok(())
+    }
+
+    fn prune(&self, _keep: &UserScripts) {}
 }
 
 #[cfg(test)]

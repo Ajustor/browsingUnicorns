@@ -91,6 +91,14 @@ pub fn show(
             }
             if button(
                 ui,
+                RichText::new(icon::MASK_HAPPY).size(16.0),
+                "New private window (Ctrl+Shift+N)",
+                true,
+            ) {
+                commands.push(Command::OpenPrivateWindow);
+            }
+            if button(
+                ui,
                 RichText::new(icon::BOOKS).size(16.0),
                 "History and bookmarks (Ctrl+H)",
                 true,

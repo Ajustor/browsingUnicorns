@@ -91,6 +91,17 @@ pub fn open_window(id: &ProfileId) -> std::io::Result<()> {
         .map(drop)
 }
 
+/// Starts a private window on profile `id` (its own process).
+pub fn open_private_window(id: &ProfileId) -> std::io::Result<()> {
+    let exe = std::env::current_exe()?;
+    std::process::Command::new(exe)
+        .arg("--profile")
+        .arg(id.as_str())
+        .arg("--private")
+        .spawn()
+        .map(drop)
+}
+
 /// Held by the window that runs a profile, until it closes (the OS
 /// releases it if the process dies).
 pub struct ProfileLock {

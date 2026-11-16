@@ -6,7 +6,7 @@ use std::sync::mpsc;
 use anyhow::Context as _;
 use application::ports::{Repository, WebEngine as _};
 use application::{Browser, ExtensionManager, ProfileManager, Target, UserScriptManager};
-use domain::{ProfileId, Settings};
+use domain::{Extensions, ProfileId, Profiles, Settings, UserScripts};
 use infrastructure::blocker::{BlockerHandle, BlockerLists, BlockerPolicy};
 use infrastructure::extension_hub::Hub;
 use infrastructure::extensions::ExtensionFolder;
@@ -15,7 +15,8 @@ use infrastructure::profiles::{ProfileDirs, ProfileLock};
 use infrastructure::script_storage::{ScriptStorage, new_token};
 use infrastructure::user_scripts::{UserScriptFolder, UserScriptRepository};
 use infrastructure::{
-    EngineFiles, JsonRepository, ParentWindow, TomlSettingsRepository, WryEngine,
+    EngineFiles, JsonRepository, MemoryRepository, NoPackages, ParentWindow, PrivateDataDir,
+    TomlSettingsRepository, WryEngine,
 };
 use updater::{UpdateMemory, Updater};
 
@@ -26,6 +27,31 @@ use crate::ui::{
     AddOns, BlockerRunner, BrowserApp, ExitSlot, ExtensionBar, ExtensionsRunner, ProfilesRunner,
     SyncRunner, Updates, UserScriptsRunner,
 };
+
+/// What a window runs: a private one leaves the profile alone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Setup {
+    /// Reopens the profile's last tabs.
+    pub restore_session: bool,
+    /// Runs the profile's extensions and user scripts.
+    pub extensions: bool,
+    pub sync: bool,
+    /// Checks for updates once a day.
+    pub updates: bool,
+    /// Downloads the ad blocker's lists (and writes their cache).
+    pub blocker_refresh: bool,
+}
+
+pub fn private_setup(private: bool) -> Setup {
+    let normal = !private;
+    Setup {
+        restore_session: normal,
+        extensions: normal,
+        sync: normal,
+        updates: normal,
+        blocker_refresh: normal,
+    }
+}
 
 pub fn build(
     cc: &eframe::CreationContext<'_>,
@@ -45,16 +71,37 @@ pub fn build(
         None => ProfileId::default_profile(),
     };
     let profile_dir = dirs.dir(&current);
-    let lock = ProfileLock::acquire(&profile_dir);
-    if lock.is_none() {
-        log::warn!("profile {current} is already open in another window");
-    }
-    let profiles = ProfileManager::load(
-        Box::new(dirs.list()),
-        Box::new(dirs.clone()),
-        current.clone(),
-    )
-    .context("could not read the profiles")?;
+    // What crashed private windows left behind.
+    infrastructure::clean_leftovers();
+    let setup = private_setup(args.private);
+    // A private window writes nothing under the profile: what the engine
+    // and the add-ons keep goes to a temporary folder, deleted at exit.
+    let private_data = if args.private {
+        Some(PrivateDataDir::create().context("no temporary folder for the private window")?)
+    } else {
+        None
+    };
+    let files_dir = private_data
+        .as_ref()
+        .map_or_else(|| profile_dir.clone(), |d| d.path().to_path_buf());
+    // The normal window of the profile keeps its lock.
+    let lock = if args.private {
+        None
+    } else {
+        let lock = ProfileLock::acquire(&profile_dir);
+        if lock.is_none() {
+            log::warn!("profile {current} is already open in another window");
+        }
+        lock
+    };
+    let profile_list: Box<dyn Repository<Profiles>> = if args.private {
+        let list = dirs.list().load().context("could not read the profiles")?;
+        Box::new(MemoryRepository::new(list))
+    } else {
+        Box::new(dirs.list())
+    };
+    let profiles = ProfileManager::load(profile_list, Box::new(dirs.clone()), current.clone())
+        .context("could not read the profiles")?;
     let settings_repo: TomlSettingsRepository = dirs
         .settings(&current)
         .context("no config directory to keep the settings in")?;
@@ -75,70 +122,97 @@ pub fn build(
     let engine = WryEngine::new(
         parent,
         EngineFiles {
-            data_dir: profile_dir.join("webview"),
-            extensions_dir: profile_dir.join("extensions"),
-            user_scripts_dir: profile_dir.join("userscripts"),
-            state_dir: profile_dir.join("extension-state"),
+            data_dir: files_dir.join("webview"),
+            extensions_dir: files_dir.join("extensions"),
+            user_scripts_dir: files_dir.join("userscripts"),
+            state_dir: files_dir.join("extension-state"),
             page_token: page_token.clone(),
+            private: args.private,
         },
         sender,
         Arc::new(move || ctx.request_repaint()),
         blocker.clone(),
     );
 
-    let mut browser = Browser::new(
-        engine,
-        settings,
-        infrastructure::json_profile(&profile_dir, settings_repo),
-    );
+    let profile = if args.private {
+        infrastructure::private_profile(&profile_dir, settings.clone())
+    } else {
+        infrastructure::json_profile(&profile_dir, settings_repo)
+    };
+    let mut browser = Browser::new(engine, settings, profile);
     for e in browser.load_profile() {
         log::warn!("profile: {e}");
     }
     // Handed to the engine before the first tab: it installs them with it.
-    let extensions = ExtensionManager::load(
-        Box::new(JsonRepository::new(profile_dir.join("extensions.json"))),
-        Arc::new(ExtensionFolder::new(
-            profile_dir.join("extensions"),
-            infrastructure::extensions::ureq_download(),
-        )),
-    )
+    // None in a private window: an empty list in memory, and no package
+    // folder (loading prunes it).
+    let extensions = if setup.extensions {
+        ExtensionManager::load(
+            Box::new(JsonRepository::new(profile_dir.join("extensions.json"))),
+            Arc::new(ExtensionFolder::new(
+                profile_dir.join("extensions"),
+                infrastructure::extensions::ureq_download(),
+            )),
+        )
+    } else {
+        ExtensionManager::load(
+            Box::new(MemoryRepository::<Extensions>::default()),
+            Arc::new(NoPackages),
+        )
+    }
     .context("could not read the extensions")?;
     browser.engine_mut().set_extensions(extensions.extensions());
-    let user_scripts = UserScriptManager::load(
-        Box::new(UserScriptRepository::new(
-            profile_dir.join("userscripts.json"),
-            profile_dir.join("userscripts"),
-        )),
-        Arc::new(UserScriptFolder::new(
-            profile_dir.join("userscripts"),
-            infrastructure::extensions::ureq_download(),
-        )),
-    )
+    let user_scripts = if setup.extensions {
+        UserScriptManager::load(
+            Box::new(UserScriptRepository::new(
+                profile_dir.join("userscripts.json"),
+                profile_dir.join("userscripts"),
+            )),
+            Arc::new(UserScriptFolder::new(
+                profile_dir.join("userscripts"),
+                infrastructure::extensions::ureq_download(),
+            )),
+        )
+    } else {
+        UserScriptManager::load(
+            Box::new(MemoryRepository::<UserScripts>::default()),
+            Arc::new(NoPackages),
+        )
+    }
     .context("could not read the user scripts")?;
     browser
         .engine_mut()
         .set_user_scripts(user_scripts.scripts());
-    let script_storage = ScriptStorage::new(profile_dir.join("script-storage"), page_token);
-    browser
-        .restore_session()
-        .context("could not open the first tab")?;
+    let script_storage = ScriptStorage::new(files_dir.join("script-storage"), page_token);
+    if setup.restore_session {
+        browser
+            .restore_session()
+            .context("could not open the first tab")?;
+    }
     // `browsingUnicorns <address>`: from a terminal, or the OS opening a link.
     if let Some(input) = args.start_page
         && let Err(e) = browser.submit(&input, Target::NewTab)
     {
         log::warn!("start page {input:?}: {e}");
     }
+    // A private window starts on the home page, unless given an address.
+    if browser.session().is_empty() {
+        browser
+            .open_tab(None)
+            .context("could not open the first tab")?;
+    }
 
     let ctx = cc.egui_ctx.clone();
     let updates = Updates::new(
         Updater::new(&crate::APP, move || ctx.request_repaint()),
-        UpdateMemory::new(&profile_dir),
+        setup.updates.then(|| UpdateMemory::new(&profile_dir)),
     );
     let ctx = cc.egui_ctx.clone();
-    let sync = SyncRunner::new(
-        SyncConfigFile::new(profile_dir.join("sync.json")),
-        move || ctx.request_repaint(),
-    );
+    // Off in a private window: its folder has no sync configuration.
+    let sync_dir = if setup.sync { &profile_dir } else { &files_dir };
+    let sync = SyncRunner::new(SyncConfigFile::new(sync_dir.join("sync.json")), move || {
+        ctx.request_repaint()
+    });
     let ctx = cc.egui_ctx.clone();
     let extensions = ExtensionsRunner::new(extensions, move || ctx.request_repaint());
     let ctx = cc.egui_ctx.clone();
@@ -148,13 +222,14 @@ pub fn build(
         blocker,
         infrastructure::blocker_dir()
             .map(|dir| BlockerLists::new(dir, infrastructure::extensions::ureq_download())),
+        setup.blocker_refresh,
         move || ctx.request_repaint(),
     );
     let mut hub = Hub::new(
         script_storage,
         Bridge::Ipc,
-        profile_dir.join("extensions"),
-        profile_dir.join("extension-state"),
+        files_dir.join("extensions"),
+        files_dir.join("extension-state"),
     );
     let ctx = cc.egui_ctx.clone();
     hub.set_native_waker(move || ctx.request_repaint());
@@ -167,12 +242,35 @@ pub fn build(
         sync,
         AddOns {
             extensions,
-            bar: ExtensionBar::new(profile_dir.join("extensions")),
+            bar: ExtensionBar::new(files_dir.join("extensions")),
             user_scripts,
             hub,
             blocker,
         },
         ProfilesRunner::new(profiles, lock),
         exit_slot,
+        private_data,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_private_window_runs_nothing_of_the_profile() {
+        let normal = private_setup(false);
+        assert!(normal.restore_session && normal.extensions && normal.sync);
+        assert!(normal.updates && normal.blocker_refresh);
+        assert_eq!(
+            private_setup(true),
+            Setup {
+                restore_session: false,
+                extensions: false,
+                sync: false,
+                updates: false,
+                blocker_refresh: false,
+            }
+        );
+    }
 }

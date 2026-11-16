@@ -9,6 +9,11 @@ use super::library::LibraryView;
 /// ([`page_keys`], [`from_page`]).
 const SHORTCUTS: &[(Modifiers, Key, Command)] = &[
     (Modifiers::COMMAND, Key::T, Command::NewTab),
+    (
+        Modifiers::COMMAND.plus(Modifiers::SHIFT),
+        Key::N,
+        Command::OpenPrivateWindow,
+    ),
     (Modifiers::COMMAND, Key::W, Command::CloseActiveTab),
     (
         Modifiers::COMMAND.plus(Modifiers::SHIFT),
@@ -113,6 +118,10 @@ mod tests {
         assert!(matches!(
             from_page(&press("F5", false, false, false)),
             Some(Command::Reload)
+        ));
+        assert!(matches!(
+            from_page(&press("N", true, true, false)),
+            Some(Command::OpenPrivateWindow)
         ));
         // A page's own keys stay with it.
         assert!(from_page(&press("C", true, false, false)).is_none());

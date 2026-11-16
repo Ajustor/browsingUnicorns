@@ -10,7 +10,8 @@ use super::command::Command;
 /// The updater plus what it remembers across runs.
 pub struct Updates {
     pub updater: Updater,
-    memory: UpdateMemory,
+    /// `None` in a private window: no automatic check, nothing written.
+    memory: Option<UpdateMemory>,
     /// The running check is the automatic one, to record once done.
     auto_check: bool,
 }
@@ -24,7 +25,7 @@ pub struct Notice {
 }
 
 impl Updates {
-    pub fn new(updater: Updater, memory: UpdateMemory) -> Self {
+    pub fn new(updater: Updater, memory: Option<UpdateMemory>) -> Self {
         Self {
             updater,
             memory,
@@ -34,9 +35,12 @@ impl Updates {
 
     /// The daily automatic check, unless one ran in the last 24 h.
     pub fn check_if_due(&mut self) {
-        if updater::should_check(self.memory.last_check(), updater::unix_now()) {
+        let Some(memory) = &self.memory else {
+            return;
+        };
+        if updater::should_check(memory.last_check(), updater::unix_now()) {
             self.auto_check = true;
-            let skipped = self.memory.skipped_version();
+            let skipped = memory.skipped_version();
             self.updater.check(false, skipped.as_deref());
         }
     }
@@ -46,8 +50,10 @@ impl Updates {
     }
 
     pub fn skip(&mut self) {
-        if let Some(version) = self.updater.skip() {
-            self.memory.skip_version(&version);
+        if let Some(version) = self.updater.skip()
+            && let Some(memory) = &self.memory
+        {
+            memory.skip_version(&version);
         }
     }
 
@@ -56,7 +62,9 @@ impl Updates {
         let event = self.updater.poll();
         if self.auto_check && !matches!(self.updater.state, UpdateState::Checking) {
             self.auto_check = false;
-            self.memory.record_check(updater::unix_now());
+            if let Some(memory) = &self.memory {
+                memory.record_check(updater::unix_now());
+            }
         }
         let (error, text) = match event? {
             UpdateEvent::UpToDate => (false, "browsingUnicorns is up to date.".to_owned()),

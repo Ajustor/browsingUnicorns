@@ -57,6 +57,9 @@ pub struct EngineFiles {
     pub state_dir: PathBuf,
     /// Written into the page scripts, checked by the script storage.
     pub page_token: String,
+    /// A private window: on macOS, where WKWebView ignores `data_dir`, the
+    /// views keep their data in memory only.
+    pub private: bool,
 }
 
 /// Whether the browser runs extensions itself (every platform, by
@@ -156,6 +159,7 @@ fn bounds(v: Viewport) -> Rect {
 fn base_builder<'a>(
     context: &'a mut WebContext,
     server: Option<&Arc<ExtensionServer>>,
+    private: bool,
     source: PageSource,
     emit: impl Fn(EngineEvent) + 'static,
 ) -> WebViewBuilder<'a> {
@@ -174,6 +178,12 @@ fn base_builder<'a>(
             .with_browser_extensions_enabled(!builtin_extensions())
             .with_https_scheme(true)
     };
+    // WKWebView uses the app's default data store whatever the context
+    // says: a private window's views get a non-persistent one.
+    #[cfg(target_os = "macos")]
+    let builder = builder.with_incognito(private);
+    #[cfg(not(target_os = "macos"))]
+    let _ = private;
     let builder = builder
         .with_devtools(true)
         .with_ipc_handler(move |request| {
@@ -454,6 +464,7 @@ impl WryEngine {
             let view = base_builder(
                 &mut self.context,
                 self.server.as_ref(),
+                self.files.private,
                 PageSource::Background(id.clone()),
                 emit,
             )
@@ -571,6 +582,7 @@ impl WebEngine for WryEngine {
         let builder = base_builder(
             &mut self.context,
             self.server.as_ref(),
+            self.files.private,
             PageSource::Tab(tab),
             on_message,
         );
@@ -842,6 +854,7 @@ impl WebEngine for WryEngine {
         let view = base_builder(
             &mut self.context,
             self.server.as_ref(),
+            self.files.private,
             PageSource::Panel,
             emit,
         )

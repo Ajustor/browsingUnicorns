@@ -46,7 +46,7 @@ use domain::{BrowsingHistory, SessionSnapshot, Settings};
 
 pub use clock::SystemClock;
 pub use json_store::JsonRepository;
-pub use memory_store::{MemoryRepository, NOT_IN_PRIVATE, ReadOnlyRepository};
+pub use memory_store::{MemoryRepository, NOT_IN_PRIVATE, NoPackages, ReadOnlyRepository};
 #[cfg(feature = "desktop")]
 pub use parent_window::ParentWindow;
 #[cfg(feature = "desktop")]

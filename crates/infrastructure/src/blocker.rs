@@ -394,6 +394,15 @@ impl BlockerLists {
     /// The cached engine (`engine.dat`), or one rebuilt from the cached
     /// lists when it is unreadable; `None` when nothing is cached.
     pub fn load_cached(&self) -> Option<Blocker> {
+        self.cached(true)
+    }
+
+    /// [`Self::load_cached`] that writes nothing (a private window).
+    pub fn read_cached(&self) -> Option<Blocker> {
+        self.cached(false)
+    }
+
+    fn cached(&self, save: bool) -> Option<Blocker> {
         let engine_path = self.dir.join(ENGINE_FILE);
         let mut blocker = match fs::read(&engine_path)
             .ok()
@@ -402,7 +411,9 @@ impl BlockerLists {
             Some(blocker) => blocker,
             None => {
                 let blocker = self.build()?;
-                self.save_engine(&blocker);
+                if save {
+                    self.save_engine(&blocker);
+                }
                 blocker
             }
         };
@@ -626,8 +637,12 @@ b.test##.other-ad
         let lists = BlockerLists::new(dir.path(), fake(vec![Ok(LIST), Ok(LIST)]));
         lists.refresh().unwrap();
         fs::write(dir.path().join(ENGINE_FILE), b"garbage").unwrap();
+        let b = lists.read_cached().unwrap();
+        assert!(b.should_block("https://ads.test/x.js", PAGE, Some(ResourceType::Script)));
+        assert_eq!(fs::read(dir.path().join(ENGINE_FILE)).unwrap(), b"garbage");
         let b = lists.load_cached().unwrap();
         assert!(b.should_block("https://ads.test/x.js", PAGE, Some(ResourceType::Script)));
+        assert_ne!(fs::read(dir.path().join(ENGINE_FILE)).unwrap(), b"garbage");
     }
 
     #[test]

@@ -17,14 +17,18 @@ pub struct BlockerRunner {
     waker: Arc<dyn Fn() + Send + Sync>,
     /// The window had the focus at the last frame.
     focused: bool,
+    /// The lists may be downloaded and the cache written (not in a private
+    /// window, which only reads them).
+    refresh: bool,
 }
 
 impl BlockerRunner {
-    /// Loads the cached engine, then downloads the lists if due, on a
-    /// thread.
+    /// Loads the cached engine, then downloads the lists if due and
+    /// `refresh` allows it, on a thread.
     pub fn start(
         handle: BlockerHandle,
         lists: Option<BlockerLists>,
+        refresh: bool,
         waker: impl Fn() + Send + Sync + 'static,
     ) -> Self {
         let runner = Self {
@@ -33,6 +37,7 @@ impl BlockerRunner {
             busy: Arc::default(),
             waker: Arc::new(waker),
             focused: true,
+            refresh,
         };
         runner.spawn(true);
         runner
@@ -46,12 +51,20 @@ impl BlockerRunner {
             return;
         }
         let (handle, busy, waker) = (self.handle.clone(), self.busy.clone(), self.waker.clone());
+        let refresh = self.refresh;
         std::thread::spawn(move || {
-            if load_cache && let Some(blocker) = lists.load_cached() {
+            let cached = if !load_cache {
+                None
+            } else if refresh {
+                lists.load_cached()
+            } else {
+                lists.read_cached()
+            };
+            if let Some(blocker) = cached {
                 handle.set(blocker);
                 waker();
             }
-            if lists.due() {
+            if refresh && lists.due() {
                 match lists.refresh() {
                     Ok(blocker) => {
                         handle.set(blocker);
@@ -68,7 +81,8 @@ impl BlockerRunner {
     /// back, hands the settings' changes (here or synced) to the hooks.
     pub fn follow(&mut self, ctx: &egui::Context, settings: &Settings) {
         let focused = ctx.input(|i| i.focused);
-        if focused && !self.focused && self.lists.as_ref().is_some_and(|l| l.due()) {
+        if self.refresh && focused && !self.focused && self.lists.as_ref().is_some_and(|l| l.due())
+        {
             self.spawn(false);
         }
         self.focused = focused;

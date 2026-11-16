@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use application::Browser;
 use application::ports::{EngineEvent, PageSource, Viewport, WebEngine as _};
 use egui::{CentralPanel, Frame, TopBottomPanel, ViewportCommand};
-use infrastructure::WryEngine;
+use infrastructure::{NOT_IN_PRIVATE, PrivateDataDir, WryEngine};
 use updater::ExitAction;
 
 use super::blocker::BlockerRunner;
@@ -50,6 +50,9 @@ pub struct BrowserApp {
     window_title: String,
     last_persist: Instant,
     close_requested: bool,
+    /// A private window's web view data. Last: dropped (deleted) after the
+    /// web views.
+    private_data: Option<PrivateDataDir>,
 }
 
 /// Extensions, user scripts and the storage of their page scripts.
@@ -68,6 +71,7 @@ pub struct AddOns {
 const PERSIST_EVERY: Duration = Duration::from_secs(5);
 
 impl BrowserApp {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         browser: Browser<WryEngine>,
         events: Receiver<EngineEvent>,
@@ -76,6 +80,7 @@ impl BrowserApp {
         add_ons: AddOns,
         profiles: ProfilesRunner,
         exit_slot: ExitSlot,
+        private_data: Option<PrivateDataDir>,
     ) -> Self {
         let AddOns {
             extensions,
@@ -109,7 +114,13 @@ impl BrowserApp {
             window_title: String::new(),
             last_persist: Instant::now(),
             close_requested: false,
+            private_data,
         }
+    }
+
+    /// A private window: nothing written to the profile.
+    fn is_private(&self) -> bool {
+        self.private_data.is_some()
     }
 
     fn report(&mut self, error: impl std::fmt::Display) {
@@ -122,6 +133,14 @@ impl BrowserApp {
     }
 
     fn run(&mut self, command: Command) {
+        if self.is_private() && writes_profile(&command) {
+            self.notice = Some(Notice {
+                error: false,
+                text: NOT_IN_PRIVATE.into(),
+                file: None,
+            });
+            return;
+        }
         let result = match command {
             Command::NewTab => self.browser.open_tab(None).map(|_| {
                 self.browser.engine().focus_window();
@@ -210,6 +229,11 @@ impl BrowserApp {
                 let mut settings = self.browser.settings().clone();
                 settings.blocker = on;
                 self.change_blocker(settings)
+            }
+            Command::OpenPrivateWindow => {
+                let r = infrastructure::profiles::open_private_window(&self.profiles.current().id)
+                    .map_err(|e| format!("Could not open a private window: {e}"));
+                return self.report_err(r);
             }
             other => {
                 self.run_ui(other);
@@ -302,6 +326,7 @@ impl BrowserApp {
             | Command::SetBlockerForSite(..)
             | Command::SetBlocker(_)
             | Command::Profile(_)
+            | Command::OpenPrivateWindow
             | Command::ToggleExtensionPopup { .. } => unreachable!("handled by run"),
         }
     }
@@ -486,10 +511,13 @@ impl BrowserApp {
         } else {
             APP_NAME.to_owned()
         };
-        let title = match self.browser.session().active() {
+        let mut title = match self.browser.session().active() {
             Some(tab) => format!("{} — {app}", tab.display_title()),
             None => app,
         };
+        if self.is_private() {
+            title.push_str(" (private)");
+        }
         if title != self.window_title {
             ctx.send_viewport_cmd(ViewportCommand::Title(title.clone()));
             self.window_title = title;
@@ -525,6 +553,26 @@ impl BrowserApp {
             self.notice = None;
         }
     }
+}
+
+/// What a private window refuses: it would write to the profile.
+fn writes_profile(command: &Command) -> bool {
+    matches!(
+        command,
+        Command::ToggleBookmark
+            | Command::RemoveBookmark(_)
+            | Command::SyncTurnOn
+            | Command::SyncJoin(_)
+            | Command::SyncTurnOff
+            | Command::SyncNow
+            | Command::InstallExtension(_)
+            | Command::SetExtensionEnabled(..)
+            | Command::RemoveExtension(_)
+            | Command::InstallUserScript(_)
+            | Command::SetUserScriptEnabled(..)
+            | Command::RemoveUserScript(_)
+            | Command::Profile(_)
+    )
 }
 
 impl eframe::App for BrowserApp {
@@ -604,7 +652,7 @@ impl eframe::App for BrowserApp {
                 });
         }
         self.updates.banner(ctx, &mut commands);
-        if self.library.open == Some(LibraryView::Profiles) {
+        if self.library.open == Some(LibraryView::Profiles) && !self.is_private() {
             self.profiles.refresh(ctx);
         }
         self.notice_bar(ctx);
@@ -629,6 +677,7 @@ impl eframe::App for BrowserApp {
                     user_scripts: &self.user_scripts,
                 },
                 profiles: &self.profiles,
+                private: self.is_private(),
             },
             &mut commands,
         );
