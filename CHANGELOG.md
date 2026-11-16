@@ -4,6 +4,18 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.9.1] - 2026-11-16
+
+### Corrigé
+
+- Extensions : `runtime.connect` et `tabs.connect` ouvrent de vrais ports
+  entre les pages de l'extension et ses scripts (messages dans les deux sens,
+  `onDisconnect`). La popup de Bitwarden, qui attend sa page de fond sur ces
+  ports, restait en chargement.
+- Extensions : les messages des pages de l'extension (popup, page de fond)
+  portent leur origine, comme dans Chrome ; les extensions qui la vérifient
+  (Bitwarden) ignoraient ces messages.
+
 ## [0.9.0] - 2026-11-16
 
 ### Ajouté
