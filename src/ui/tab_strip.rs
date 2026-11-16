@@ -7,11 +7,18 @@ use super::command::Command;
 
 const TITLE_CHARS: usize = 24;
 
-pub fn show(ui: &mut egui::Ui, session: &Session, commands: &mut Vec<Command>) {
-    use super::theme;
-
+pub fn show(
+    ui: &mut egui::Ui,
+    session: &Session,
+    chrome: &super::theme::Chrome,
+    private: bool,
+    commands: &mut Vec<Command>,
+) {
     ui.spacing_mut().item_spacing.x = 3.0;
     ui.horizontal(|ui| {
+        if private {
+            private_pill(ui, chrome);
+        }
         // As wide as the tabs: the + follows the last one (room kept for it
         // when they overflow).
         ScrollArea::horizontal()
@@ -21,7 +28,7 @@ pub fn show(ui: &mut egui::Ui, session: &Session, commands: &mut Vec<Command>) {
                 ui.horizontal(|ui| {
                     for tab in session.tabs() {
                         let active = session.active_id() == Some(tab.id());
-                        tab_button(ui, tab, active, commands);
+                        tab_button(ui, tab, active, chrome, commands);
                     }
                 });
             });
@@ -37,11 +44,17 @@ pub fn show(ui: &mut egui::Ui, session: &Session, commands: &mut Vec<Command>) {
         }
     });
 
-    fn tab_button(ui: &mut egui::Ui, tab: &domain::Tab, active: bool, commands: &mut Vec<Command>) {
+    fn tab_button(
+        ui: &mut egui::Ui,
+        tab: &domain::Tab,
+        active: bool,
+        chrome: &super::theme::Chrome,
+        commands: &mut Vec<Command>,
+    ) {
         let (fill, text) = if active {
-            (theme::NIGHT, Color32::WHITE)
+            (chrome.night, Color32::WHITE)
         } else {
-            (Color32::TRANSPARENT, theme::TAB_TEXT)
+            (Color32::TRANSPARENT, super::theme::TAB_TEXT)
         };
         let frame = egui::Frame::NONE
             .fill(fill)
@@ -121,6 +134,25 @@ pub fn show(ui: &mut egui::Ui, session: &Session, commands: &mut Vec<Command>) {
             commands.push(Command::CloseTab(tab.id()));
         }
     }
+}
+
+/// "Private", with the mask, before the tabs of a private window.
+fn private_pill(ui: &mut egui::Ui, chrome: &super::theme::Chrome) {
+    egui::Frame::NONE
+        .fill(chrome.night)
+        .corner_radius(egui::CornerRadius::same(255))
+        .inner_margin(egui::Margin::symmetric(10, 4))
+        .show(ui, |ui| {
+            ui.add(
+                egui::Label::new(
+                    RichText::new(format!("{} Private", icon::MASK_HAPPY))
+                        .color(super::theme::CHROME_TEXT),
+                )
+                .selectable(false),
+            )
+            .on_hover_text("Private window: no history, cookies deleted at closing");
+        });
+    ui.add_space(4.0);
 }
 
 /// A light disc under a hovered button: egui's own hover color (night)

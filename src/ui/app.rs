@@ -600,6 +600,7 @@ impl eframe::App for BrowserApp {
             commands.extend(super::shortcuts::from_page(&press));
         }
 
+        let chrome = super::theme::Chrome::of(self.is_private());
         TopBottomPanel::top("tabs")
             .frame(egui::Frame::NONE.inner_margin(egui::Margin {
                 left: 8,
@@ -609,8 +610,18 @@ impl eframe::App for BrowserApp {
             }))
             .show_separator_line(false)
             .show(ctx, |ui| {
-                super::theme::gradient(ui.painter(), ui.max_rect().expand2(egui::vec2(8.0, 6.0)));
-                tab_strip::show(ui, self.browser.session(), &mut commands);
+                super::theme::gradient(
+                    ui.painter(),
+                    ui.max_rect().expand2(egui::vec2(8.0, 6.0)),
+                    &chrome,
+                );
+                tab_strip::show(
+                    ui,
+                    self.browser.session(),
+                    &chrome,
+                    self.is_private(),
+                    &mut commands,
+                );
             });
         let actions = if infrastructure::builtin_extensions() {
             self.bar.actions(ctx, self.extensions.extensions())
@@ -619,10 +630,10 @@ impl eframe::App for BrowserApp {
         };
         let shield = self.shield_button();
         TopBottomPanel::top("toolbar")
-            .frame(super::theme::chrome_frame())
+            .frame(super::theme::chrome_frame(&chrome))
             .show_separator_line(false)
             .show(ctx, |ui| {
-                super::theme::chrome_style(ui);
+                super::theme::chrome_style(ui, &chrome);
                 toolbar::show(
                     ui,
                     self.browser.session().active(),
@@ -638,16 +649,19 @@ impl eframe::App for BrowserApp {
         self.shield_bar(ctx, &mut commands);
         if !self.browser.bookmarks().is_empty() {
             TopBottomPanel::top("bookmarks")
-                .frame(super::theme::chrome_frame().inner_margin(egui::Margin::symmetric(10, 3)))
+                .frame(
+                    super::theme::chrome_frame(&chrome)
+                        .inner_margin(egui::Margin::symmetric(10, 3)),
+                )
                 .show_separator_line(false)
                 .show(ctx, |ui| {
-                    super::theme::chrome_style(ui);
+                    super::theme::chrome_style(ui, &chrome);
                     bookmarks_bar::show(ui, self.browser.bookmarks(), &mut commands);
                     let r = ui.max_rect();
                     ui.painter().hline(
                         r.x_range(),
                         r.bottom() + 3.0,
-                        egui::Stroke::new(super::theme::HAIRLINE, super::theme::NIGHT_HOVER),
+                        egui::Stroke::new(super::theme::HAIRLINE, chrome.hover),
                     );
                 });
         }

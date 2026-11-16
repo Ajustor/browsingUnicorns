@@ -33,6 +33,36 @@ pub const TAB_TEXT: Color32 = Color32::from_rgba_premultiplied(230, 230, 230, 23
 /// Lock, active star, focus.
 pub const CYAN: Color32 = rgb(0x5adcff);
 
+/// The colors of a window's chrome: night purple, or anthracite in a
+/// private window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Chrome {
+    /// The tab strip, left to right.
+    pub gradient: [Color32; 3],
+    /// Active tab, toolbar, bookmarks bar.
+    pub night: Color32,
+    /// Hovered chrome buttons; the bookmarks bar's bottom line.
+    pub hover: Color32,
+}
+
+pub const NORMAL: Chrome = Chrome {
+    gradient: GRADIENT,
+    night: NIGHT,
+    hover: NIGHT_HOVER,
+};
+
+pub const PRIVATE: Chrome = Chrome {
+    gradient: [rgb(0x2b2b33), rgb(0x3a3a46), rgb(0x2b2b33)],
+    night: rgb(0x1f1f26),
+    hover: rgb(0x34343f),
+};
+
+impl Chrome {
+    pub fn of(private: bool) -> Self {
+        if private { PRIVATE } else { NORMAL }
+    }
+}
+
 /// Side panel and banners, dark theme.
 pub mod dark {
     use super::{Color32, rgb};
@@ -163,10 +193,10 @@ fn visuals(theme: Theme) -> Visuals {
 }
 
 /// Paints the tab strip's gradient over `rect` (left to right).
-pub fn gradient(painter: &Painter, rect: Rect) {
+pub fn gradient(painter: &Painter, rect: Rect, chrome: &Chrome) {
     let mut mesh = Mesh::default();
-    let stops = GRADIENT.len() - 1;
-    for (i, color) in GRADIENT.iter().enumerate() {
+    let stops = chrome.gradient.len() - 1;
+    for (i, color) in chrome.gradient.iter().enumerate() {
         let x = egui::lerp(rect.left()..=rect.right(), i as f32 / stops as f32);
         mesh.vertices.push(Vertex {
             pos: egui::pos2(x, rect.top()),
@@ -188,9 +218,9 @@ pub fn gradient(painter: &Painter, rect: Rect) {
 }
 
 /// The dark frame of the toolbar and the bookmarks bar.
-pub fn chrome_frame() -> Frame {
+pub fn chrome_frame(chrome: &Chrome) -> Frame {
     Frame::NONE
-        .fill(NIGHT)
+        .fill(chrome.night)
         .inner_margin(Margin::symmetric(8, 5))
 }
 
@@ -215,16 +245,16 @@ pub fn pill(ui: &mut egui::Ui, selected: bool, text: impl Into<String>) -> egui:
 
 /// Chrome widgets (toolbar, tab strip, bookmarks bar): always dark, lavender
 /// text, rounded hover, cyan focus. Call at the start of their `ui`.
-pub fn chrome_style(ui: &mut egui::Ui) {
+pub fn chrome_style(ui: &mut egui::Ui, chrome: &Chrome) {
     let v = ui.visuals_mut();
     *v = visuals(Theme::Dark);
     v.override_text_color = Some(CHROME_TEXT);
-    v.panel_fill = NIGHT;
+    v.panel_fill = chrome.night;
     v.extreme_bg_color = NIGHT_DEEP;
     v.widgets.inactive.weak_bg_fill = Color32::TRANSPARENT;
     v.widgets.inactive.bg_fill = NIGHT_DEEP;
     v.widgets.inactive.bg_stroke = Stroke::new(HAIRLINE, OMNIBOX_STROKE);
-    v.widgets.hovered.weak_bg_fill = NIGHT_HOVER;
+    v.widgets.hovered.weak_bg_fill = chrome.hover;
     v.widgets.hovered.bg_fill = NIGHT_DEEP;
     v.widgets.hovered.bg_stroke = Stroke::new(HAIRLINE, OMNIBOX_STROKE);
     v.widgets.active.bg_stroke = Stroke::new(HAIRLINE, CYAN);
@@ -244,18 +274,22 @@ mod tests {
 
     #[test]
     fn text_is_readable_everywhere() {
-        assert!(contrast(CHROME_TEXT, NIGHT) >= 4.5);
         assert!(contrast(CHROME_TEXT, NIGHT_DEEP) >= 4.5);
         assert!(contrast(dark::TEXT, dark::PANEL) >= 4.5);
         assert!(contrast(light::TEXT, light::PANEL) >= 4.5);
         assert!(contrast(Color32::WHITE, light::ACCENT) >= 4.5);
-        assert!(contrast(NIGHT, CYAN) >= 4.5);
-        // Inactive tab titles on the gradient's lightest end.
-        let lightest = GRADIENT[2];
-        assert!(
-            contrast(TAB_TEXT, lightest) >= 3.0,
-            "{}",
-            contrast(TAB_TEXT, lightest)
-        );
+        for chrome in [NORMAL, PRIVATE] {
+            assert!(contrast(CHROME_TEXT, chrome.night) >= 4.5);
+            assert!(contrast(CHROME_TEXT, chrome.hover) >= 4.5);
+            assert!(contrast(chrome.night, CYAN) >= 4.5);
+            // Inactive tab titles on the gradient's lightest stop.
+            for stop in chrome.gradient {
+                assert!(
+                    contrast(TAB_TEXT, stop) >= 3.0,
+                    "{}",
+                    contrast(TAB_TEXT, stop)
+                );
+            }
+        }
     }
 }
