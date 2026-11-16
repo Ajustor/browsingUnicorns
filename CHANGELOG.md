@@ -4,6 +4,14 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.9.2] - 2026-11-16
+
+### Corrigé
+
+- Les popups d'extension clignotaient (Bitwarden) : leur page était remise
+  en page toutes les 400 ms pour mesurer sa largeur. La largeur est mesurée
+  une fois à l'ouverture, ensuite seule la hauteur est suivie.
+
 ## [0.9.1] - 2026-11-16
 
 ### Corrigé
