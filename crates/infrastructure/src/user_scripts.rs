@@ -157,7 +157,7 @@ impl UserScriptPackages for UserScriptFolder {
                 .strip_suffix(".user.js")
                 .or_else(|| name.strip_suffix(".require.js"))
                 .and_then(UserScriptId::parse);
-            if !id.is_some_and(|id| keep.get(&id).is_some())
+            if id.is_none_or(|id| keep.get(&id).is_none())
                 && entry.path().is_file()
                 && let Err(e) = fs::remove_file(entry.path())
             {

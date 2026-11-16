@@ -12,6 +12,9 @@ const fn rgb(hex: u32) -> Color32 {
     Color32::from_rgb((hex >> 16) as u8, (hex >> 8) as u8, hex as u8)
 }
 
+/// Width of lines and outlines (typed: `Stroke::new` takes `impl Into<f32>`).
+pub const HAIRLINE: f32 = 1.0;
+
 /// The tab strip's gradient, left to right. Its cyan end is a little darker
 /// than the icon's (#2d8fb3) so that inactive tab titles stay readable.
 pub const GRADIENT: [Color32; 3] = [rgb(0x3a246e), rgb(0x5b3fa6), rgb(0x2a86a8)];
@@ -129,11 +132,11 @@ fn visuals(theme: Theme) -> Visuals {
     v.window_fill = panel;
     v.extreme_bg_color = field;
     v.faint_bg_color = hover;
-    v.window_stroke = Stroke::new(1.0, border);
+    v.window_stroke = Stroke::new(HAIRLINE, border);
     v.override_text_color = Some(text);
     v.hyperlink_color = accent;
     v.selection.bg_fill = accent.gamma_multiply(0.35);
-    v.selection.stroke = Stroke::new(1.0, accent);
+    v.selection.stroke = Stroke::new(HAIRLINE, accent);
     v.window_corner_radius = CornerRadius::same(10);
     v.menu_corner_radius = radius;
     for w in [
@@ -145,16 +148,16 @@ fn visuals(theme: Theme) -> Visuals {
     ] {
         w.corner_radius = radius;
     }
-    v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, border);
+    v.widgets.noninteractive.bg_stroke = Stroke::new(HAIRLINE, border);
     v.widgets.inactive.weak_bg_fill = hover;
     v.widgets.inactive.bg_fill = hover;
     v.widgets.hovered.weak_bg_fill = hover;
     v.widgets.hovered.bg_fill = hover;
-    v.widgets.hovered.bg_stroke = Stroke::new(1.0, accent.gamma_multiply(0.6));
+    v.widgets.hovered.bg_stroke = Stroke::new(HAIRLINE, accent.gamma_multiply(0.6));
     v.widgets.active.weak_bg_fill = accent.gamma_multiply(0.5);
     v.widgets.active.bg_fill = accent.gamma_multiply(0.5);
     if theme == Theme::Light {
-        v.widgets.inactive.bg_stroke = Stroke::new(1.0, light::FIELD_BORDER);
+        v.widgets.inactive.bg_stroke = Stroke::new(HAIRLINE, light::FIELD_BORDER);
     }
     v
 }
@@ -220,13 +223,13 @@ pub fn chrome_style(ui: &mut egui::Ui) {
     v.extreme_bg_color = NIGHT_DEEP;
     v.widgets.inactive.weak_bg_fill = Color32::TRANSPARENT;
     v.widgets.inactive.bg_fill = NIGHT_DEEP;
-    v.widgets.inactive.bg_stroke = Stroke::new(1.0, OMNIBOX_STROKE);
+    v.widgets.inactive.bg_stroke = Stroke::new(HAIRLINE, OMNIBOX_STROKE);
     v.widgets.hovered.weak_bg_fill = NIGHT_HOVER;
     v.widgets.hovered.bg_fill = NIGHT_DEEP;
-    v.widgets.hovered.bg_stroke = Stroke::new(1.0, OMNIBOX_STROKE);
-    v.widgets.active.bg_stroke = Stroke::new(1.0, CYAN);
-    v.selection.stroke = Stroke::new(1.0, CYAN);
-    v.widgets.noninteractive.fg_stroke = Stroke::new(1.0, CHROME_TEXT_WEAK);
+    v.widgets.hovered.bg_stroke = Stroke::new(HAIRLINE, OMNIBOX_STROKE);
+    v.widgets.active.bg_stroke = Stroke::new(HAIRLINE, CYAN);
+    v.selection.stroke = Stroke::new(HAIRLINE, CYAN);
+    v.widgets.noninteractive.fg_stroke = Stroke::new(HAIRLINE, CHROME_TEXT_WEAK);
 }
 
 #[cfg(test)]

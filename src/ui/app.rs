@@ -510,7 +510,7 @@ impl eframe::App for BrowserApp {
                     ui.painter().hline(
                         r.x_range(),
                         r.bottom() + 3.0,
-                        egui::Stroke::new(1.0, super::theme::NIGHT_HOVER),
+                        egui::Stroke::new(super::theme::HAIRLINE, super::theme::NIGHT_HOVER),
                     );
                 });
         }
