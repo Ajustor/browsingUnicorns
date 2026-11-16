@@ -6,3 +6,6 @@ __pycache__/
 /site
 /relay/*/node_modules
 /relay/*/.wrangler
+
+# Brainstorming mockups (visual companion).
+.superpowers/
