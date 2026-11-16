@@ -100,8 +100,32 @@ private fun BrowserScreen(c: BrowserController) {
             },
             modifier = Modifier.weight(1f).fillMaxWidth(),
         )
+        StoreBanner(c)
         UpdateBanner(c.updates)
         BottomBar(c)
+    }
+}
+
+/** A Web Store page of an extension not installed: one tap installs it. */
+@Composable
+private fun StoreBanner(c: BrowserController) {
+    val offer = c.storeOffer ?: return
+    Surface(tonalElevation = 6.dp, modifier = Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.padding(start = 16.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "Install ${offer.name} in Browsing Unicorns?",
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = { c.installExtension(offer.id) }, enabled = !c.installing) {
+                Text(if (c.installing) "Installing…" else "Install")
+            }
+        }
     }
 }
 

@@ -58,6 +58,7 @@ class BrowserController(
         views.onProgress = { progress = it }
         views.onPanel = { popup = it }
         updates.onMessage = { message = it }
+        refreshExtensions()
     }
 
     /** Shows an extension's popup; it sees the active tab. */
@@ -171,6 +172,19 @@ class BrowserController(
         }
     }
 
+    /**
+     * The extension of the Web Store page shown, when it isn't installed yet:
+     * the store's own button only works in Chrome, so the app offers its own.
+     */
+    val storeOffer: StoreOffer?
+        get() {
+            val id = storeExtensionId(state.activeUrl) ?: return null
+            if (extensions.any { it.id == id }) return null
+            val title = state.tabs.firstOrNull { it.id == state.active }?.title.orEmpty()
+            val name = title.substringBeforeLast(" - Chrome Web Store").trim()
+            return StoreOffer(id, name.ifEmpty { "this extension" })
+        }
+
     fun setExtensionEnabled(id: String, enabled: Boolean) {
         act { setExtensionEnabled(id, enabled) }
         refreshExtensions()
@@ -245,4 +259,19 @@ class BrowserController(
             is MobileException.Failed -> e.reason
         }
     }
+}
+
+data class StoreOffer(val id: String, val name: String)
+
+/** The extension id of a Chrome Web Store detail page (`…/detail/<name>/<id>`), if [url] is one. */
+fun storeExtensionId(url: String?): String? {
+    val uri = android.net.Uri.parse(url ?: return null)
+    val path = uri.pathSegments ?: return null
+    val onStore = when (uri.host) {
+        "chromewebstore.google.com" -> path.firstOrNull() == "detail"
+        "chrome.google.com" -> path.take(2) == listOf("webstore", "detail")
+        else -> false
+    }
+    if (!onStore) return null
+    return path.drop(1).lastOrNull { seg -> seg.length == 32 && seg.all { it in 'a'..'p' } }
 }
