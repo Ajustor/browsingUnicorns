@@ -4,6 +4,15 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.9.4] - 2026-11-16
+
+### Corrigé
+
+- Les popups d'extension clignotaient encore (Bitwarden) : replacées à
+  chaque image, elles reprenaient leur taille par défaut puis étaient
+  remesurées. Leur taille n'est plus oubliée tant qu'elles restent ouvertes,
+  et elles ne bougent que si leur place change.
+
 ## [0.9.3] - 2026-11-16
 
 ### Corrigé
