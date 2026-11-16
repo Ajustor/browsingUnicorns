@@ -146,6 +146,7 @@ pub fn build(
     );
     let ctx = cc.egui_ctx.clone();
     hub.set_native_waker(move || ctx.request_repaint());
+    hub.set_fetcher(infrastructure::extension_fetch::ureq_fetcher());
     Ok(BrowserApp::new(
         browser,
         receiver,

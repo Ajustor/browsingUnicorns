@@ -7,12 +7,15 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::mpsc::{self, Receiver, Sender};
 
 use application::Browser;
 use application::ports::{PageSource, WebEngine};
 use domain::{ExtensionId, Extensions, TabId, UrlPattern, WebAddress};
 use serde_json::{Map, Value, json};
 
+use crate::extension_fetch::{self, FetchRequest, Fetcher};
 use crate::extension_server::Origins;
 use crate::extensions::state::ExtensionState;
 use crate::extensions::{dnr, extension_dir, manifest};
@@ -146,7 +149,17 @@ pub struct Hub {
     next_port: u64,
     /// Pages gone since the last frame: their ports close.
     closed_pages: Vec<PageSource>,
+    /// Makes the extension pages' requests to their permitted hosts (no
+    /// fetcher: they get none, the page falls back to its own `fetch`).
+    fetcher: Option<Fetcher>,
+    /// Finished requests: who asked, and the answer.
+    fetched_tx: Sender<FetchDone>,
+    fetched_rx: Receiver<FetchDone>,
+    /// Wakes the UI when something finished in the background.
+    wake: Arc<dyn Fn() + Send + Sync>,
 }
+
+type FetchDone = (PageSource, u64, Option<String>, Result<Value, String>);
 
 /// A port: the page that opened it, the pages that got `onConnect`.
 struct Port {
@@ -190,6 +203,7 @@ impl Hub {
     ) -> Self {
         let state_dir = state_dir.into();
         ExtensionState::end_sessions(&state_dir);
+        let (fetched_tx, fetched_rx) = mpsc::channel();
         Self {
             token: storage.token().to_owned(),
             storage,
@@ -209,6 +223,10 @@ impl Hub {
             ports: HashMap::new(),
             next_port: 1,
             closed_pages: Vec::new(),
+            fetcher: None,
+            fetched_tx,
+            fetched_rx,
+            wake: Arc::new(|| {}),
         }
     }
 
@@ -244,14 +262,26 @@ impl Hub {
         }
     }
 
-    /// Called when a native host sends something: the UI then calls
-    /// [`Self::pump_native`].
+    /// Called when a native host sends something or a request finishes:
+    /// the UI then calls [`Self::pump_native`].
     pub fn set_native_waker(&mut self, wake: impl Fn() + Send + Sync + 'static) {
-        self.native.set_waker(wake);
+        let wake: Arc<dyn Fn() + Send + Sync> = Arc::new(wake);
+        let native = wake.clone();
+        self.native.set_waker(move || native());
+        self.wake = wake;
     }
 
-    /// Hands what native hosts sent to the pages holding their ports.
+    /// How the extension pages' requests to their permitted hosts are made.
+    pub fn set_fetcher(&mut self, fetcher: Fetcher) {
+        self.fetcher = Some(fetcher);
+    }
+
+    /// Hands what native hosts sent to the pages holding their ports, and
+    /// finished requests to the pages that made them.
     pub fn pump_native(&mut self, host: &mut dyn HubHost) {
+        while let Ok((to, id, ch, result)) = self.fetched_rx.try_recv() {
+            Self::reply(host, &to, id, &ch, result);
+        }
         for (port, event) in self.native.poll() {
             let Some((to, owner)) = self.native_ports.get(&port).cloned() else {
                 continue;
@@ -441,6 +471,67 @@ impl Hub {
                     _ => {}
                 }
                 Some(Ok(Value::Null))
+            }
+            "net.fetch" => {
+                // As in Chrome: the extension's own pages, to the hosts its
+                // permissions cover. Anything else: the page's own fetch.
+                let ext = ext?;
+                let url = field("url").as_str().unwrap_or("").to_owned();
+                let fetcher = self.fetcher.clone().filter(|_| {
+                    ctx != "content"
+                        && extension_fetch::allowed(
+                            &extension_dir(&self.extensions_dir, &ext),
+                            &url,
+                        )
+                });
+                let Some(fetcher) = fetcher else {
+                    return Some(Err("not permitted".into()));
+                };
+                let request = FetchRequest {
+                    url,
+                    method: field("method")
+                        .as_str()
+                        .unwrap_or("GET")
+                        .to_ascii_uppercase(),
+                    headers: field("headers")
+                        .as_array()
+                        .map(|pairs| {
+                            pairs
+                                .iter()
+                                .filter_map(|p| {
+                                    Some((
+                                        p.get(0)?.as_str()?.to_owned(),
+                                        p.get(1)?.as_str()?.to_owned(),
+                                    ))
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                    body: field("body")
+                        .as_str()
+                        .and_then(|b| data_encoding::BASE64.decode(b.as_bytes()).ok()),
+                };
+                let (tx, wake, to, ch) = (
+                    self.fetched_tx.clone(),
+                    self.wake.clone(),
+                    from.clone(),
+                    ch.clone(),
+                );
+                std::thread::spawn(move || {
+                    let result = fetcher(request).map(|r| {
+                        json!({
+                            "url": r.url,
+                            "status": r.status,
+                            "statusText": r.status_text,
+                            "headers": r.headers,
+                            "body": data_encoding::BASE64.encode(&r.body),
+                        })
+                    });
+                    if tx.send((to, id, ch, result)).is_ok() {
+                        wake();
+                    }
+                });
+                None
             }
             "port.connect" => {
                 let ext = ext?;
@@ -1217,6 +1308,86 @@ mod tests {
 
     fn ext() -> ExtensionId {
         ExtensionId::parse(EXT).unwrap()
+    }
+
+    #[test]
+    fn extension_pages_fetch_their_hosts_without_cors() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut hub = hub(dir.path());
+        let ext_dir = extension_dir(&dir.path().join("ext"), &ext());
+        fs::create_dir_all(&ext_dir).unwrap();
+        fs::write(
+            ext_dir.join("manifest.json"),
+            r#"{"host_permissions": ["https://api.test/*"]}"#,
+        )
+        .unwrap();
+        hub.set_fetcher(Arc::new(|r: FetchRequest| {
+            Ok(extension_fetch::FetchResponse {
+                url: r.url,
+                status: 200,
+                status_text: "OK".into(),
+                headers: vec![("content-type".into(), "text/plain".into())],
+                body: format!(
+                    "{} {}",
+                    r.method,
+                    String::from_utf8(r.body.unwrap_or_default()).unwrap()
+                )
+                .into_bytes(),
+            })
+        }));
+        let mut host = Host::default();
+        let bg = PageSource::Background(ext());
+        let body = data_encoding::BASE64.encode(b"hi");
+
+        hub.handle(
+            &bg,
+            &msg(
+                1,
+                "background",
+                "net.fetch",
+                json!({"url": "https://api.test/x", "method": "post", "body": body}),
+            ),
+            &mut host,
+        );
+        // Made off the UI thread: wait for it.
+        for _ in 0..100 {
+            hub.pump_native(&mut host);
+            if !host.delivered.is_empty() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let (to, reply) = host.delivered.pop().unwrap();
+        assert_eq!(to, bg);
+        assert_eq!(reply["result"]["status"], 200);
+        let got = data_encoding::BASE64
+            .decode(reply["result"]["body"].as_str().unwrap().as_bytes())
+            .unwrap();
+        assert_eq!(got, b"POST hi");
+
+        // Another host, or a content script: the page's own fetch.
+        hub.handle(
+            &bg,
+            &msg(
+                2,
+                "background",
+                "net.fetch",
+                json!({"url": "https://evil.test/"}),
+            ),
+            &mut host,
+        );
+        assert_eq!(host.delivered.pop().unwrap().1["error"], "not permitted");
+        hub.handle(
+            &PageSource::Tab(TabId::new(1)),
+            &msg(
+                3,
+                "content",
+                "net.fetch",
+                json!({"url": "https://api.test/x"}),
+            ),
+            &mut host,
+        );
+        assert_eq!(host.delivered.pop().unwrap().1["error"], "not permitted");
     }
 
     #[test]

@@ -7,6 +7,7 @@
 pub mod certificates;
 mod clock;
 mod dto;
+pub mod extension_fetch;
 pub mod extension_hub;
 pub mod extension_server;
 pub mod extensions;

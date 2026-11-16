@@ -465,10 +465,60 @@ function makeChrome(entry) {
   return api;
 }
 
+// Bytes to base64 and back, for request and response bodies.
+function toBase64(bytes) {
+  let text = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(text);
+}
+function fromBase64(b64) {
+  const text = atob(b64 || "");
+  const bytes = new Uint8Array(text.length);
+  for (let i = 0; i < text.length; i++) bytes[i] = text.charCodeAt(i);
+  return bytes;
+}
+
+// As in Chrome, an extension's pages reach the hosts of their permissions
+// without CORS: those requests go through the browser. Same-origin ones,
+// and the ones the browser refuses ("not permitted"), stay the page's own.
+function hostFetch(call) {
+  if (window.fetch.__buHost) return;
+  const pageFetch = window.fetch.bind(window);
+  window.fetch = async (input, init) => {
+    const request = new Request(input, init);
+    const url = new URL(request.url, location.href);
+    if (url.origin === location.origin || !/^https?:$/.test(url.protocol)) return pageFetch(input, init);
+    const noBody = request.method === "GET" || request.method === "HEAD";
+    const body = noBody ? null : toBase64(new Uint8Array(await request.clone().arrayBuffer()));
+    let answer;
+    try {
+      answer = await call("net.fetch", {
+        url: url.href,
+        method: request.method,
+        headers: Array.from(request.headers.entries()),
+        body,
+      });
+    } catch (e) {
+      if (e && e.message === "not permitted") return pageFetch(input, init);
+      throw new TypeError("Failed to fetch");
+    }
+    const empty = request.method === "HEAD" || [101, 204, 205, 304].includes(answer.status);
+    const response = new Response(empty ? null : fromBase64(answer.body), {
+      status: answer.status,
+      statusText: answer.statusText,
+      headers: answer.headers,
+    });
+    Object.defineProperty(response, "url", { value: answer.url });
+    return response;
+  };
+  window.fetch.__buHost = true;
+}
+
 // What only extension pages (background, popup, options) have.
 function extensionApis(api, entry, call) {
   const ev = event;
   const manifest = entry.manifest || {};
+  hostFetch(call);
   api.tabs = {
     TAB_ID_NONE: -1,
     query: (query, cb) => call("tabs.query", { query: query || {} }, cb),
