@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.os.Message
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
@@ -161,6 +162,20 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
 
     lateinit var browser: MobileBrowser
 
+    /**
+     * The address bar is being typed in: pages can't take the focus (an
+     * autofocus field, a script calling focus(), a background page loading).
+     */
+    var addressBarFocused: Boolean = false
+        set(value) {
+            field = value
+            container.descendantFocusability =
+                if (value) ViewGroup.FOCUS_BLOCK_DESCENDANTS else ViewGroup.FOCUS_AFTER_DESCENDANTS
+        }
+
+    /** Called when the page is touched: the address bar gives the focus back. */
+    var onPageTouched: () -> Unit = {}
+
     /** Called after each page event, to refresh the screen. */
     var onChange: () -> Unit = {}
 
@@ -221,8 +236,12 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
         ByteArrayInputStream(ByteArray(0)),
     )
 
-    @SuppressLint("SetJavaScriptEnabled")
+    @SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
     private fun create(tab: ULong): WebView = WebView(context).apply {
+        setOnTouchListener { _, event ->
+            if (event.actionMasked == MotionEvent.ACTION_DOWN) onPageTouched()
+            false
+        }
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
         settings.setSupportMultipleWindows(true)
