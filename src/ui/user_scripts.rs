@@ -120,10 +120,11 @@ pub fn show(
         {
             commands.push(Command::InstallUserScript(std::mem::take(input)));
         }
-        if ui
-            .add(Button::new(format!("{} Greasy Fork", icon::GLOBE)).frame(false))
-            .on_hover_text("Find user scripts on Greasy Fork")
-            .clicked()
+        if super::theme::hover_fill(ui, |ui| {
+            ui.add(Button::new(format!("{} Greasy Fork", icon::GLOBE)).frame(false))
+        })
+        .on_hover_text("Find user scripts on Greasy Fork")
+        .clicked()
             && let Ok(site) = domain::WebAddress::parse("https://greasyfork.org/")
         {
             commands.push(Command::Open(site, application::Target::NewTab));

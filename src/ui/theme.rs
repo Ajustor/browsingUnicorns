@@ -262,6 +262,32 @@ pub fn chrome_style(ui: &mut egui::Ui, chrome: &Chrome) {
     v.widgets.noninteractive.fg_stroke = Stroke::new(HAIRLINE, CHROME_TEXT_WEAK);
 }
 
+/// A button with a rounded background under the pointer (stronger while
+/// pressed), and the hand cursor: frameless buttons show nothing otherwise.
+pub fn hover_fill(
+    ui: &mut egui::Ui,
+    add: impl FnOnce(&mut egui::Ui) -> egui::Response,
+) -> egui::Response {
+    // Reserved before the button, so that the background is under it.
+    let background = ui.painter().add(egui::Shape::Noop);
+    let response = add(ui);
+    if response.hovered() && response.enabled() {
+        let pressed = response.is_pointer_button_down_on();
+        let fill = match (ui.visuals().dark_mode, pressed) {
+            (true, false) => Color32::from_white_alpha(30),
+            (true, true) => Color32::from_white_alpha(56),
+            (false, false) => Color32::from_black_alpha(18),
+            (false, true) => Color32::from_black_alpha(36),
+        };
+        ui.painter().set(
+            background,
+            egui::epaint::RectShape::filled(response.rect.expand(2.0), CornerRadius::same(6), fill),
+        );
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    response
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

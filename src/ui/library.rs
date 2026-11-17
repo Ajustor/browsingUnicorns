@@ -117,8 +117,7 @@ impl Library {
                             }
                         },
                     );
-                    if ui
-                        .add(Button::new(icon::X).frame(false))
+                    if super::theme::hover_fill(ui, |ui| ui.add(Button::new(icon::X).frame(false)))
                         .on_hover_text("Close")
                         .clicked()
                     {
@@ -232,10 +231,11 @@ impl Library {
                 }) {
                     any = true;
                     ui.horizontal(|ui| {
-                        if ui
-                            .add(Button::new(icon::X).frame(false).small())
-                            .on_hover_text("Remove bookmark")
-                            .clicked()
+                        if super::theme::hover_fill(ui, |ui| {
+                            ui.add(Button::new(icon::X).frame(false).small())
+                        })
+                        .on_hover_text("Remove bookmark")
+                        .clicked()
                         {
                             commands.push(Command::RemoveBookmark(b.address.clone()));
                         }
@@ -289,13 +289,14 @@ fn entry(
     age: Option<String>,
     commands: &mut Vec<Command>,
 ) {
-    let response = ui
-        .add(
+    let response = super::theme::hover_fill(ui, |ui| {
+        ui.add(
             Button::new(RichText::new(title).strong())
                 .frame(false)
                 .truncate(),
         )
-        .on_hover_text(address.as_str());
+    })
+    .on_hover_text(address.as_str());
     // One row: the address cut to what the age leaves, the age on the right.
     // Both must fit the panel's width (content wider than a resizable panel
     // makes it grow at every frame), and the row its own height (a layout

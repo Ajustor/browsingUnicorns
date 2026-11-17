@@ -193,10 +193,11 @@ impl ExtensionsPanel {
             {
                 commands.push(Command::InstallExtension(std::mem::take(&mut self.input)));
             }
-            if ui
-                .add(Button::new(format!("{} Web Store", icon::STOREFRONT)).frame(false))
-                .on_hover_text("Find extensions in the Chrome Web Store")
-                .clicked()
+            if super::theme::hover_fill(ui, |ui| {
+                ui.add(Button::new(format!("{} Web Store", icon::STOREFRONT)).frame(false))
+            })
+            .on_hover_text("Find extensions in the Chrome Web Store")
+            .clicked()
                 && let Ok(store) = domain::WebAddress::parse("https://chromewebstore.google.com/")
             {
                 commands.push(Command::Open(store, Target::NewTab));

@@ -230,10 +230,11 @@ impl ProfilesPanel {
                         return;
                     }
                     if !p.id.is_default()
-                        && ui
-                            .add(Button::new(icon::TRASH).frame(false))
-                            .on_hover_text("Remove")
-                            .clicked()
+                        && super::theme::hover_fill(ui, |ui| {
+                            ui.add(Button::new(icon::TRASH).frame(false))
+                        })
+                        .on_hover_text("Remove")
+                        .clicked()
                     {
                         self.confirm_remove = Some(p.id.clone());
                     }

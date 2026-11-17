@@ -158,10 +158,11 @@ impl SyncPanel {
                                 } else {
                                     &tab.title
                                 };
-                                if ui
-                                    .add(Button::new(title).frame(false).truncate())
-                                    .on_hover_text(tab.address.as_str())
-                                    .clicked()
+                                if super::theme::hover_fill(ui, |ui| {
+                                    ui.add(Button::new(title).frame(false).truncate())
+                                })
+                                .on_hover_text(tab.address.as_str())
+                                .clicked()
                                 {
                                     commands
                                         .push(Command::Open(tab.address.clone(), Target::NewTab));

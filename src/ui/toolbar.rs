@@ -83,7 +83,7 @@ pub fn show(
 
         // Right to left so the address bar takes the room left in between.
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if avatar(ui, profile, 20.0)
+            if super::theme::hover_fill(ui, |ui| avatar(ui, profile, 20.0))
                 .on_hover_text(format!("Profile: {} (profiles)", profile.name))
                 .clicked()
             {
@@ -143,9 +143,9 @@ fn shield_button(ui: &mut egui::Ui, shield: &ShieldButton) -> bool {
             "Ad blocker: off for this site",
         )
     };
-    let response = ui
-        .add(Button::new(glyph.size(16.0)).frame(false))
-        .on_hover_text(tip);
+    let response =
+        super::theme::hover_fill(ui, |ui| ui.add(Button::new(glyph.size(16.0)).frame(false)))
+            .on_hover_text(tip);
     if let Some(count) = shield.blocked.filter(|&n| n > 0 && shield.on) {
         let text = if count > 99 {
             "99+".to_owned()
@@ -169,7 +169,9 @@ fn shield_button(ui: &mut egui::Ui, shield: &ShieldButton) -> bool {
 }
 
 fn button(ui: &mut egui::Ui, glyph: impl Into<egui::WidgetText>, tip: &str, enabled: bool) -> bool {
-    ui.add_enabled(enabled, Button::new(glyph).frame(false))
-        .on_hover_text(tip)
-        .clicked()
+    super::theme::hover_fill(ui, |ui| {
+        ui.add_enabled(enabled, Button::new(glyph).frame(false))
+    })
+    .on_hover_text(tip)
+    .clicked()
 }

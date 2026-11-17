@@ -93,13 +93,13 @@ pub fn show(
                     }
                 });
             });
-        let plus = ui
-            .add(
+        let plus = super::theme::hover_fill(ui, |ui| {
+            ui.add(
                 Button::new(RichText::new(icon::PLUS).color(Color32::WHITE).size(16.0))
                     .frame(false),
             )
-            .on_hover_text("New tab (Ctrl+T)");
-        hover_glow(ui, &plus);
+        })
+        .on_hover_text("New tab (Ctrl+T)");
         if plus.clicked() {
             commands.push(Command::NewTab);
         }
@@ -167,8 +167,8 @@ pub fn show(
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
-                                    let close = ui
-                                        .add(
+                                    let close = super::theme::hover_fill(ui, |ui| {
+                                        ui.add(
                                             Button::new(
                                                 RichText::new(icon::X)
                                                     .color(text.gamma_multiply(0.6))
@@ -176,8 +176,8 @@ pub fn show(
                                             )
                                             .frame(false),
                                         )
-                                        .on_hover_text("Close tab (Ctrl+W)");
-                                    hover_glow(ui, &close);
+                                    })
+                                    .on_hover_text("Close tab (Ctrl+W)");
                                     if close.clicked() {
                                         commands.push(Command::CloseTab(tab.id()));
                                     }
@@ -356,20 +356,6 @@ fn private_pill(ui: &mut egui::Ui, chrome: &super::theme::Chrome) {
             .on_hover_text("Private window: no history, cookies deleted at closing");
         });
     ui.add_space(4.0);
-}
-
-/// A light disc under a hovered button: egui's own hover color (night)
-/// hardly shows on the gradient.
-fn hover_glow(ui: &egui::Ui, button: &egui::Response) {
-    if button.hovered() {
-        let r = button.rect;
-        ui.painter().circle_filled(
-            r.center(),
-            r.width().max(r.height()) * 0.55,
-            Color32::from_white_alpha(46),
-        );
-        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-    }
 }
 
 pub fn truncate(title: &str, max: usize) -> String {

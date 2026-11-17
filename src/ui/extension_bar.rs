@@ -128,7 +128,7 @@ pub fn show(ui: &mut egui::Ui, actions: &[Action], commands: &mut Vec<Command>) 
         }
         .frame(a.open)
         .selected(a.open);
-        let response = ui.add(button).on_hover_text(&a.name);
+        let response = super::theme::hover_fill(ui, |ui| ui.add(button)).on_hover_text(&a.name);
         if response.clicked() {
             commands.push(Command::ToggleExtensionPopup {
                 id: a.id.clone(),
