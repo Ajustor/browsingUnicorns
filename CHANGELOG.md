@@ -4,6 +4,14 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.12.4] - 2026-11-17
+
+### Corrigé
+
+- Quand les onglets dépassent la largeur de la barre, un nouvel onglet (ou
+  celui activé par Ctrl+Tab ou par une extension) restait hors de vue : la
+  barre défile désormais jusqu'à l'onglet actif dès qu'il change.
+
 ## [0.12.3] - 2026-11-17
 
 ### Corrigé
