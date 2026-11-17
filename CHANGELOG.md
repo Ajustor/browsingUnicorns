@@ -4,6 +4,16 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.12.5] - 2026-11-17
+
+### Modifié
+
+- La barre de défilement des onglets n'apparaît plus : elle gênait les
+  clics sur les onglets et le déplacement de la fenêtre. La molette fait
+  défiler les onglets (sans Maj), et l'onglet actif est ramené en vue.
+- Un peu plus d'espace au-dessus des onglets, pour saisir la fenêtre et la
+  déplacer.
+
 ## [0.12.4] - 2026-11-17
 
 ### Corrigé
