@@ -4,7 +4,7 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
-## [Non publié]
+## [0.14.2] - 2026-11-17
 
 ### Corrigé
 
