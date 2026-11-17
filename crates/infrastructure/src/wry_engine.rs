@@ -115,6 +115,9 @@ pub struct WryEngine {
     /// from it when the user removes them.
     #[cfg(windows)]
     managed_extensions: std::collections::HashSet<String>,
+    /// Windows: the downloads under way, for their progress.
+    #[cfg(windows)]
+    downloads: crate::webview2_downloads::Operations,
     /// Windows, extensions run by the browser: their network rules, and
     /// each tab's page (for the rules about the page making a request).
     #[cfg(windows)]
@@ -264,6 +267,8 @@ impl WryEngine {
             pending_extensions: None,
             #[cfg(windows)]
             managed_extensions: Default::default(),
+            #[cfg(windows)]
+            downloads: Default::default(),
             #[cfg(windows)]
             blocking_rules: Arc::default(),
             #[cfg(windows)]
@@ -618,15 +623,15 @@ impl WebEngine for WryEngine {
                 on_title(EngineEvent::TitleChanged { tab, title });
             })
             // Into the user's Downloads folder (WebView2 picks a free name).
-            .with_download_started_handler(move |_url, file| {
-                on_download(EngineEvent::DownloadStarted { file: file.clone() });
+            .with_download_started_handler(move |url, file| {
+                on_download(EngineEvent::DownloadStarted {
+                    url,
+                    file: file.clone(),
+                });
                 true
             })
             .with_download_completed_handler(move |url, file, ok| {
-                on_downloaded(EngineEvent::DownloadFinished {
-                    url,
-                    file: file.filter(|_| ok),
-                });
+                on_downloaded(EngineEvent::DownloadFinished { url, file, ok });
             })
             .with_new_window_req_handler(move |url, _features| {
                 if let Ok(address) = WebAddress::parse(&url) {
@@ -659,6 +664,10 @@ impl WebEngine for WryEngine {
             }
             self.tab_pages.insert(tab, page);
             self.blocked.insert(tab, blocked);
+        }
+        #[cfg(windows)]
+        if let Err(e) = crate::webview2_downloads::attach(&view, self.downloads.clone()) {
+            log::warn!("downloads of tab {tab}: {e}");
         }
         #[cfg(windows)]
         {
@@ -826,6 +835,21 @@ impl WebEngine for WryEngine {
             Some(view) => view.open_devtools(),
             None => log::warn!("devtools: no page {page:?}"),
         }
+    }
+
+    #[cfg(windows)]
+    fn downloads(&mut self) -> Vec<application::ports::DownloadProgress> {
+        crate::webview2_downloads::progress(&self.downloads)
+    }
+
+    #[cfg(windows)]
+    fn can_cancel_downloads(&self) -> bool {
+        true
+    }
+
+    #[cfg(windows)]
+    fn cancel_download(&mut self, file: &std::path::Path) {
+        crate::webview2_downloads::cancel(&self.downloads, file);
     }
 
     fn show_panel_page(&mut self, url: Option<&str>, area: Viewport) {

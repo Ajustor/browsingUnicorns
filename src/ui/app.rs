@@ -44,6 +44,7 @@ pub struct BrowserApp {
     omnibox: Omnibox,
     library: Library,
     notice: Option<Notice>,
+    downloads: super::downloads::Downloads,
     /// The padlock's bar, when open.
     site_info: Option<SiteInfo>,
     /// The ad blocker's bar, when open.
@@ -110,6 +111,7 @@ impl BrowserApp {
             omnibox: Omnibox::default(),
             library: Library::default(),
             notice: None,
+            downloads: Default::default(),
             site_info: None,
             shield: None,
             window_title: String::new(),
@@ -129,7 +131,6 @@ impl BrowserApp {
         self.notice = Some(Notice {
             error: true,
             text: error.to_string(),
-            file: None,
         });
     }
 
@@ -138,7 +139,6 @@ impl BrowserApp {
             self.notice = Some(Notice {
                 error: false,
                 text: NOT_IN_PRIVATE.into(),
-                file: None,
             });
             return;
         }
@@ -324,6 +324,7 @@ impl BrowserApp {
                 .open_devtools(&PageSource::Background(id)),
             Command::ToggleLibrary(view) => self.library.toggle(view),
             Command::ToggleSiteInfo => self.toggle_site_info(),
+            Command::ToggleDownloads => self.downloads.shown = !self.downloads.shown,
             Command::ToggleShield => self.toggle_shield(),
             Command::CheckForUpdates => self.updates.check_now(),
             Command::InstallUpdate => self.updates.updater.install(),
@@ -523,8 +524,7 @@ impl BrowserApp {
                 self.hub.handle(from, body, &mut host);
                 continue;
             }
-            if let Some(notice) = super::downloads::notice(&event) {
-                self.notice = Some(notice);
+            if self.downloads.handle(&event) {
                 continue;
             }
             if let Err(e) = self.browser.handle(event) {
@@ -564,16 +564,6 @@ impl BrowserApp {
                 } else {
                     ui.label(&notice.text);
                 }
-                if let Some(file) = &notice.file {
-                    if ui.small_button("Open").clicked() {
-                        super::downloads::open(file);
-                        dismissed = true;
-                    }
-                    if ui.small_button("Show in folder").clicked() {
-                        super::downloads::reveal(file);
-                        dismissed = true;
-                    }
-                }
                 dismissed |= ui.small_button("OK").clicked();
             });
         });
@@ -607,6 +597,10 @@ impl eframe::App for BrowserApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.browser.engine_mut().pump();
         self.drain_engine_events();
+        if self.downloads.running() > 0 {
+            let progress = self.browser.engine_mut().downloads();
+            self.downloads.progress(&progress);
+        }
         self.drive_sync(ctx);
         self.blocker.follow(ctx, self.browser.settings());
         self.extensions.poll(self.browser.engine_mut());
@@ -653,6 +647,8 @@ impl eframe::App for BrowserApp {
             Vec::new()
         };
         let shield = self.shield_button();
+        let downloads_tip = super::downloads::toolbar_tip(&self.downloads);
+        let downloads_running = self.downloads.running() > 0;
         TopBottomPanel::top("toolbar")
             .frame(super::theme::chrome_frame(&chrome))
             .show_separator_line(false)
@@ -666,6 +662,7 @@ impl eframe::App for BrowserApp {
                     &mut self.omnibox,
                     &actions,
                     self.profiles.current(),
+                    downloads_tip.as_deref().map(|tip| (tip, downloads_running)),
                     &mut commands,
                 );
             });
@@ -697,6 +694,14 @@ impl eframe::App for BrowserApp {
         self.updates.banner(ctx, &mut commands);
         if self.library.open == Some(LibraryView::Profiles) && !self.is_private() {
             self.profiles.refresh(ctx);
+        }
+        let can_cancel = self.browser.engine().can_cancel_downloads();
+        for action in self.downloads.show(ctx, can_cancel, &mut commands) {
+            match action {
+                super::downloads::Action::Cancel(file) => {
+                    self.browser.engine_mut().cancel_download(&file);
+                }
+            }
         }
         self.notice_bar(ctx);
         self.library.show(

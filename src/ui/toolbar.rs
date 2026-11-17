@@ -25,6 +25,7 @@ pub fn show(
     omnibox: &mut Omnibox,
     actions: &[Action],
     profile: &Profile,
+    downloads: Option<(&str, bool)>,
     commands: &mut Vec<Command>,
 ) {
     let history = active.map(Tab::history);
@@ -112,6 +113,17 @@ pub fn show(
                 active.is_some(),
             ) {
                 commands.push(Command::OpenDevTools);
+            }
+            if let Some((tip, running)) = downloads {
+                let glyph = RichText::new(icon::DOWNLOAD_SIMPLE).size(16.0);
+                let glyph = if running {
+                    glyph.color(super::theme::CYAN)
+                } else {
+                    glyph
+                };
+                if button(ui, glyph, tip, true) {
+                    commands.push(Command::ToggleDownloads);
+                }
             }
             extension_bar::show(ui, actions, commands);
             let (star, tip) = if bookmarked {

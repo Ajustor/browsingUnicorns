@@ -51,6 +51,8 @@ pub enum Command {
     Profile(ProfileCommand),
     /// Shows the active site's connection and certificate, or hides them.
     ToggleSiteInfo,
+    /// Shows the downloads bar, or hides it.
+    ToggleDownloads,
     /// Shows the ad blocker's bar for the active site, or hides it.
     ToggleShield,
     /// Turns the ad blocker on (or off) for a host and its subdomains.

@@ -67,6 +67,25 @@ pub trait WebEngine {
     fn open_devtools(&mut self, _page: &PageSource) {}
     /// Shows `url` (an extension's popup) in the side panel area, or hides it.
     fn show_panel_page(&mut self, _url: Option<&str>, _area: Viewport) {}
+    /// The downloads under way, where the engine tells how far they are
+    /// (empty otherwise).
+    fn downloads(&mut self) -> Vec<DownloadProgress> {
+        Vec::new()
+    }
+    /// Whether [`Self::cancel_download`] works here.
+    fn can_cancel_downloads(&self) -> bool {
+        false
+    }
+    /// Stops downloading `file`.
+    fn cancel_download(&mut self, _file: &std::path::Path) {}
+}
+
+/// A download under way: how much of `file` arrived, of `total` when known.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DownloadProgress {
+    pub file: std::path::PathBuf,
+    pub received: u64,
+    pub total: Option<u64>,
 }
 
 /// What an engine does with extensions.
@@ -107,14 +126,17 @@ pub enum EngineEvent {
         from: PageSource,
         body: String,
     },
-    /// A page started downloading a file, saved to `file`.
+    /// A page started downloading `url`, saved to `file`.
     DownloadStarted {
+        url: String,
         file: std::path::PathBuf,
     },
-    /// A download ended: `file` when it succeeded.
+    /// A download ended, well (`ok`) or not (failed, cancelled); `file`
+    /// where the engine tells it.
     DownloadFinished {
         url: String,
         file: Option<std::path::PathBuf>,
+        ok: bool,
     },
 }
 
