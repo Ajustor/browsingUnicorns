@@ -59,7 +59,7 @@ pub fn show(
         // tabs and of the window's dragging: the wheel scrolls the tabs, and
         // the active one is scrolled into view.
         ui.style_mut().always_scroll_the_only_direction = true;
-        ScrollArea::horizontal()
+        let scroll = ScrollArea::horizontal()
             .auto_shrink([true, true])
             .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
             .max_width(ui.available_width() - 32.0 - controls)
@@ -91,8 +91,11 @@ pub fn show(
                     if let Some((from, id, dropped)) = dragged {
                         drag_tab(ui, &rects, from, id, dropped, commands);
                     }
-                });
+                })
+                .response
+                .rect
             });
+        overflow_hints(ui, &scroll);
         let plus = super::theme::hover_fill(ui, |ui| {
             ui.add(
                 Button::new(RichText::new(icon::PLUS).color(Color32::WHITE).size(16.0))
@@ -208,6 +211,48 @@ pub fn show(
             commands.push(Command::CloseTab(tab.id()));
         }
         response
+    }
+}
+
+/// Tabs hidden on a side (the strip has no scroll bar): a shadow there, and
+/// a caret pointing to them.
+fn overflow_hints(ui: &egui::Ui, scroll: &egui::scroll_area::ScrollAreaOutput<egui::Rect>) {
+    const SHADE: f32 = 44.0;
+    // As tall as the tabs (the scroll area's own rect is shorter).
+    let rect = egui::Rect::from_x_y_ranges(scroll.inner_rect.x_range(), scroll.inner.y_range());
+    let offset = scroll.state.offset.x;
+    let hidden_right = scroll.content_size.x - rect.width() - offset;
+    let painter = ui.painter_at(rect);
+    for (hidden, left) in [(offset > 1.0, true), (hidden_right > 1.0, false)] {
+        if !hidden {
+            continue;
+        }
+        let (edge, inner) = if left {
+            (rect.left(), rect.left() + SHADE)
+        } else {
+            (rect.right(), rect.right() - SHADE)
+        };
+        let dark = Color32::from_black_alpha(200);
+        let mut mesh = egui::Mesh::default();
+        for (x, color) in [(edge, dark), (inner, Color32::TRANSPARENT)] {
+            mesh.colored_vertex(egui::pos2(x, rect.top()), color);
+            mesh.colored_vertex(egui::pos2(x, rect.bottom()), color);
+        }
+        mesh.add_triangle(0, 1, 2);
+        mesh.add_triangle(2, 1, 3);
+        painter.add(mesh);
+        let (glyph, anchor, x) = if left {
+            (icon::CARET_LEFT, egui::Align2::LEFT_CENTER, edge + 2.0)
+        } else {
+            (icon::CARET_RIGHT, egui::Align2::RIGHT_CENTER, edge - 2.0)
+        };
+        painter.text(
+            egui::pos2(x, rect.center().y),
+            anchor,
+            glyph,
+            egui::FontId::proportional(14.0),
+            Color32::WHITE,
+        );
     }
 }
 
