@@ -4,6 +4,13 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.12.7] - 2026-11-17
+
+### Ajouté
+
+- Quand des onglets sont cachés d'un côté de la barre, une ombre et une
+  flèche (‹ ou ›) le signalent sur ce bord ; la molette les fait défiler.
+
 ## [0.12.6] - 2026-11-17
 
 ### Modifié
