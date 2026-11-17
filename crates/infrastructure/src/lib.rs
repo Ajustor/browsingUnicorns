@@ -7,6 +7,8 @@ pub mod blocker;
 #[cfg(feature = "desktop")]
 pub mod certificates;
 mod clock;
+#[cfg(feature = "desktop")]
+pub mod default_browser;
 mod dto;
 pub mod extension_fetch;
 pub mod extension_hub;

@@ -24,8 +24,8 @@ use infrastructure::sync::SyncConfigFile;
 
 use crate::Args;
 use crate::ui::{
-    AddOns, BlockerRunner, BrowserApp, ExitSlot, ExtensionBar, ExtensionsRunner, ProfilesRunner,
-    SyncRunner, Updates, UserScriptsRunner,
+    AddOns, BlockerRunner, BrowserApp, DefaultBrowser, ExitSlot, ExtensionBar, ExtensionsRunner,
+    ProfilesRunner, SyncRunner, Updates, UserScriptsRunner,
 };
 
 /// What a window runs: a private one leaves the profile alone.
@@ -63,6 +63,37 @@ pub const TAB_WINDOW: Setup = Setup {
     blocker_refresh: false,
 };
 
+fn profile_of(args: &Args) -> ProfileId {
+    match args.profile.as_deref().map(|p| (p, ProfileId::parse(p))) {
+        Some((_, Some(id))) => id,
+        Some((p, None)) => {
+            log::warn!("--profile {p:?}: not a profile id, the default profile opens");
+            ProfileId::default_profile()
+        }
+        None => ProfileId::default_profile(),
+    }
+}
+
+/// `browsingUnicorns <address>` while the profile's window is open (a link
+/// opened by the OS): the address goes to that window, no new one opens.
+/// True when it went.
+pub fn hand_over(args: &Args) -> bool {
+    let Some(input) = args.start_page.as_deref() else {
+        return false;
+    };
+    if args.private || args.tab_window {
+        return false;
+    }
+    let Some(dirs) = ProfileDirs::default_location() else {
+        return false;
+    };
+    if !infrastructure::profiles::hand_over(&dirs.dir(&profile_of(args)), input) {
+        return false;
+    }
+    infrastructure::default_browser::let_open_window_come_forward();
+    true
+}
+
 pub fn build(
     cc: &eframe::CreationContext<'_>,
     exit_slot: ExitSlot,
@@ -72,14 +103,7 @@ pub fn build(
 
     let dirs = ProfileDirs::default_location()
         .context("no data directory to keep history and bookmarks in")?;
-    let current = match args.profile.as_deref().map(|p| (p, ProfileId::parse(p))) {
-        Some((_, Some(id))) => id,
-        Some((p, None)) => {
-            log::warn!("--profile {p:?}: not a profile id, the default profile opens");
-            ProfileId::default_profile()
-        }
-        None => ProfileId::default_profile(),
-    };
+    let current = profile_of(&args);
     let profile_dir = dirs.dir(&current);
     // What crashed private windows left behind.
     infrastructure::clean_leftovers();
@@ -108,6 +132,7 @@ pub fn build(
         }
         lock
     };
+    let holds_profile = lock.is_some();
     let profile_list: Box<dyn Repository<Profiles>> = if args.private {
         let list = dirs.list().load().context("could not read the profiles")?;
         Box::new(MemoryRepository::new(list))
@@ -241,6 +266,13 @@ pub fn build(
         setup.blocker_refresh,
         move || ctx.request_repaint(),
     );
+    // The profile's window takes the links later launches hand over.
+    let default_browser = if holds_profile {
+        let ctx = cc.egui_ctx.clone();
+        DefaultBrowser::for_profile_window(&profile_dir, move || ctx.request_repaint())
+    } else {
+        DefaultBrowser::inert()
+    };
     let mut hub = Hub::new(
         script_storage,
         Bridge::Ipc,
@@ -266,6 +298,7 @@ pub fn build(
         ProfilesRunner::new(profiles, lock),
         exit_slot,
         private_data,
+        default_browser,
     ))
 }
 

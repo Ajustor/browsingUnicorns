@@ -53,6 +53,8 @@ pub enum Command {
     ToggleSiteInfo,
     /// Shows the downloads bar, or hides it.
     ToggleDownloads,
+    /// Becoming the system's default browser, or the answer to its bar.
+    DefaultBrowser(super::default_browser::DefaultBrowserCommand),
     /// Shows the ad blocker's bar for the active site, or hides it.
     ToggleShield,
     /// Turns the ad blocker on (or off) for a host and its subdomains.

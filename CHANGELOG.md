@@ -4,6 +4,21 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.14.0] - 2026-11-17
+
+### Ajouté
+
+- browsingUnicorns propose de devenir le navigateur par défaut : une barre
+  au démarrage (« Set as default », « Not now », « Don't ask again ») et
+  une ligne dans « About ». Sous Windows, il s'inscrit comme navigateur
+  pour l'utilisateur puis ouvre sa page dans les Paramètres, où Windows
+  veut qu'on le choisisse ; sous Linux, il passe par `xdg-settings`. Pas
+  sous macOS, où les liens arrivent par Apple Events, que la fenêtre ne
+  reçoit pas encore.
+- Un lien ouvert par une autre application arrive dans la fenêtre déjà
+  ouverte du profil, dans un nouvel onglet, et la fenêtre passe devant ;
+  avant, chaque lien lançait une nouvelle fenêtre complète.
+
 ## [0.13.0] - 2026-11-17
 
 ### Ajouté

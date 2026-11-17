@@ -36,6 +36,9 @@ pub struct LibraryData<'a> {
     pub profiles: &'a ProfilesRunner,
     /// A private window: no sync, extensions or profiles.
     pub private: bool,
+    /// Whether it is the system's default browser (`None`: unknown, or not
+    /// available here).
+    pub default_browser: Option<bool>,
 }
 
 #[derive(Default)]
@@ -74,6 +77,7 @@ impl Library {
             extensions,
             profiles,
             private,
+            default_browser,
         } = data;
         SidePanel::right("library")
             .resizable(true)
@@ -136,7 +140,7 @@ impl Library {
                 match view {
                     LibraryView::About => {
                         ui.separator();
-                        about(ui, updater, commands);
+                        about(ui, updater, default_browser, commands);
                         return;
                     }
                     LibraryView::Sync => {
@@ -253,7 +257,12 @@ impl Library {
 }
 
 /// Version and update check.
-fn about(ui: &mut egui::Ui, updater: &Updater, commands: &mut Vec<Command>) {
+fn about(
+    ui: &mut egui::Ui,
+    updater: &Updater,
+    default_browser: Option<bool>,
+    commands: &mut Vec<Command>,
+) {
     ui.heading("browsingUnicorns");
     ui.label(format!("Version {}", updater.current_version()));
     ui.add_space(8.0);
@@ -277,6 +286,27 @@ fn about(ui: &mut egui::Ui, updater: &Updater, commands: &mut Vec<Command>) {
         .clicked()
     {
         commands.push(Command::CheckForUpdates);
+    }
+    ui.add_space(12.0);
+    match default_browser {
+        Some(true) => {
+            ui.label(format!(
+                "{} browsingUnicorns is your default browser.",
+                icon::CHECK_CIRCLE
+            ));
+        }
+        Some(false) => {
+            ui.label("browsingUnicorns is not your default browser.");
+            if ui
+                .button(format!("{} Make it the default browser", icon::BROWSER))
+                .clicked()
+            {
+                commands.push(Command::DefaultBrowser(
+                    super::default_browser::DefaultBrowserCommand::Make,
+                ));
+            }
+        }
+        None => {}
     }
 }
 

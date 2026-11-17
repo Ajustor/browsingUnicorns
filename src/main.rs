@@ -27,6 +27,9 @@ fn main() -> eframe::Result<()> {
     updater::cleanup_stale_staging(&APP);
 
     let args = Args::parse(std::env::args().skip(1));
+    if bootstrap::hand_over(&args) {
+        return Ok(());
+    }
     let mut viewport = egui::ViewportBuilder::default()
         .with_title(ui::APP_NAME)
         .with_app_id("browsingUnicorns")

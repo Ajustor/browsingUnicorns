@@ -45,6 +45,7 @@ pub struct BrowserApp {
     library: Library,
     notice: Option<Notice>,
     downloads: super::downloads::Downloads,
+    default_browser: super::default_browser::DefaultBrowser,
     /// The padlock's bar, when open.
     site_info: Option<SiteInfo>,
     /// The ad blocker's bar, when open.
@@ -83,6 +84,7 @@ impl BrowserApp {
         profiles: ProfilesRunner,
         exit_slot: ExitSlot,
         private_data: Option<PrivateDataDir>,
+        default_browser: super::default_browser::DefaultBrowser,
     ) -> Self {
         let AddOns {
             extensions,
@@ -112,6 +114,7 @@ impl BrowserApp {
             library: Library::default(),
             notice: None,
             downloads: Default::default(),
+            default_browser,
             site_info: None,
             shield: None,
             window_title: String::new(),
@@ -235,6 +238,12 @@ impl BrowserApp {
                 let r = self.detach_tab(id, geometry);
                 return self.report_err(r);
             }
+            Command::DefaultBrowser(command) => {
+                let r = self.default_browser.run(command).map_err(|e| {
+                    format!("Could not make browsingUnicorns the default browser: {e}")
+                });
+                return self.report_err(r);
+            }
             Command::OpenPrivateWindow => {
                 let r = infrastructure::profiles::open_private_window(&self.profiles.current().id)
                     .map_err(|e| format!("Could not open a private window: {e}"));
@@ -356,6 +365,7 @@ impl BrowserApp {
             | Command::Profile(_)
             | Command::OpenPrivateWindow
             | Command::DetachTab(..)
+            | Command::DefaultBrowser(_)
             | Command::ToggleExtensionPopup { .. } => unreachable!("handled by run"),
         }
     }
@@ -533,6 +543,22 @@ impl BrowserApp {
         }
     }
 
+    /// Links the OS opened with the browser while this window was open:
+    /// each in a new tab, the window brought forward.
+    fn open_handed_over(&mut self, ctx: &egui::Context) {
+        let requests = self.default_browser.take_requests();
+        if requests.is_empty() {
+            return;
+        }
+        for input in requests {
+            if let Err(e) = self.browser.submit(&input, application::Target::NewTab) {
+                self.report(e);
+            }
+        }
+        ctx.send_viewport_cmd(ViewportCommand::Minimized(false));
+        ctx.send_viewport_cmd(ViewportCommand::Focus);
+    }
+
     fn sync_window_title(&mut self, ctx: &egui::Context) {
         let app = if self.profiles.several() {
             format!("{APP_NAME} ({})", self.profiles.current().name)
@@ -597,6 +623,7 @@ impl eframe::App for BrowserApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.browser.engine_mut().pump();
         self.drain_engine_events();
+        self.open_handed_over(ctx);
         if self.downloads.running() > 0 {
             let progress = self.browser.engine_mut().downloads();
             self.downloads.progress(&progress);
@@ -692,6 +719,7 @@ impl eframe::App for BrowserApp {
                 });
         }
         self.updates.banner(ctx, &mut commands);
+        self.default_browser.banner(ctx, &mut commands);
         if self.library.open == Some(LibraryView::Profiles) && !self.is_private() {
             self.profiles.refresh(ctx);
         }
@@ -726,6 +754,11 @@ impl eframe::App for BrowserApp {
                 },
                 profiles: &self.profiles,
                 private: self.is_private(),
+                default_browser: if self.library.open == Some(LibraryView::About) {
+                    self.default_browser.status()
+                } else {
+                    None
+                },
             },
             &mut commands,
         );

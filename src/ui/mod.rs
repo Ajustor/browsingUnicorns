@@ -5,6 +5,7 @@ mod app;
 mod blocker;
 mod bookmarks_bar;
 mod command;
+mod default_browser;
 mod downloads;
 mod extension_bar;
 mod extensions;
@@ -25,6 +26,7 @@ mod user_scripts;
 mod window_frame;
 
 pub use blocker::BlockerRunner;
+pub use default_browser::DefaultBrowser;
 pub use extension_bar::ExtensionBar;
 pub use extensions::ExtensionsRunner;
 pub use profiles::ProfilesRunner;

@@ -17,6 +17,12 @@ use crate::settings_store::TomlSettingsRepository;
 
 const LOCK_FILE: &str = "profile.lock";
 
+/// Where other launches leave the addresses for the profile's window.
+const OPEN_REQUESTS: &str = "open-requests";
+
+/// A request older than this is dropped: its window was gone.
+const REQUEST_TTL: std::time::Duration = std::time::Duration::from_secs(60);
+
 /// The folders of every profile, under the default profile's one.
 #[derive(Debug, Clone)]
 pub struct ProfileDirs {
@@ -161,6 +167,77 @@ fn is_locked(dir: &Path) -> bool {
         Ok(Err(TryLockError::WouldBlock)) => true,
         _ => false,
     }
+}
+
+/// Asks the window running `dir`'s profile to open `input` (the OS opening
+/// a link with the default browser). False when no window runs it.
+pub fn hand_over(dir: &Path, input: &str) -> bool {
+    if !is_locked(dir) {
+        return false;
+    }
+    let folder = dir.join(OPEN_REQUESTS);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    let name = format!("{nanos}-{}", std::process::id());
+    // Written aside, then renamed: the window never reads half of it.
+    let partial = folder.join(format!("{name}.part"));
+    let done = std::fs::create_dir_all(&folder)
+        .and_then(|()| std::fs::write(&partial, input))
+        .and_then(|()| std::fs::rename(&partial, folder.join(format!("{name}.txt"))));
+    match done {
+        Ok(()) => true,
+        Err(e) => {
+            log::warn!("handing {input:?} to the open window: {e}");
+            false
+        }
+    }
+}
+
+/// The addresses other launches hand to this window ([`hand_over`]), in
+/// order; `wake` is called after each. Stops once the receiver is gone.
+pub fn open_requests(
+    dir: &Path,
+    wake: impl Fn() + Send + 'static,
+) -> std::sync::mpsc::Receiver<String> {
+    let folder = dir.join(OPEN_REQUESTS);
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        loop {
+            for input in take_requests(&folder) {
+                if tx.send(input).is_err() {
+                    return;
+                }
+                wake();
+            }
+            std::thread::sleep(std::time::Duration::from_millis(300));
+        }
+    });
+    rx
+}
+
+fn take_requests(folder: &Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(folder) else {
+        return Vec::new();
+    };
+    let mut files: Vec<PathBuf> = entries
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|e| e == "txt"))
+        .collect();
+    // Named by time: oldest first.
+    files.sort();
+    files
+        .into_iter()
+        .filter_map(|path| {
+            let fresh = std::fs::metadata(&path)
+                .and_then(|m| m.modified())
+                .is_ok_and(|t| t.elapsed().is_ok_and(|age| age < REQUEST_TTL));
+            let input = std::fs::read_to_string(&path).ok();
+            let _ = std::fs::remove_file(&path);
+            input.filter(|i| fresh && !i.trim().is_empty())
+        })
+        .collect()
 }
 
 /// `profiles.json`.
