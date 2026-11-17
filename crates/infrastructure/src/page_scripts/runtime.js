@@ -452,6 +452,8 @@ function makeChrome(entry) {
       if (a) a.onChanged.fire(msg.changes);
     } else if (msg.event === "tabs" && api.tabs && api.tabs[msg.name]) {
       api.tabs[msg.name].fire(...msg.args);
+    } else if (msg.event === "windows" && api.windows && api.windows[msg.name]) {
+      api.windows[msg.name].fire(...msg.args);
     } else if (msg.event === "connect") {
       const port = makePort(msg.name, msg.sender || {});
       port._open(msg.port);
@@ -570,16 +572,27 @@ function extensionApis(api, entry, call) {
     onDetached: ev(),
     onZoomChange: ev(),
   };
-  const theWindow = { id: 1, focused: true, type: "normal", state: "normal", incognito: false };
+  // The browser's window (1), and a window per tab windows.create opened:
+  // Rust keeps them, windows.onRemoved fires when such a tab closes.
+  const windowInfo = (op, windowId) => (...args) => {
+    const [list, cb] = split(args);
+    const fields = { info: (windowId ? list[1] : list[0]) || {} };
+    if (windowId) fields.windowId = list[0];
+    return call(op, fields, cb);
+  };
   api.windows = {
     WINDOW_ID_CURRENT: -2,
     WINDOW_ID_NONE: -1,
-    getCurrent: noop(api, theWindow),
-    getLastFocused: noop(api, theWindow),
-    getAll: noop(api, [theWindow]),
-    get: noop(api, theWindow),
-    create: (data, cb) => call("tabs.create", { props: { url: data && [].concat(data.url || [])[0] } }, cb),
-    update: noop(api, theWindow),
+    getCurrent: windowInfo("windows.getCurrent", false),
+    getLastFocused: windowInfo("windows.getLastFocused", false),
+    getAll: windowInfo("windows.getAll", false),
+    get: windowInfo("windows.get", true),
+    create: (...args) => {
+      const [list, cb] = split(args);
+      return call("windows.create", { data: list[0] || {} }, cb);
+    },
+    update: windowInfo("windows.update", true),
+    remove: (windowId, cb) => call("windows.remove", { windowId }, cb),
     onFocusChanged: ev(),
     onCreated: ev(),
     onRemoved: ev(),

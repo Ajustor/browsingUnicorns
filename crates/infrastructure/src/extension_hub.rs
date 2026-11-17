@@ -160,7 +160,14 @@ pub struct Hub {
     wake: Arc<dyn Fn() + Send + Sync>,
     /// The ad blocker, for its cosmetic filters.
     blocker: Option<BlockerHandle>,
+    /// Tabs opened by `windows.create`: each is a window of its own for the
+    /// extensions (its id, its type), closed with the tab.
+    popups: HashMap<TabId, (u64, String)>,
+    next_window: u64,
 }
+
+/// The browser's window, holding every tab not opened as a window.
+const MAIN_WINDOW: u64 = 1;
 
 type FetchDone = (PageSource, u64, Option<String>, Result<Value, String>);
 
@@ -171,11 +178,11 @@ struct Port {
     receivers: Vec<PageSource>,
 }
 
-fn tab_json(t: &TabState, index: usize) -> Value {
+fn tab_json(t: &TabState, index: usize, window: u64) -> Value {
     json!({
         "id": t.id.get(),
         "index": index,
-        "windowId": 1,
+        "windowId": window,
         "active": t.active,
         "highlighted": t.active,
         "selected": t.active,
@@ -231,6 +238,8 @@ impl Hub {
             fetched_rx,
             wake: Arc::new(|| {}),
             blocker: None,
+            popups: HashMap::new(),
+            next_window: MAIN_WINDOW + 1,
         }
     }
 
@@ -755,10 +764,11 @@ impl Hub {
                     tabs.iter()
                         .enumerate()
                         .find(|(_, t)| Some(t.id) == tab)
-                        .map(|(i, t)| tab_json(t, i))
+                        .map(|(i, t)| self.tab_json(t, i))
                         .ok_or_else(|| "No tab with this id.".to_owned()),
                 )
             }
+            op if op.starts_with("windows.") => Some(self.windows_call(from, &ext, op, raw, host)),
             "tabs.create" => {
                 let props = field("props");
                 let url = props
@@ -932,7 +942,7 @@ impl Hub {
         if let PageSource::Tab(tab) = from
             && let Some((i, t)) = tabs.iter().enumerate().find(|(_, t)| t.id == *tab)
         {
-            sender["tab"] = tab_json(t, i);
+            sender["tab"] = self.tab_json(t, i);
             sender["url"] = t.url.clone().into();
             sender["frameId"] = 0.into();
             sender["origin"] = t
@@ -946,6 +956,157 @@ impl Hub {
         sender
     }
 
+    fn tab_json(&self, t: &TabState, index: usize) -> Value {
+        tab_json(t, index, self.window_of(t.id))
+    }
+
+    fn window_of(&self, tab: TabId) -> u64 {
+        self.popups.get(&tab).map_or(MAIN_WINDOW, |(w, _)| *w)
+    }
+
+    /// The window `id` as `windows.*` describes it (`None`: no such window).
+    fn window_json(&self, id: u64, populate: bool, host: &dyn HubHost) -> Option<Value> {
+        let kind = if id == MAIN_WINDOW {
+            "normal".to_owned()
+        } else {
+            self.popups.values().find(|(w, _)| *w == id)?.1.clone()
+        };
+        let all = host.tabs();
+        let mut window = json!({
+            "id": id,
+            "focused": all.iter().any(|t| t.active && self.window_of(t.id) == id),
+            "type": kind,
+            "state": "normal",
+            "incognito": false,
+            "alwaysOnTop": false,
+            "left": 0,
+            "top": 0,
+            "width": 1280,
+            "height": 800,
+        });
+        if populate {
+            window["tabs"] = all
+                .iter()
+                .enumerate()
+                .filter(|(_, t)| self.window_of(t.id) == id)
+                .map(|(i, t)| self.tab_json(t, i))
+                .collect();
+        }
+        Some(window)
+    }
+
+    /// The window of the page asking (`windows.getCurrent`).
+    fn current_window(&self, from: &PageSource) -> u64 {
+        match from {
+            PageSource::Tab(tab) => self.window_of(*tab),
+            _ => MAIN_WINDOW,
+        }
+    }
+
+    /// `windows.*`: the tabs `windows.create` opened are windows of their own,
+    /// gone (`windows.onRemoved`) when the tab closes.
+    fn windows_call(
+        &mut self,
+        from: &PageSource,
+        ext: &Option<ExtensionId>,
+        op: &str,
+        raw: &Map<String, Value>,
+        host: &mut dyn HubHost,
+    ) -> Result<Value, String> {
+        let field = |k: &str| raw.get(k).cloned().unwrap_or(Value::Null);
+        let populate = field("info")
+            .get("populate")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        // WINDOW_ID_CURRENT (-2) is no u64: the asking page's window.
+        let id = field("windowId")
+            .as_u64()
+            .unwrap_or_else(|| self.current_window(from));
+        let missing = |id: u64| format!("No window with id: {id}.");
+        match op {
+            "windows.get" => self
+                .window_json(id, populate, host)
+                .ok_or_else(|| missing(id)),
+            "windows.getCurrent" => {
+                let id = self.current_window(from);
+                self.window_json(id, populate, host)
+                    .ok_or_else(|| missing(id))
+            }
+            "windows.getLastFocused" => {
+                let id = self
+                    .active_tab(host)
+                    .map_or(MAIN_WINDOW, |t| self.window_of(t));
+                self.window_json(id, populate, host)
+                    .ok_or_else(|| missing(id))
+            }
+            "windows.getAll" => {
+                let mut ids = vec![MAIN_WINDOW];
+                ids.extend(self.popups.values().map(|(w, _)| *w));
+                ids.sort_unstable();
+                Ok(ids
+                    .into_iter()
+                    .filter_map(|id| self.window_json(id, populate, host))
+                    .collect())
+            }
+            "windows.create" => {
+                let data = field("data");
+                let url = match data.get("url") {
+                    Some(Value::String(u)) => Some(u.as_str()),
+                    Some(Value::Array(list)) => list.first().and_then(Value::as_str),
+                    _ => None,
+                }
+                .map(|u| self.resolve(ext, u));
+                let focused = data.get("focused").and_then(Value::as_bool).unwrap_or(true);
+                let kind = data
+                    .get("type")
+                    .and_then(Value::as_str)
+                    .unwrap_or("normal")
+                    .to_owned();
+                let tab = host
+                    .create_tab(url.as_deref(), focused)
+                    .ok_or("The window could not be created.")?;
+                let id = self.next_window;
+                self.next_window += 1;
+                self.popups.insert(tab, (id, kind));
+                self.window_json(id, true, host).ok_or_else(|| missing(id))
+            }
+            "windows.update" => {
+                let focused = field("info").get("focused").and_then(Value::as_bool);
+                if focused == Some(true) {
+                    let tab = self
+                        .popups
+                        .iter()
+                        .find(|(_, (w, _))| *w == id)
+                        .map(|(t, _)| *t);
+                    if let Some(tab) = tab {
+                        host.update_tab(tab, None, true);
+                    }
+                }
+                self.window_json(id, false, host).ok_or_else(|| missing(id))
+            }
+            "windows.remove" => {
+                // The browser's own window stays: an extension does not close it.
+                if id == MAIN_WINDOW {
+                    return Ok(Value::Null);
+                }
+                let tabs: Vec<TabId> = self
+                    .popups
+                    .iter()
+                    .filter(|(_, (w, _))| *w == id)
+                    .map(|(t, _)| *t)
+                    .collect();
+                if tabs.is_empty() {
+                    return Err(missing(id));
+                }
+                for tab in tabs {
+                    host.remove_tab(tab);
+                }
+                Ok(Value::Null)
+            }
+            op => Err(format!("unknown operation {op}")),
+        }
+    }
+
     fn active_tab(&self, host: &dyn HubHost) -> Option<TabId> {
         host.tabs().into_iter().find(|t| t.active).map(|t| t.id)
     }
@@ -955,7 +1116,7 @@ impl Hub {
             .iter()
             .enumerate()
             .find(|(_, t)| Some(t.id) == tab)
-            .map(|(i, t)| tab_json(t, i))
+            .map(|(i, t)| self.tab_json(t, i))
             .unwrap_or(Value::Null)
     }
 
@@ -1003,7 +1164,24 @@ impl Hub {
                 })
                 // No tab is pinned.
                 .filter(|_| query.get("pinned").and_then(Value::as_bool) != Some(true))
-                .map(|(i, t)| tab_json(t, i))
+                .filter(|(_, t)| {
+                    query
+                        .get("windowId")
+                        .and_then(Value::as_u64)
+                        .is_none_or(|w| w == self.window_of(t.id))
+                })
+                .filter(|(_, t)| {
+                    query
+                        .get("windowType")
+                        .and_then(Value::as_str)
+                        .is_none_or(|k| {
+                            k == self
+                                .popups
+                                .get(&t.id)
+                                .map_or("normal", |(_, kind)| kind.as_str())
+                        })
+                })
+                .map(|(i, t)| self.tab_json(t, i))
                 .collect(),
         )
     }
@@ -1237,7 +1415,7 @@ impl Hub {
         let mut events: Vec<(&str, Value)> = Vec::new();
         for (i, t) in now.iter().enumerate() {
             match before.iter().find(|b| b.id == t.id) {
-                None => events.push(("onCreated", json!([tab_json(t, i)]))),
+                None => events.push(("onCreated", json!([self.tab_json(t, i)]))),
                 Some(b) => {
                     let mut change = Map::new();
                     if b.loading != t.loading {
@@ -1253,7 +1431,10 @@ impl Hub {
                         change.insert("title".into(), t.title.clone().into());
                     }
                     if !change.is_empty() {
-                        events.push(("onUpdated", json!([t.id.get(), change, tab_json(t, i)])));
+                        events.push((
+                            "onUpdated",
+                            json!([t.id.get(), change, self.tab_json(t, i)]),
+                        ));
                     }
                     if t.loading && !b.loading {
                         // A new page: its content scripts say hello again.
@@ -1261,19 +1442,28 @@ impl Hub {
                         self.closed_pages.push(PageSource::Tab(t.id));
                     }
                     if t.active && !b.active {
-                        events.push(("onActivated", json!([{"tabId": t.id.get(), "windowId": 1}])));
+                        events.push((
+                            "onActivated",
+                            json!([{"tabId": t.id.get(), "windowId": self.window_of(t.id)}]),
+                        ));
                     }
                 }
             }
         }
+        let mut windows_removed = Vec::new();
         for b in &before {
             if !now.iter().any(|t| t.id == b.id) {
                 self.tab_owners.remove(&b.id);
                 self.closed_pages.push(PageSource::Tab(b.id));
+                let popup = self.popups.remove(&b.id).map(|(w, _)| w);
                 events.push((
                     "onRemoved",
-                    json!([b.id.get(), {"windowId": 1, "isWindowClosing": false}]),
+                    json!([
+                        b.id.get(),
+                        {"windowId": popup.unwrap_or(MAIN_WINDOW), "isWindowClosing": popup.is_some()}
+                    ]),
                 ));
+                windows_removed.extend(popup);
             }
         }
         for owner in &self.backgrounds {
@@ -1282,6 +1472,10 @@ impl Hub {
             };
             for (name, args) in &events {
                 let msg = json!({"event": "tabs", "owner": owner, "name": name, "args": args});
+                host.deliver(&PageSource::Background(id.clone()), &msg.to_string());
+            }
+            for window in &windows_removed {
+                let msg = json!({"event": "windows", "owner": owner, "name": "onRemoved", "args": [window]});
                 host.deliver(&PageSource::Background(id.clone()), &msg.to_string());
             }
         }
@@ -1788,6 +1982,80 @@ mod tests {
             .map(|(_, m)| m["name"].as_str().unwrap().to_owned())
             .collect();
         assert_eq!(names, vec!["onUpdated", "onRemoved"]);
+    }
+
+    /// Bitwarden's passkey window: it waits for `windows.onRemoved` to give
+    /// the page back its own WebAuthn.
+    #[test]
+    fn created_windows_close_with_their_tab() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut hub = hub(dir.path());
+        let mut host = Host::default();
+        let bg = PageSource::Background(ext());
+        hub.handle(&bg, &msg(1, "background", "hello", json!({})), &mut host);
+        host.create_tab(Some("https://a.test/"), true);
+        hub.tabs_changed(&mut host);
+        hub.handle(
+            &bg,
+            &msg(
+                2,
+                "background",
+                "windows.create",
+                json!({"data": {"url": "popup/index.html#/fido2", "type": "popup"}}),
+            ),
+            &mut host,
+        );
+        let window = host.delivered.pop().unwrap().1["result"].clone();
+        assert_eq!(window["type"], "popup");
+        let id = window["id"].as_u64().unwrap();
+        assert_ne!(id, MAIN_WINDOW);
+        assert_eq!(window["tabs"][0]["windowId"], id);
+        let tab = window["tabs"][0]["id"].as_u64().unwrap();
+
+        hub.handle(
+            &bg,
+            &msg(
+                3,
+                "background",
+                "tabs.query",
+                json!({"query": {"windowType": "popup"}}),
+            ),
+            &mut host,
+        );
+        let popups = host.delivered.pop().unwrap().1["result"].clone();
+        assert_eq!(popups.as_array().unwrap().len(), 1);
+        // The popup's own page finds its window.
+        hub.handle(
+            &PageSource::Tab(TabId::new(tab)),
+            &msg(4, "page", "windows.getCurrent", json!({"info": {}})),
+            &mut host,
+        );
+        assert_eq!(host.delivered.pop().unwrap().1["result"]["id"], id);
+        // The browser's window is not the extension's to close.
+        hub.handle(
+            &bg,
+            &msg(5, "background", "windows.remove", json!({"windowId": 1})),
+            &mut host,
+        );
+        assert_eq!(host.tabs.len(), 2);
+
+        hub.tabs_changed(&mut host);
+        host.delivered.clear();
+        host.remove_tab(TabId::new(tab));
+        hub.tabs_changed(&mut host);
+        let closed: Vec<_> = host
+            .delivered
+            .iter()
+            .filter(|(_, m)| m["event"] == "windows")
+            .map(|(_, m)| (m["name"].clone(), m["args"].clone()))
+            .collect();
+        assert_eq!(closed, vec![(json!("onRemoved"), json!([id]))]);
+        hub.handle(
+            &bg,
+            &msg(6, "background", "windows.get", json!({"windowId": id})),
+            &mut host,
+        );
+        assert!(host.delivered.pop().unwrap().1["error"].is_string());
     }
 
     #[test]

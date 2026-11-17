@@ -4,6 +4,20 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [Unreleased]
+
+### Corrigé
+
+- Impossible de se connecter à Amazon (et aux sites qui proposent une
+  passkey) avec Bitwarden : Bitwarden ouvrait sa fenêtre de passkey, puis
+  attendait sa fermeture pour rendre la main au site, mais le navigateur
+  n'avait pas de vraies fenêtres (`windows.create` ouvrait un onglet
+  anonyme, `windows.onRemoved` n'arrivait jamais). Un onglet ouvert par
+  `windows.create` est désormais une fenêtre pour les extensions : son
+  identifiant et son type, `windows.get`/`update`/`remove`, et
+  `windows.onRemoved` quand il se ferme. Fermer la fenêtre de Bitwarden
+  rend donc la connexion au site.
+
 ## [0.12.2] - 2026-11-16
 
 ### Corrigé
