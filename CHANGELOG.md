@@ -4,6 +4,15 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.12.6] - 2026-11-17
+
+### Modifié
+
+- Les boutons sans cadre (barre d'outils, extensions, onglets, favoris,
+  panneaux) prennent un fond arrondi sous le pointeur, plus marqué pendant
+  le clic, et le curseur devient une main : on voit enfin quel bouton est
+  survolé.
+
 ## [0.12.5] - 2026-11-17
 
 ### Modifié
