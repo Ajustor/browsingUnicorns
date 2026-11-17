@@ -118,6 +118,9 @@ pub struct WryEngine {
     /// Windows: the downloads under way, for their progress.
     #[cfg(windows)]
     downloads: crate::webview2_downloads::Operations,
+    /// Windows: each tab's frames, whose page scripts WebView2 keeps apart.
+    #[cfg(windows)]
+    frames: HashMap<TabId, crate::webview2_frames::Frames>,
     /// Windows, extensions run by the browser: their network rules, and
     /// each tab's page (for the rules about the page making a request).
     #[cfg(windows)]
@@ -269,6 +272,8 @@ impl WryEngine {
             managed_extensions: Default::default(),
             #[cfg(windows)]
             downloads: Default::default(),
+            #[cfg(windows)]
+            frames: HashMap::new(),
             #[cfg(windows)]
             blocking_rules: Arc::default(),
             #[cfg(windows)]
@@ -584,6 +589,8 @@ impl WebEngine for WryEngine {
         let on_message = emit.clone();
         let on_download = emit.clone();
         let on_downloaded = emit.clone();
+        #[cfg(windows)]
+        let on_frame_message = emit.clone();
         let builder = base_builder(
             &mut self.context,
             self.server.as_ref(),
@@ -669,6 +676,20 @@ impl WebEngine for WryEngine {
         if let Err(e) = crate::webview2_downloads::attach(&view, self.downloads.clone()) {
             log::warn!("downloads of tab {tab}: {e}");
         }
+        // The page scripts of its frames talk to the browser like its own.
+        #[cfg(windows)]
+        {
+            let frames = crate::webview2_frames::Frames::default();
+            if let Err(e) = crate::webview2_frames::attach(&view, frames.clone(), move |body| {
+                on_frame_message(EngineEvent::PageMessage {
+                    from: PageSource::Tab(tab),
+                    body,
+                });
+            }) {
+                log::warn!("frames of tab {tab}: {e}");
+            }
+            self.frames.insert(tab, frames);
+        }
         #[cfg(windows)]
         {
             let waker = self.waker.clone();
@@ -717,6 +738,8 @@ impl WebEngine for WryEngine {
         self.blocked.remove(&tab);
         #[cfg(windows)]
         self.security.remove(&tab);
+        #[cfg(windows)]
+        self.frames.remove(&tab);
         if self.shown == Some(tab) {
             self.shown = None;
         }
@@ -823,6 +846,24 @@ impl WebEngine for WryEngine {
             && let Err(e) = view.evaluate_script(&script)
         {
             log::warn!("page message to {to:?}: {e}");
+        }
+        // Answers and port, storage events reach the tab's frames too (each
+        // frame's scripts take only their own). Not the messages and
+        // connections for the tab's content scripts: those are the top
+        // document's, answered once.
+        #[cfg(windows)]
+        if let PageSource::Tab(tab) = to
+            && let Some(frames) = self.frames.get(tab)
+            && !matches!(
+                serde_json::from_str::<serde_json::Value>(message)
+                    .ok()
+                    .as_ref()
+                    .and_then(|m| m.get("event"))
+                    .and_then(serde_json::Value::as_str),
+                Some("message" | "connect")
+            )
+        {
+            crate::webview2_frames::run(frames, &script);
         }
     }
 

@@ -837,6 +837,21 @@ function extensionApis(api, entry, call) {
 
 function extensionPage(entry) {
   context = entry.context;
+  // Extensions tell their own pages by the scheme, Chrome's
+  // chrome-extension: (Bitwarden's inline menu checks it): here they are
+  // served over https, from the extension's origin.
+  const protocol = Object.getOwnPropertyDescriptor(URL.prototype, "protocol");
+  if (protocol && protocol.get) {
+    Object.defineProperty(URL.prototype, "protocol", {
+      configurable: true,
+      enumerable: protocol.enumerable,
+      get() {
+        const p = protocol.get.call(this);
+        return p === "https:" && this.origin === entry.origin ? "chrome-extension:" : p;
+      },
+      set: protocol.set,
+    });
+  }
   const api = makeChrome(entry);
   window.chrome = Object.assign(window.chrome || {}, api);
   window.browser = window.chrome;
@@ -875,11 +890,32 @@ function extensionPage(entry) {
     );
   }
   if (context === "background") {
+    // The messages the pages sent before the page could take them come
+    // once it listens to them: its listeners may come in several times,
+    // after an asynchronous start (Bitwarden's), so a moment after the last
+    // one; a while after it loaded when it adds none.
+    let ready = false;
+    let readyTimer = null;
+    const signalReady = () => {
+      if (ready) return;
+      ready = true;
+      send(entry.owner, "ready", {}).catch(() => {});
+    };
+    const readySoon = (delay) => {
+      clearTimeout(readyTimer);
+      readyTimer = setTimeout(signalReady, delay);
+    };
+    const listen = api.runtime.onMessage.addListener;
+    api.runtime.onMessage.addListener = (f) => {
+      listen(f);
+      readySoon(500);
+    };
     // Once the extension's scripts ran: installed or started.
     window.addEventListener("load", () =>
       setTimeout(() => {
         if (entry.installReason) api.runtime.onInstalled.fire({ reason: entry.installReason });
         else api.runtime.onStartup.fire();
+        if (readyTimer === null) readySoon(5000);
       }, 0),
     );
   }
@@ -944,12 +980,67 @@ function makeGM(entry, values) {
 
 // --- entries -----------------------------------------------------------------------
 
+// Chrome runs extension scripts in an isolated world, where setting a
+// field's `value` goes straight to the element. Here they share the page's
+// world, where a framework (React) may have put its own `value` on the
+// element to tell the user's typing from its own updates: a value an
+// extension sets (a password manager filling a form) would pass for the
+// framework's own, and the input event that follows would change nothing.
+// So a value set from an extension's script (marked by its sourceURL) skips
+// what the page put on the element.
+const EXTENSION_SCRIPT = "bu-extension-script";
+
+function isolateFieldValues() {
+  if (Object.getOwnPropertyDescriptor(window, "__buFieldValues")) return;
+  Object.defineProperty(window, "__buFieldValues", { value: true });
+  const define = Object.defineProperty;
+  const fields = [window.HTMLInputElement, window.HTMLTextAreaElement, window.HTMLSelectElement];
+  const nativeOf = (el, prop) => {
+    for (let p = Object.getPrototypeOf(el); p; p = Object.getPrototypeOf(p)) {
+      const d = Object.getOwnPropertyDescriptor(p, prop);
+      if (d) return d;
+    }
+    return undefined;
+  };
+  const fromExtension = () => {
+    const limit = Error.stackTraceLimit;
+    Error.stackTraceLimit = 4;
+    const stack = new Error().stack || "";
+    Error.stackTraceLimit = limit;
+    // This function, the setter, then whoever set the value.
+    return (stack.split("\n")[3] || "").includes(EXTENSION_SCRIPT);
+  };
+  const wrapped = function defineProperty(target, prop, desc) {
+    if (
+      (prop === "value" || prop === "checked") &&
+      desc &&
+      typeof desc.set === "function" &&
+      fields.some((F) => F && target instanceof F)
+    ) {
+      const native = nativeOf(target, prop);
+      const pageSet = desc.set;
+      if (native && native.set) {
+        desc = Object.assign({}, desc, {
+          set(v) {
+            if (fromExtension()) native.set.call(this, v);
+            else pageSet.call(this, v);
+          },
+        });
+      }
+    }
+    return define(target, prop, desc);
+  };
+  Object.defineProperty(wrapped, "toString", { value: () => define.toString() });
+  Object.defineProperty = wrapped;
+}
+
 function contentScript(entry, code) {
   if (!entry.allFrames && !isTop) return;
   if (!matches(entry, location.href)) return;
   // Style sheets go in first, whatever the scripts' timing.
   for (const css of entry.css) addStyle(css);
   if (!code) return;
+  isolateFieldValues();
   const api = makeChrome(entry);
   at(entry.runAt, () => code.call(window, api, api));
 }
@@ -958,6 +1049,7 @@ function contentScript(entry, code) {
 // its content scripts, it gets the extension's `chrome.*`; its result is
 // returned.
 function injected(entry, fn) {
+  isolateFieldValues();
   const api = makeChrome(entry);
   return fn.call(window, api, api);
 }

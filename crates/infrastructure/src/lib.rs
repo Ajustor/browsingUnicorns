@@ -40,6 +40,8 @@ mod webview2_downloads;
 #[cfg(all(windows, feature = "desktop"))]
 mod webview2_extensions;
 #[cfg(all(windows, feature = "desktop"))]
+mod webview2_frames;
+#[cfg(all(windows, feature = "desktop"))]
 mod webview2_keys;
 #[cfg(feature = "desktop")]
 mod wry_engine;

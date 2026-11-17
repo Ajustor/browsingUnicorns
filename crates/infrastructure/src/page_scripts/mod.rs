@@ -91,12 +91,18 @@ fn wrap(token: &str, bridge: Bridge, call: &str) -> String {
 pub fn injected_script(token: &str, bridge: Bridge, config: &str, body: &str) -> String {
     format!(
         "(function () {{\nconst TOKEN = {};\nconst CHANNEL = {};\nconst BRIDGE = {};\n{RUNTIME}\n\
-         return injected({config}, function (chrome, browser) {{\n{body}\n}});\n}})()",
+         return injected({config}, function (chrome, browser) {{\n{body}\n}});\n}})()\n\
+         //# sourceURL={EXTENSION_SCRIPT}-injected.js\n",
         json!(token),
         json!(new_token()),
         json!(bridge.name()),
     )
 }
+
+/// The name an extension's scripts run under in a page (`//# sourceURL`):
+/// the runtime knows a field value they set by it (see `isolateFieldValues`
+/// in `runtime.js`).
+const EXTENSION_SCRIPT: &str = "bu-extension-script";
 
 /// The runtime of an extension page (background, popup, options), with
 /// its configuration (`owner`, `context`, `origin`, `messages`, `manifest`,
@@ -171,11 +177,13 @@ pub fn page_scripts(sources: &Sources<'_>) -> Vec<String> {
             } else {
                 format!("function (chrome, browser) {{\n{js}\n}}")
             };
-            out.push(wrap(
+            let mut script = wrap(
                 sources.token,
                 sources.bridge,
                 &format!("contentScript({config}, {code});"),
-            ));
+            );
+            script.push_str(&format!("//# sourceURL={EXTENSION_SCRIPT}-{}.js\n", e.id));
+            out.push(script);
         }
     }
     for s in sources.user_scripts.items().iter().filter(|s| s.enabled) {

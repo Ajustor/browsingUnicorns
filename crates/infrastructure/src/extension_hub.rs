@@ -164,7 +164,27 @@ pub struct Hub {
     /// extensions (its id, its type), closed with the tab.
     popups: HashMap<TabId, (u64, String)>,
     next_window: u64,
+    /// Background pages whose scripts ran: their listeners are in.
+    ready: HashSet<String>,
+    /// Messages for a background page not ready yet (the browser just
+    /// started): Chrome wakes the worker up, here they wait for it.
+    queued: HashMap<String, Vec<Queued>>,
+    /// Whether each extension has a background page, by owner.
+    has_background: HashMap<String, bool>,
 }
+
+/// A `runtime.sendMessage` waiting for its extension's background page.
+struct Queued {
+    from: PageSource,
+    id: u64,
+    ch: Option<String>,
+    payload: Value,
+    sender: Value,
+}
+
+/// At most this many messages wait for a background page (one that never
+/// starts would keep them all).
+const MAX_QUEUED: usize = 64;
 
 /// The browser's window, holding every tab not opened as a window.
 const MAIN_WINDOW: u64 = 1;
@@ -240,6 +260,9 @@ impl Hub {
             blocker: None,
             popups: HashMap::new(),
             next_window: MAIN_WINDOW + 1,
+            ready: HashSet::new(),
+            queued: HashMap::new(),
+            has_background: HashMap::new(),
         }
     }
 
@@ -339,13 +362,19 @@ impl Hub {
             ExtensionState::forget(&self.state_dir, &id);
         }
         self.backgrounds.remove(owner);
+        self.ready.remove(owner);
+        self.queued.remove(owner);
+        self.has_background.remove(owner);
         self.close_native_ports(|_, o| o == owner);
         self.ports.retain(|_, p| p.owner != owner);
     }
 
     /// A background page went away (extension disabled or removed).
     pub fn background_closed(&mut self, id: &ExtensionId) {
-        self.backgrounds.remove(&format!("ext:{id}"));
+        let owner = format!("ext:{id}");
+        self.backgrounds.remove(&owner);
+        self.ready.remove(&owner);
+        self.has_background.remove(&owner);
         let page = PageSource::Background(id.clone());
         self.close_native_ports(|p, _| *p == page);
         self.closed_pages.push(page);
@@ -707,15 +736,51 @@ impl Hub {
                 }
                 Some(Ok(Value::Null))
             }
+            "ready" => {
+                if let (PageSource::Background(_), Some(ext)) = (from, ext.as_ref()) {
+                    self.ready.insert(owner.to_owned());
+                    for q in self.queued.remove(owner).unwrap_or_default() {
+                        let to = self.message_targets(&q.from, owner, ext);
+                        if let Some(result) = self
+                            .send_event(&q.from, q.id, &q.ch, owner, &to, q.payload, q.sender, host)
+                        {
+                            Self::reply(host, &q.from, q.id, &q.ch, result);
+                        }
+                    }
+                }
+                Some(Ok(Value::Null))
+            }
             "sendMessage" => {
                 let ext = ext?;
-                let mut to = Vec::new();
-                if !matches!(from, PageSource::Background(_)) && self.backgrounds.contains(owner) {
-                    to.push(PageSource::Background(ext.clone()));
+                if !matches!(from, PageSource::Background(_))
+                    && !self.ready.contains(owner)
+                    && self.expects_background(owner, &ext)
+                {
+                    let sender = self.sender(from, &ext, host);
+                    let queue = self.queued.entry(owner.to_owned()).or_default();
+                    if queue.len() >= MAX_QUEUED {
+                        let old = queue.remove(0);
+                        Self::reply(
+                            host,
+                            &old.from,
+                            old.id,
+                            &old.ch,
+                            Err(
+                                "Could not establish connection. Receiving end does not exist."
+                                    .into(),
+                            ),
+                        );
+                    }
+                    queue.push(Queued {
+                        from: from.clone(),
+                        id,
+                        ch: ch.clone(),
+                        payload: field("payload"),
+                        sender,
+                    });
+                    return None;
                 }
-                if from != &PageSource::Panel && self.panel.as_deref() == Some(owner) {
-                    to.push(PageSource::Panel);
-                }
+                let to = self.message_targets(from, owner, &ext);
                 let sender = self.sender(from, &ext, host);
                 self.send_event(from, id, ch, owner, &to, field("payload"), sender, host)
             }
@@ -1105,6 +1170,33 @@ impl Hub {
             }
             op => Err(format!("unknown operation {op}")),
         }
+    }
+
+    /// Whether `owner` has a background page (the manifest says, once).
+    fn expects_background(&mut self, owner: &str, ext: &ExtensionId) -> bool {
+        let dir = &self.extensions_dir;
+        *self
+            .has_background
+            .entry(owner.to_owned())
+            .or_insert_with(|| manifest::background(&extension_dir(dir, ext)).is_some())
+    }
+
+    /// Where a `runtime.sendMessage` from `from` goes: the background page
+    /// and the popup, but the sender.
+    fn message_targets(
+        &self,
+        from: &PageSource,
+        owner: &str,
+        ext: &ExtensionId,
+    ) -> Vec<PageSource> {
+        let mut to = Vec::new();
+        if !matches!(from, PageSource::Background(_)) && self.backgrounds.contains(owner) {
+            to.push(PageSource::Background(ext.clone()));
+        }
+        if from != &PageSource::Panel && self.panel.as_deref() == Some(owner) {
+            to.push(PageSource::Panel);
+        }
+        to
     }
 
     fn active_tab(&self, host: &dyn HubHost) -> Option<TabId> {
@@ -1782,6 +1874,46 @@ mod tests {
             &mut host,
         );
         assert!(host.delivered.pop().unwrap().1["error"].is_string());
+    }
+
+    /// The browser just started: a page's message waits for the background
+    /// page's listeners, as Chrome wakes its worker up for it.
+    #[test]
+    fn messages_wait_for_the_background_page() {
+        let dir = tempfile::tempdir().unwrap();
+        let ext_dir = extension_dir(&dir.path().join("ext"), &ext());
+        std::fs::create_dir_all(&ext_dir).unwrap();
+        std::fs::write(
+            ext_dir.join("manifest.json"),
+            r#"{"name": "E", "version": "1", "manifest_version": 3, "background": {"service_worker": "bg.js"}}"#,
+        )
+        .unwrap();
+        let mut hub = hub(dir.path());
+        let mut host = Host::default();
+        let tab = host.create_tab(Some("https://news.test/"), true).unwrap();
+        let (bg, page) = (PageSource::Background(ext()), PageSource::Tab(tab));
+        hub.handle(
+            &page,
+            &msg(1, "content", "sendMessage", json!({"payload": "early"})),
+            &mut host,
+        );
+        hub.handle(&bg, &msg(1, "background", "hello", json!({})), &mut host);
+        assert!(
+            !host
+                .delivered
+                .iter()
+                .any(|(to, m)| to == &bg && m["event"] == "message")
+        );
+        host.delivered.clear();
+        hub.handle(&bg, &msg(2, "background", "ready", json!({})), &mut host);
+        let event = host
+            .delivered
+            .iter()
+            .find(|(to, m)| to == &bg && m["event"] == "message")
+            .map(|(_, m)| m.clone())
+            .expect("the message reached the background page");
+        assert_eq!(event["payload"], "early");
+        assert_eq!(event["sender"]["tab"]["id"], tab.get());
     }
 
     #[test]
