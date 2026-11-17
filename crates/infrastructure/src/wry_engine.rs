@@ -677,7 +677,17 @@ impl WebEngine for WryEngine {
             .with_download_completed_handler(move |url, file, ok| {
                 on_downloaded(EngineEvent::DownloadFinished { url, file, ok });
             })
-            .with_new_window_req_handler(move |url, _features| {
+            .with_new_window_req_handler(move |url, features| {
+                // `window.open` with a size: a popup (a sign-in, a payment),
+                // which talks to its opener (`window.opener`) and closes
+                // itself. WebView2's own window keeps that link; a tab
+                // would break it. Links and plain `window.open`: a tab.
+                #[cfg(windows)]
+                if features.size.is_some() {
+                    return NewWindowResponse::Allow;
+                }
+                #[cfg(not(windows))]
+                let _ = features;
                 if let Ok(address) = WebAddress::parse(&url) {
                     emit(EngineEvent::NewTabRequested {
                         opener: Some(tab),

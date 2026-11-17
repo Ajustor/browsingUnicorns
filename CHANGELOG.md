@@ -4,6 +4,15 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [Non publié]
+
+### Corrigé
+
+- Les popups (connexion avec Google, paiement…) s'ouvraient dans un onglet,
+  coupées de la page qui les avait ouvertes : la connexion n'aboutissait
+  pas. Elles s'ouvrent maintenant dans leur propre fenêtre, et se ferment
+  d'elles-mêmes une fois terminé (Windows). Les liens restent en onglet.
+
 ## [0.14.1] - 2026-11-17
 
 ### Ajouté
