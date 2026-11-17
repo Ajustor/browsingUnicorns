@@ -23,6 +23,14 @@ const SHORTCUTS: &[(Modifiers, Key, Command)] = &[
     (Modifiers::COMMAND, Key::Tab, Command::CycleTabs(1)),
     (Modifiers::COMMAND, Key::L, Command::FocusOmnibox),
     (Modifiers::NONE, Key::F6, Command::FocusOmnibox),
+    // Before Ctrl+R and F5, which match with Shift or Ctrl held too.
+    (
+        Modifiers::COMMAND.plus(Modifiers::SHIFT),
+        Key::R,
+        Command::HardReload,
+    ),
+    (Modifiers::COMMAND, Key::F5, Command::HardReload),
+    (Modifiers::SHIFT, Key::F5, Command::HardReload),
     (Modifiers::COMMAND, Key::R, Command::Reload),
     (Modifiers::NONE, Key::F5, Command::Reload),
     (Modifiers::ALT, Key::ArrowLeft, Command::Back),
@@ -118,6 +126,14 @@ mod tests {
         assert!(matches!(
             from_page(&press("F5", false, false, false)),
             Some(Command::Reload)
+        ));
+        assert!(matches!(
+            from_page(&press("R", true, true, false)),
+            Some(Command::HardReload)
+        ));
+        assert!(matches!(
+            from_page(&press("F5", true, false, false)),
+            Some(Command::HardReload)
         ));
         assert!(matches!(
             from_page(&press("N", true, true, false)),

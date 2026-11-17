@@ -160,6 +160,43 @@ fn bounds(v: Viewport) -> Rect {
     }
 }
 
+/// Reloads `view`'s page, fetching everything again.
+#[cfg(windows)]
+fn reload_from_origin(view: &WebView) -> Result<(), String> {
+    use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2CallDevToolsProtocolMethodCompletedHandler;
+    use windows_core::HSTRING;
+    use wry::WebViewExtWindows as _;
+    unsafe {
+        view.webview().CallDevToolsProtocolMethod(
+            &HSTRING::from("Page.reload"),
+            &HSTRING::from(r#"{"ignoreCache":true}"#),
+            None::<&ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>,
+        )
+    }
+    .map_err(|e| e.to_string())
+}
+
+/// Reloads `view`'s page, fetching everything again.
+#[cfg(target_os = "macos")]
+fn reload_from_origin(view: &WebView) -> Result<(), String> {
+    use objc2::msg_send;
+    use objc2::runtime::AnyObject;
+    use wry::WebViewExtMacOS as _;
+    let webview = view.webview();
+    // -[WKWebView reloadFromOrigin]: end-to-end revalidation.
+    let _navigation: *mut AnyObject = unsafe { msg_send![&*webview, reloadFromOrigin] };
+    Ok(())
+}
+
+/// Reloads `view`'s page, fetching everything again.
+#[cfg(target_os = "linux")]
+fn reload_from_origin(view: &WebView) -> Result<(), String> {
+    use webkit2gtk::WebViewExt as _;
+    use wry::WebViewExtUnix as _;
+    view.webview().reload_bypass_cache();
+    Ok(())
+}
+
 /// The parts every view shares: the profile, the extensions' files, the
 /// page scripts' bridge.
 fn base_builder<'a>(
@@ -779,6 +816,16 @@ impl WebEngine for WryEngine {
 
     fn reload(&mut self, tab: TabId) {
         self.with_view(tab, "reload", WebView::reload);
+    }
+
+    fn reload_bypassing_cache(&mut self, tab: TabId) {
+        let Some(view) = self.views.get(&tab) else {
+            return;
+        };
+        if let Err(e) = reload_from_origin(view) {
+            log::warn!("reload of tab {tab} without the cache: {e}");
+            self.reload(tab);
+        }
     }
 
     fn set_viewport(&mut self, viewport: Viewport) {

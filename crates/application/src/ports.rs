@@ -49,6 +49,10 @@ pub trait WebEngine {
     fn go_back(&mut self, tab: TabId);
     fn go_forward(&mut self, tab: TabId);
     fn reload(&mut self, tab: TabId);
+    /// Reloads `tab` fetching everything again, nothing from the cache.
+    fn reload_bypassing_cache(&mut self, tab: TabId) {
+        self.reload(tab);
+    }
     fn set_viewport(&mut self, viewport: Viewport);
 
     /// How this engine runs browser extensions.

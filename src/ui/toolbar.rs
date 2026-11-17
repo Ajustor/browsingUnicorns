@@ -44,7 +44,7 @@ pub fn show(
             ),
             (
                 icon::ARROW_CLOCKWISE,
-                "Reload (F5)",
+                "Reload (F5)\nShift+click or Ctrl+Shift+R: reload without the cache",
                 active.is_some(),
                 Command::Reload,
             ),
@@ -52,7 +52,12 @@ pub fn show(
         ];
         for (glyph, tip, enabled, command) in nav {
             if button(ui, RichText::new(glyph).size(16.0), tip, enabled) {
-                commands.push(command);
+                // Shift+click on Reload: without the cache.
+                let shift = ui.input(|i| i.modifiers.shift);
+                commands.push(match command {
+                    Command::Reload if shift => Command::HardReload,
+                    other => other,
+                });
             }
         }
 

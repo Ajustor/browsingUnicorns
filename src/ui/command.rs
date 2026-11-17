@@ -22,6 +22,8 @@ pub enum Command {
     Back,
     Forward,
     Reload,
+    /// Reload without the cache (Ctrl+Shift+R, Ctrl+F5, Shift+click).
+    HardReload,
     Home,
     Submit(String),
     FocusOmnibox,

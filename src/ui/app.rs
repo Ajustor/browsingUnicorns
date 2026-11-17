@@ -316,6 +316,7 @@ impl BrowserApp {
             Command::Back => self.browser.go_back(),
             Command::Forward => self.browser.go_forward(),
             Command::Reload => self.browser.reload(),
+            Command::HardReload => self.browser.reload_bypassing_cache(),
             Command::FocusOmnibox => {
                 self.browser.engine().focus_window();
                 self.omnibox.request_focus();

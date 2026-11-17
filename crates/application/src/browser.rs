@@ -405,6 +405,13 @@ impl<E: WebEngine> Browser<E> {
         }
     }
 
+    /// Reloads the active tab without the cache (Ctrl+Shift+R).
+    pub fn reload_bypassing_cache(&mut self) {
+        if let Some(id) = self.session.active_id() {
+            self.engine.reload_bypassing_cache(id);
+        }
+    }
+
     pub fn set_viewport(&mut self, viewport: Viewport) {
         self.engine.set_viewport(viewport);
     }
