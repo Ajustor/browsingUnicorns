@@ -4,6 +4,23 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.13.0] - 2026-11-17
+
+### Ajouté
+
+- Une barre de téléchargements en bas de la fenêtre, à la place de la
+  ligne d'état : une carte par fichier, avec son icône, où il en est
+  (« 730 MB of 1.00 GB · 71% », barre de progression), et ce qu'on peut en
+  faire : l'annuler pendant le transfert (Windows), l'ouvrir (clic sur la
+  carte) ou le montrer dans son dossier une fois fini, le retélécharger
+  s'il a échoué. « Open folder » ouvre le dossier des téléchargements,
+  « Clear » retire ceux qui sont finis.
+- Un bouton Téléchargements dans la barre d'outils, cyan pendant un
+  transfert, rouvre ou ferme cette barre.
+
+La progression et l'annulation n'existent que sous Windows : ailleurs, la
+barre de progression est animée sans pourcentage.
+
 ## [0.12.7] - 2026-11-17
 
 ### Ajouté
