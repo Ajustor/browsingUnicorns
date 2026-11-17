@@ -17,6 +17,19 @@ const MACOS_BUTTONS: f32 = 72.0;
 /// Width of the window's buttons (Windows, Linux).
 const WINDOW_BUTTONS: f32 = 3.0 * 46.0;
 
+/// Empty space above the tabs: room to grab the window by.
+pub const TOP_MARGIN: i8 = 12;
+
+/// The strip's whole area, up to the window's top edge (its panel has
+/// margins of 8 on the sides).
+pub fn area(ui: &egui::Ui) -> egui::Rect {
+    let inner = ui.max_rect();
+    egui::Rect::from_min_max(
+        egui::pos2(inner.left() - 8.0, 0.0),
+        egui::pos2(inner.right() + 8.0, inner.bottom() + 6.0),
+    )
+}
+
 /// The tab strip, which is also the window's title bar: its empty space
 /// moves the window (double click: maximize), and it ends with the window's
 /// buttons (but on macOS, where the system draws them on its left).
@@ -42,9 +55,13 @@ pub fn show(
             WINDOW_BUTTONS
         };
         // As wide as the tabs: the + follows the last one (room kept for it
-        // when they overflow).
+        // when they overflow). No scroll bar, which got in the way of the
+        // tabs and of the window's dragging: the wheel scrolls the tabs, and
+        // the active one is scrolled into view.
+        ui.style_mut().always_scroll_the_only_direction = true;
         ScrollArea::horizontal()
             .auto_shrink([true, true])
+            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
             .max_width(ui.available_width() - 32.0 - controls)
             .drag_to_scroll(false)
             .show(ui, |ui| {
@@ -197,7 +214,7 @@ pub fn show(
 /// The strip's empty space, sensed under the tabs and buttons: dragged, it
 /// moves the window; double-clicked, it maximizes or restores it.
 fn title_bar(ui: &egui::Ui) {
-    let rect = ui.max_rect().expand2(egui::vec2(8.0, 6.0));
+    let rect = area(ui);
     let bar = ui.interact(rect, ui.id().with("title bar"), Sense::click_and_drag());
     if bar.double_clicked() {
         let maximized = ui.ctx().input(|i| i.viewport().maximized == Some(true));
