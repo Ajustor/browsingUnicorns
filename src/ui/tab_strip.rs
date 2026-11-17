@@ -51,9 +51,21 @@ pub fn show(
                 ui.horizontal(|ui| {
                     let mut rects = Vec::with_capacity(session.len());
                     let mut dragged = None;
+                    // A newly active tab (a new one, Ctrl+Tab...) is scrolled
+                    // into view, once: the user may scroll away from it.
+                    let shown = ui.id().with("active tab");
+                    let newly_active = ui.data_mut(|d| {
+                        let changed =
+                            d.get_temp::<Option<domain::TabId>>(shown) != Some(session.active_id());
+                        d.insert_temp(shown, session.active_id());
+                        changed
+                    });
                     for (index, tab) in session.tabs().iter().enumerate() {
                         let active = session.active_id() == Some(tab.id());
                         let response = tab_button(ui, tab, active, chrome, commands);
+                        if active && newly_active {
+                            response.scroll_to_me(None);
+                        }
                         if response.dragged() || response.drag_stopped() {
                             dragged = Some((index, tab.id(), response.drag_stopped()));
                         }
