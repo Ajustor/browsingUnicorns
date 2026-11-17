@@ -4,6 +4,27 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.14.1] - 2026-11-17
+
+### Ajouté
+
+- Recharger sans le cache : Ctrl+Shift+R, Ctrl+F5, Maj+F5, ou Maj+clic sur
+  le bouton Recharger.
+
+### Corrigé
+
+- Le bouton « Fill » de Bitwarden ne remplissait pas vraiment : les valeurs
+  s'affichaient, mais les sites en React (et ce qui fonctionne pareil)
+  ne les voyaient pas et envoyaient des champs vides. Une valeur posée par
+  une extension passe désormais par le champ lui-même, comme dans Chrome.
+- Les onglets rouverts au démarrage n'avaient pas Bitwarden (ni
+  remplissage ni menu) tant qu'on ne les rechargeait pas : leur message
+  partait avant que l'extension écoute. Il attend maintenant qu'elle soit
+  prête.
+- Les petits menus de Bitwarden sous les champs restaient vides : ils
+  vérifient être servis depuis `chrome-extension:`, et sous Windows leur
+  cadre ne pouvait pas parler au navigateur. Les deux sont réglés.
+
 ## [0.14.0] - 2026-11-17
 
 ### Ajouté
