@@ -57,7 +57,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -182,8 +184,14 @@ private fun UpdateBanner(u: AppUpdates) {
 @Composable
 private fun AddressBar(c: BrowserController) {
     val url = c.state.activeUrl ?: ""
-    var text by remember(url) { mutableStateOf(url) }
+    var field by remember(url) { mutableStateOf(TextFieldValue(url)) }
+    val text = field.text
     var focused by remember { mutableStateOf(false) }
+    // Touched: the whole address is selected, ready to be typed over. A
+    // frame later: the tap that gave the focus places the cursor after it.
+    LaunchedEffect(focused) {
+        if (focused) field = field.copy(selection = TextRange(0, field.text.length))
+    }
     val focus = LocalFocusManager.current
     var siteInfo by remember { mutableStateOf(false) }
     var shield by remember { mutableStateOf(false) }
@@ -220,8 +228,8 @@ private fun AddressBar(c: BrowserController) {
     }
     Column {
         TextField(
-            value = text,
-            onValueChange = { text = it },
+            value = field,
+            onValueChange = { field = it },
             modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)
                 .border(1.dp, Unicorn.Outline, RoundedCornerShape(24.dp))
                 .onFocusChanged {
