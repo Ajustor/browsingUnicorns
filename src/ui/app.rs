@@ -174,6 +174,11 @@ impl BrowserApp {
                 r
             }
             Command::ClearBrowsingData(what) => self.clear_browsing_data(what),
+            Command::ImportBookmarks(from) => {
+                let r = self.import_bookmarks(from);
+                return self.report_err(r);
+            }
+            Command::MoveBookmark(address, folder) => self.browser.move_bookmark(&address, &folder),
             Command::Home => self.browser.go_home(),
             Command::Submit(input) => self.browser.submit_omnibox(&input).map(|_| ()),
             Command::Open(address, target) => self.browser.load(address, target),
@@ -281,6 +286,35 @@ impl BrowserApp {
         if let Err(e) = result {
             self.report(e);
         }
+    }
+
+    /// Reads another browser's bookmarks and adds them in a folder named
+    /// after it; says how many came.
+    fn import_bookmarks(&mut self, from: super::command::ImportFrom) -> Result<(), String> {
+        use infrastructure::bookmark_import;
+        let (name, found) = match from {
+            super::command::ImportFrom::Chromium(name, file) => {
+                (name, bookmark_import::read_chromium(&file)?)
+            }
+            super::command::ImportFrom::Html(file) => {
+                let text = std::fs::read_to_string(&file)
+                    .map_err(|e| format!("Could not read {}: {e}", file.display()))?;
+                ("HTML file".to_owned(), bookmark_import::parse_html(&text))
+            }
+        };
+        let items = found.into_iter().filter_map(|b| {
+            let address = domain::WebAddress::parse(&b.url).ok()?;
+            Some((address, b.title, b.folder))
+        });
+        let added = self
+            .browser
+            .import_bookmarks(&format!("Imported from {name}"), items)
+            .map_err(|e| e.to_string())?;
+        self.notice = Some(Notice {
+            error: false,
+            text: format!("{added} bookmarks imported from {name}."),
+        });
+        Ok(())
     }
 
     /// Removes what was asked, and says what it did.
@@ -394,6 +428,7 @@ impl BrowserApp {
                 self.close_requested = true;
             }
             Command::SetMuted(tab, muted) => self.browser.engine_mut().set_muted(tab, muted),
+            Command::ShowBookmarkFolder(folder) => self.library.show_folder(folder),
             Command::ResetZoom => {
                 let host = self
                     .browser
@@ -419,6 +454,8 @@ impl BrowserApp {
             | Command::ReopenClosedTab
             | Command::UpdateSettings(_)
             | Command::ClearBrowsingData(_)
+            | Command::ImportBookmarks(_)
+            | Command::MoveBookmark(..)
             | Command::Home
             | Command::Submit(_)
             | Command::Open(..)
@@ -701,6 +738,8 @@ fn writes_profile(command: &Command) -> bool {
         command,
         Command::ToggleBookmark
             | Command::RemoveBookmark(_)
+            | Command::ImportBookmarks(_)
+            | Command::MoveBookmark(..)
             | Command::SyncTurnOn
             | Command::SyncJoin(_)
             | Command::SyncTurnOff

@@ -25,6 +25,8 @@ pub struct BookmarkDto {
     pub title: String,
     #[serde(default)]
     pub added_at: u64,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub folder: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -43,6 +45,7 @@ impl From<&Bookmarks> for BookmarksDto {
                     url: b.address.to_string(),
                     title: b.title.clone(),
                     added_at: b.added_at,
+                    folder: b.folder.clone(),
                 })
                 .collect(),
             removed: b
@@ -67,6 +70,7 @@ impl From<BookmarksDto> for Bookmarks {
                         address: parse(&b.url)?,
                         title: b.title,
                         added_at: b.added_at,
+                        folder: b.folder,
                     })
                 })
                 .collect(),

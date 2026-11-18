@@ -52,6 +52,8 @@ pub struct Library {
     extensions: ExtensionsPanel,
     pub profiles: ProfilesPanel,
     pub settings: SettingsPanel,
+    /// The bookmark being moved to a folder, and the folder typed.
+    moving: Option<(WebAddress, String)>,
 }
 
 impl Library {
@@ -241,38 +243,123 @@ impl Library {
         }
     }
 
-    fn bookmarks(&self, ui: &mut egui::Ui, bookmarks: &Bookmarks, commands: &mut Vec<Command>) {
+    /// Opens the bookmarks of `folder`.
+    pub fn show_folder(&mut self, folder: String) {
+        self.open = Some(LibraryView::Bookmarks);
+        self.filter = folder;
+    }
+
+    fn bookmarks(&mut self, ui: &mut egui::Ui, bookmarks: &Bookmarks, commands: &mut Vec<Command>) {
         let filter = self.filter.to_lowercase();
+        let matches = |b: &&domain::Bookmark| {
+            filter.is_empty()
+                || format!("{} {} {}", b.title, b.address, b.folder)
+                    .to_lowercase()
+                    .contains(&filter)
+        };
+        let folders = bookmarks.folders();
         let mut any = false;
+        let moving = &mut self.moving;
         ScrollArea::vertical()
             .auto_shrink([false, true])
             .show(ui, |ui| {
-                for b in bookmarks.items().iter().filter(|b| {
-                    filter.is_empty()
-                        || format!("{} {}", b.title, b.address)
-                            .to_lowercase()
-                            .contains(&filter)
-                }) {
-                    any = true;
-                    ui.horizontal(|ui| {
-                        if super::theme::hover_fill(ui, |ui| {
-                            ui.add(Button::new(icon::X).frame(false).small())
-                        })
-                        .on_hover_text("Remove bookmark")
-                        .clicked()
-                        {
-                            commands.push(Command::RemoveBookmark(b.address.clone()));
-                        }
-                        ui.vertical(|ui| entry(ui, b.label(), &b.address, None, commands));
-                    });
+                // Those out of any folder first, then each folder's.
+                let mut rows = |ui: &mut egui::Ui, folder: &str| {
+                    for b in bookmarks
+                        .items()
+                        .iter()
+                        .filter(|b| b.folder == folder)
+                        .filter(matches)
+                    {
+                        any = true;
+                        bookmark_row(ui, b, &folders, moving, commands);
+                    }
+                };
+                rows(ui, "");
+                for folder in &folders {
+                    let count = bookmarks
+                        .items()
+                        .iter()
+                        .filter(|b| &b.folder == folder)
+                        .filter(matches)
+                        .count();
+                    if count == 0 {
+                        continue;
+                    }
+                    egui::CollapsingHeader::new(format!("{} {folder} ({count})", icon::FOLDER))
+                        .id_salt(folder)
+                        .default_open(!filter.is_empty())
+                        .show(ui, |ui| rows(ui, folder));
                 }
             });
         if !any {
             ui.weak(format!(
-                "No bookmarks. {} in the address bar or Ctrl+D saves the page.",
+                "No bookmarks. {} in the address bar or Ctrl+D saves the page; \
+                 Settings imports other browsers'.",
                 icon::STAR
             ));
         }
+    }
+}
+
+/// A bookmark: remove, move to a folder, and the page itself.
+fn bookmark_row(
+    ui: &mut egui::Ui,
+    b: &domain::Bookmark,
+    folders: &[String],
+    moving: &mut Option<(WebAddress, String)>,
+    commands: &mut Vec<Command>,
+) {
+    ui.horizontal(|ui| {
+        if super::theme::hover_fill(ui, |ui| ui.add(Button::new(icon::X).frame(false).small()))
+            .on_hover_text("Remove bookmark")
+            .clicked()
+        {
+            commands.push(Command::RemoveBookmark(b.address.clone()));
+        }
+        if super::theme::hover_fill(ui, |ui| {
+            ui.add(Button::new(icon::FOLDER_SIMPLE).frame(false).small())
+        })
+        .on_hover_text("Move to a folder")
+        .clicked()
+        {
+            *moving = match moving {
+                Some((a, _)) if *a == b.address => None,
+                _ => Some((b.address.clone(), b.folder.clone())),
+            };
+        }
+        ui.vertical(|ui| entry(ui, b.label(), &b.address, None, commands));
+    });
+    let Some((address, typed)) = moving.as_mut().filter(|(a, _)| *a == b.address) else {
+        return;
+    };
+    let mut chosen = None;
+    egui::Frame::group(ui.style()).show(ui, |ui| {
+        ui.horizontal_wrapped(|ui| {
+            if super::theme::pill(ui, b.folder.is_empty(), "No folder").clicked() {
+                chosen = Some(String::new());
+            }
+            for f in folders {
+                if super::theme::pill(ui, &b.folder == f, f.as_str()).clicked() {
+                    chosen = Some(f.clone());
+                }
+            }
+        });
+        ui.horizontal(|ui| {
+            let field = ui.add(
+                TextEdit::singleline(typed)
+                    .hint_text("New folder (Work/Projects)")
+                    .desired_width(ui.available_width() - 40.0),
+            );
+            let enter = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            if (ui.button("OK").clicked() || enter) && !typed.trim().is_empty() {
+                chosen = Some(typed.clone());
+            }
+        });
+    });
+    if let Some(folder) = chosen {
+        commands.push(Command::MoveBookmark(address.clone(), folder));
+        *moving = None;
     }
 }
 

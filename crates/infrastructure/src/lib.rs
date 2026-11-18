@@ -4,6 +4,7 @@
 //! sync transport; the Android app builds without it.
 
 pub mod blocker;
+pub mod bookmark_import;
 #[cfg(feature = "desktop")]
 pub mod certificates;
 mod clock;

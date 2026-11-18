@@ -5,7 +5,7 @@ use domain::{SearchEngine, Settings, WebAddress};
 use egui::{Button, RichText, TextEdit};
 use egui_phosphor::regular as icon;
 
-use super::command::{ClearData, Command};
+use super::command::{ClearData, Command, ImportFrom};
 
 /// What the view keeps between frames: the fields being typed in.
 #[derive(Default)]
@@ -16,6 +16,8 @@ pub struct SettingsPanel {
     clear: ClearChoice,
     /// What the last clearing did, to tell.
     pub cleared: Option<String>,
+    /// The browsers found here to import bookmarks from (looked for once).
+    sources: Option<Vec<infrastructure::bookmark_import::Source>>,
 }
 
 /// What "Clear browsing data" removes.
@@ -179,6 +181,36 @@ impl SettingsPanel {
                 commands.push(Command::ApplyZoom);
             }
         }
+
+        section(ui, icon::STAR, "Import bookmarks");
+        ui.weak("Into a folder named after the browser.");
+        let sources = self
+            .sources
+            .get_or_insert_with(infrastructure::bookmark_import::chromium_sources);
+        ui.horizontal_wrapped(|ui| {
+            for source in sources.iter() {
+                if ui.button(format!("From {}", source.name)).clicked() {
+                    commands.push(Command::ImportBookmarks(ImportFrom::Chromium(
+                        source.name.to_owned(),
+                        source.file.clone(),
+                    )));
+                }
+            }
+            if ui
+                .button(format!("{} From an HTML file…", icon::FILE_HTML))
+                .on_hover_text(
+                    "The file other browsers export (Firefox: Bookmarks > Manage \
+                     bookmarks > Import and backup > Export bookmarks to HTML)",
+                )
+                .clicked()
+                && let Some(file) = rfd::FileDialog::new()
+                    .set_title("Bookmarks exported from a browser")
+                    .add_filter("Bookmarks", &["html", "htm"])
+                    .pick_file()
+            {
+                commands.push(Command::ImportBookmarks(ImportFrom::Html(file)));
+            }
+        });
 
         section(ui, icon::BROOM, "Clear browsing data");
         ui.checkbox(&mut self.clear.history, "History");

@@ -6,9 +6,11 @@ use crate::{Timestamp, WebAddress};
 pub struct Bookmark {
     pub address: WebAddress,
     pub title: String,
-    /// When it was (last) added: the most recent of an add and a removal of
-    /// the same address wins when devices are merged.
+    /// When it was (last) added or moved: the most recent of an add and a
+    /// removal of the same address wins when devices are merged.
     pub added_at: Timestamp,
+    /// The folder it is in, its names separated by `/` (empty: none).
+    pub folder: String,
 }
 
 impl Bookmark {
@@ -82,8 +84,54 @@ impl Bookmarks {
             address,
             title: title.into().trim().to_owned(),
             added_at: at,
+            folder: String::new(),
         });
         true
+    }
+
+    /// Adds a bookmark in `folder`; `false` when the address is already
+    /// saved (it stays where it is).
+    pub fn add_in(
+        &mut self,
+        address: WebAddress,
+        title: impl Into<String>,
+        folder: &str,
+        at: Timestamp,
+    ) -> bool {
+        if !self.add(address, title, at) {
+            return false;
+        }
+        if let Some(b) = self.items.last_mut() {
+            b.folder = clean_folder(folder);
+        }
+        true
+    }
+
+    /// Moves the bookmark of `address` to `folder` (empty: out of any).
+    /// The move wins over older changes on other devices.
+    pub fn move_to(&mut self, address: &WebAddress, folder: &str, at: Timestamp) -> bool {
+        let folder = clean_folder(folder);
+        match self.items.iter_mut().find(|b| &b.address == address) {
+            Some(b) if b.folder != folder => {
+                b.folder = folder;
+                b.added_at = b.added_at.max(at);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// The folders that hold bookmarks, sorted.
+    pub fn folders(&self) -> Vec<String> {
+        let mut folders: Vec<String> = self
+            .items
+            .iter()
+            .filter(|b| !b.folder.is_empty())
+            .map(|b| b.folder.clone())
+            .collect();
+        folders.sort_by_key(|f| f.to_lowercase());
+        folders.dedup();
+        folders
     }
 
     pub fn remove(&mut self, address: &WebAddress, at: Timestamp) -> bool {
@@ -179,9 +227,36 @@ impl Bookmarks {
     }
 }
 
+/// `folder` without blanks around its names, nor empty names.
+fn clean_folder(folder: &str) -> String {
+    folder
+        .split('/')
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bookmarks_go_in_folders_and_moves_win_merges() {
+        let mut mine = Bookmarks::default();
+        assert!(mine.add_in(a(), "A", " Work / Projects ", 1));
+        assert!(mine.add(addr("https://b.com/"), "B", 1));
+        assert_eq!(mine.folders(), ["Work/Projects"]);
+        let theirs = mine.clone();
+        assert!(mine.move_to(&a(), "", 5));
+        assert!(mine.folders().is_empty());
+        // The other device still has it in the folder, from before.
+        assert!(!mine.merge(&theirs));
+        assert_eq!(mine.items()[0].folder, "");
+        let mut theirs = theirs;
+        assert!(theirs.merge(&mine));
+        assert_eq!(theirs.items()[0].folder, "");
+    }
 
     fn addr(s: &str) -> WebAddress {
         WebAddress::parse(s).unwrap()
@@ -255,7 +330,8 @@ mod tests {
             vec![Bookmark {
                 address: a(),
                 title: "A".into(),
-                added_at: 1
+                added_at: 1,
+                folder: String::new(),
             }],
             vec![]
         )));

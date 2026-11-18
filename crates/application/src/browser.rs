@@ -166,6 +166,46 @@ impl<E: WebEngine> Browser<E> {
         Ok(())
     }
 
+    /// Adds bookmarks of another browser under `root` (their folders kept
+    /// inside it); those already saved stay where they are. Returns how
+    /// many were added.
+    pub fn import_bookmarks(
+        &mut self,
+        root: &str,
+        items: impl IntoIterator<Item = (WebAddress, String, String)>,
+    ) -> Result<usize, BrowserError> {
+        let now = self.now();
+        let mut added = 0;
+        for (address, title, folder) in items {
+            let folder = if folder.is_empty() {
+                root.to_owned()
+            } else {
+                format!("{root}/{folder}")
+            };
+            if self.bookmarks.add_in(address, title, &folder, now) {
+                added += 1;
+            }
+        }
+        if added > 0 {
+            self.unsynced = true;
+            self.profile.bookmarks.save(&self.bookmarks)?;
+        }
+        Ok(added)
+    }
+
+    /// Moves a bookmark to `folder` (empty: out of any).
+    pub fn move_bookmark(
+        &mut self,
+        address: &WebAddress,
+        folder: &str,
+    ) -> Result<(), BrowserError> {
+        if self.bookmarks.move_to(address, folder, self.now()) {
+            self.unsynced = true;
+            self.profile.bookmarks.save(&self.bookmarks)?;
+        }
+        Ok(())
+    }
+
     /// Other devices of the sync group, as of the last sync.
     pub fn remote_devices(&self) -> &[RemoteDevice] {
         &self.remote_devices
