@@ -4,6 +4,13 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.14.5] - 2026-11-18
+
+### Modifié
+
+- Android : toucher la barre d'adresse sélectionne toute l'adresse, comme
+  sur ordinateur.
+
 ## [0.14.4] - 2026-11-18
 
 ### Modifié
