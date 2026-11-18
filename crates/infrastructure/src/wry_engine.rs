@@ -686,6 +686,8 @@ impl WebEngine for WryEngine {
         let on_zoom = emit.clone();
         #[cfg(windows)]
         let on_fullscreen = emit.clone();
+        #[cfg(windows)]
+        let on_favicon = emit.clone();
         let device_for_downloads = self.device.clone();
         let builder = base_builder(
             &mut self.context,
@@ -821,6 +823,11 @@ impl WebEngine for WryEngine {
                 on_fullscreen(EngineEvent::FullScreenChanged { tab, on });
             }) {
                 log::warn!("full screen of tab {tab}: {e}");
+            }
+            if let Err(e) = crate::webview2_settings::follow_favicon(&view, move |png| {
+                on_favicon(EngineEvent::FaviconChanged { tab, png });
+            }) {
+                log::warn!("icon of tab {tab}: {e}");
             }
         }
         // Within the page (`history.pushState`): the address bar follows.

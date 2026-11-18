@@ -9,6 +9,7 @@ mod default_browser;
 mod downloads;
 mod extension_bar;
 mod extensions;
+mod favicons;
 mod library;
 mod omnibox;
 mod profiles;

@@ -33,6 +33,8 @@ pub struct BrowserApp {
     browser: Browser<WryEngine>,
     /// The tab whose page shows an element in full screen (a video).
     page_fullscreen: Option<TabId>,
+    /// The tabs' page icons.
+    favicons: super::favicons::Favicons,
     /// The window was put in full screen for it.
     window_fullscreen: bool,
     events: Receiver<EngineEvent>,
@@ -116,6 +118,7 @@ impl BrowserApp {
             exit_slot,
             omnibox: Omnibox::default(),
             page_fullscreen: None,
+            favicons: Default::default(),
             window_fullscreen: false,
             library: Library::default(),
             notice: None,
@@ -608,6 +611,10 @@ impl BrowserApp {
             if self.downloads.handle(&event) {
                 continue;
             }
+            if let EngineEvent::FaviconChanged { tab, png } = event {
+                self.favicons.changed(tab, png);
+                continue;
+            }
             if let EngineEvent::FullScreenChanged { tab, on } = event {
                 if on {
                     self.page_fullscreen = Some(tab);
@@ -712,9 +719,11 @@ impl BrowserApp {
             .show_separator_line(false)
             .show(ctx, |ui| {
                 super::theme::gradient(ui.painter(), tab_strip::area(ui), &chrome);
+                self.favicons.update(ui.ctx(), self.browser.session());
                 tab_strip::show(
                     ui,
                     self.browser.session(),
+                    &self.favicons,
                     &chrome,
                     self.is_private(),
                     commands,

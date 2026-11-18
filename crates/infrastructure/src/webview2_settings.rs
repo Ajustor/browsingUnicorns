@@ -3,12 +3,13 @@
 
 use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_BROWSING_DATA_KINDS, COREWEBVIEW2_BROWSING_DATA_KINDS_ALL_SITE,
-    COREWEBVIEW2_BROWSING_DATA_KINDS_DISK_CACHE, ICoreWebView2_13, ICoreWebView2Profile2,
-    ICoreWebView2Settings4,
+    COREWEBVIEW2_BROWSING_DATA_KINDS_DISK_CACHE, COREWEBVIEW2_FAVICON_IMAGE_FORMAT_PNG,
+    ICoreWebView2_13, ICoreWebView2_15, ICoreWebView2Profile2, ICoreWebView2Settings4,
 };
 use webview2_com::{
     ClearBrowsingDataCompletedHandler, ContainsFullScreenElementChangedEventHandler,
-    SourceChangedEventHandler, ZoomFactorChangedEventHandler, take_pwstr,
+    FaviconChangedEventHandler, GetFaviconCompletedHandler, SourceChangedEventHandler,
+    ZoomFactorChangedEventHandler, take_pwstr,
 };
 use windows_core::{Interface, PWSTR};
 use wry::{WebView, WebViewExtWindows};
@@ -89,6 +90,59 @@ pub fn follow_fullscreen(
         view.webview()
             .add_ContainsFullScreenElementChanged(&handler, &mut token)
     }
+}
+
+/// Calls `on_icon` with the PNG of `view`'s page icon each time it changes
+/// (empty: the page has none).
+pub fn follow_favicon(
+    view: &WebView,
+    on_icon: impl Fn(Vec<u8>) + 'static,
+) -> windows_core::Result<()> {
+    let on_icon = std::rc::Rc::new(on_icon);
+    let handler = FaviconChangedEventHandler::create(Box::new(move |sender, _| {
+        let Some(sender) = sender else { return Ok(()) };
+        let on_icon = on_icon.clone();
+        let done = GetFaviconCompletedHandler::create(Box::new(move |result, stream| {
+            let png = match (result, stream) {
+                (Ok(()), Some(stream)) => read_all(&stream),
+                _ => Vec::new(),
+            };
+            on_icon(png);
+            Ok(())
+        }));
+        unsafe {
+            sender
+                .cast::<ICoreWebView2_15>()?
+                .GetFavicon(COREWEBVIEW2_FAVICON_IMAGE_FORMAT_PNG, &done)
+        }
+    }));
+    let mut token = 0;
+    unsafe {
+        view.webview()
+            .cast::<ICoreWebView2_15>()?
+            .add_FaviconChanged(&handler, &mut token)
+    }
+}
+
+/// What is left to read in `stream`.
+fn read_all(stream: &windows::Win32::System::Com::IStream) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut buffer = [0u8; 8192];
+    loop {
+        let mut read = 0u32;
+        let result = unsafe {
+            stream.Read(
+                buffer.as_mut_ptr().cast(),
+                buffer.len() as u32,
+                Some(&mut read),
+            )
+        };
+        if result.is_err() || read == 0 {
+            break;
+        }
+        out.extend_from_slice(&buffer[..read as usize]);
+    }
+    out
 }
 
 /// Sets `view`'s zoom, in percent.

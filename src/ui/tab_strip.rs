@@ -36,6 +36,7 @@ pub fn area(ui: &egui::Ui) -> egui::Rect {
 pub fn show(
     ui: &mut egui::Ui,
     session: &Session,
+    favicons: &super::favicons::Favicons,
     chrome: &super::theme::Chrome,
     private: bool,
     commands: &mut Vec<Command>,
@@ -79,7 +80,8 @@ pub fn show(
                     });
                     for (index, tab) in session.tabs().iter().enumerate() {
                         let active = session.active_id() == Some(tab.id());
-                        let response = tab_button(ui, tab, active, chrome, commands);
+                        let icon = favicons.get(tab.id());
+                        let response = tab_button(ui, tab, icon, active, chrome, commands);
                         if active && newly_active {
                             response.scroll_to_me(None);
                         }
@@ -122,6 +124,7 @@ Right-click: reopen the last tab closed (Ctrl+Shift+T)",
     fn tab_button(
         ui: &mut egui::Ui,
         tab: &domain::Tab,
+        icon: Option<&egui::TextureHandle>,
         active: bool,
         chrome: &super::theme::Chrome,
         commands: &mut Vec<Command>,
@@ -158,6 +161,11 @@ Right-click: reopen the last tab closed (Ctrl+Shift+T)",
                         ui.horizontal(|ui| {
                             if tab.is_loading() {
                                 ui.add(Spinner::new().size(12.0).color(text));
+                            } else if let Some(icon) = icon {
+                                ui.add(
+                                    egui::Image::new(icon)
+                                        .fit_to_exact_size(egui::vec2(14.0, 14.0)),
+                                );
                             }
                             let title = truncate(tab.display_title(), TITLE_CHARS);
                             let label = ui

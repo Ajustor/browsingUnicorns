@@ -148,6 +148,11 @@ pub enum EngineEvent {
         url: String,
         file: std::path::PathBuf,
     },
+    /// `tab`'s page icon changed: a PNG (empty: none).
+    FaviconChanged {
+        tab: TabId,
+        png: Vec<u8>,
+    },
     /// `tab`'s page shows an element in full screen (a video), or not.
     FullScreenChanged {
         tab: TabId,
