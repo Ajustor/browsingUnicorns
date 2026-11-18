@@ -76,6 +76,10 @@ impl Omnibox {
         if std::mem::take(&mut self.focus_requested) {
             response.request_focus();
             select_all(ui.ctx(), id, &self.text);
+        } else if response.gained_focus() {
+            // A click or Tab into the bar selects the address, ready to be
+            // typed over; a second click places the cursor.
+            select_all(ui.ctx(), id, &self.text);
         }
     }
 
@@ -223,4 +227,67 @@ fn select_all(ctx: &egui::Context, id: Id, text: &str) {
         .cursor
         .set_char_range(Some(CCursorRange::two(CCursor::new(0), end)));
     state.store(ctx, id);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ADDRESS: &str = "https://example.com/watch?v=1";
+
+    /// One frame of the bar alone, with `events`.
+    fn frame(ctx: &egui::Context, bar: &mut Omnibox, events: Vec<egui::Event>) {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(800.0, 100.0),
+            )),
+            events,
+            // A second apart: two clicks are not a double click.
+            time: Some(ctx.input(|i| i.time) + 1.0),
+            ..Default::default()
+        };
+        let _ = ctx.run(input, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                bar.show(ui, Some(ADDRESS), &mut Vec::new());
+            });
+        });
+    }
+
+    fn selection(ctx: &egui::Context) -> Option<(usize, usize)> {
+        let range = TextEdit::load_state(ctx, Id::new(Omnibox::ID))?
+            .cursor
+            .char_range()?;
+        let (a, b) = (range.primary.index, range.secondary.index);
+        Some((a.min(b), a.max(b)))
+    }
+
+    fn click(ctx: &egui::Context, bar: &mut Omnibox, pos: egui::Pos2) {
+        let button = |pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        frame(ctx, bar, vec![egui::Event::PointerMoved(pos)]);
+        frame(ctx, bar, vec![button(true)]);
+        frame(ctx, bar, vec![button(false)]);
+        frame(ctx, bar, Vec::new());
+    }
+
+    #[test]
+    fn a_click_into_the_bar_selects_the_address_then_places_the_cursor() {
+        let ctx = egui::Context::default();
+        let mut bar = Omnibox::default();
+        frame(&ctx, &mut bar, Vec::new());
+        let pos = egui::pos2(100.0, 20.0);
+        click(&ctx, &mut bar, pos);
+        let all = ADDRESS.chars().count();
+        assert_eq!(selection(&ctx), Some((0, all)));
+        // Already in it: the click places the cursor.
+        click(&ctx, &mut bar, pos);
+        let (a, b) = selection(&ctx).unwrap();
+        assert_eq!(a, b);
+        assert!(a > 0 && a < all);
+    }
 }
