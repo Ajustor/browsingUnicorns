@@ -292,14 +292,29 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
         views[tab]?.reload()
     }
 
-    private fun blocked() = WebResourceResponse(
-        "text/plain",
-        "utf-8",
-        403,
-        "Blocked",
-        emptyMap(),
-        ByteArrayInputStream(ByteArray(0)),
-    )
+    /** A blocked script gets an empty one rather than an error, as uBlock
+     *  Origin does: loaders (RequireJS) fail every module after one that
+     *  does not load, and the page breaks (a cookie banner that can't be
+     *  closed). */
+    private fun blocked(script: Boolean = false) = if (script) {
+        WebResourceResponse(
+            "application/javascript",
+            "utf-8",
+            200,
+            "OK",
+            mapOf("Access-Control-Allow-Origin" to "*"),
+            ByteArrayInputStream(ByteArray(0)),
+        )
+    } else {
+        WebResourceResponse(
+            "text/plain",
+            "utf-8",
+            403,
+            "Blocked",
+            emptyMap(),
+            ByteArrayInputStream(ByteArray(0)),
+        )
+    }
 
     @SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
     private fun create(tab: ULong, private: Boolean): WebView = WebView(context).apply {
@@ -355,7 +370,11 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
                 }.getOrDefault(Interception.Allow)
                 return when (verdict) {
                     is Interception.Allow -> null
-                    is Interception.Block -> blocked()
+                    is Interception.Block -> {
+                        val dest = headers["Sec-Fetch-Dest"] ?: headers["sec-fetch-dest"]
+                        val path = request.url.path ?: ""
+                        blocked(script = dest == "script" || (dest == null && path.endsWith(".js")))
+                    }
                     is Interception.Serve -> runCatching {
                         WebResourceResponse(verdict.mimeType, "utf-8", FileInputStream(File(verdict.path)))
                     }.getOrElse { blocked() }

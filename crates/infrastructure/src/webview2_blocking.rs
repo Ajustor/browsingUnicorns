@@ -127,13 +127,31 @@ pub fn attach(
                 }
                 blocked.set(blocked.get().saturating_add(1));
                 on_blocked();
-                unsafe {
-                    environment.CreateWebResourceResponse(
-                        None,
-                        403,
-                        &HSTRING::from("Blocked"),
-                        &HSTRING::new(),
-                    )?
+                if resource_type == Some(ResourceType::Script) {
+                    // An empty script rather than an error, as uBlock
+                    // Origin does: loaders (RequireJS) fail every module
+                    // after one that does not load, and the page breaks
+                    // (a cookie banner whose buttons do nothing).
+                    let stream = unsafe { SHCreateMemStream(Some(b"")) };
+                    unsafe {
+                        environment.CreateWebResourceResponse(
+                            stream.as_ref(),
+                            200,
+                            &HSTRING::from("OK"),
+                            &HSTRING::from(
+                                "Content-Type: application/javascript\r\nAccess-Control-Allow-Origin: *",
+                            ),
+                        )?
+                    }
+                } else {
+                    unsafe {
+                        environment.CreateWebResourceResponse(
+                            None,
+                            403,
+                            &HSTRING::from("Blocked"),
+                            &HSTRING::new(),
+                        )?
+                    }
                 }
             }
             Verdict::Block => unsafe {
