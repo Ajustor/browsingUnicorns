@@ -1058,7 +1058,6 @@ impl WebEngine for WryEngine {
         true
     }
 
-    #[cfg(windows)]
     fn apply_device_settings(&mut self, settings: &domain::DeviceSettings) {
         *self.device.borrow_mut() = settings.clone();
         #[cfg(windows)]
@@ -1106,6 +1105,7 @@ impl WebEngine for WryEngine {
         let _ = (cookies, cache);
     }
 
+    #[cfg(windows)]
     fn cancel_download(&mut self, file: &std::path::Path) {
         crate::webview2_downloads::cancel(&self.downloads, file);
     }
