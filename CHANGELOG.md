@@ -4,6 +4,52 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [Non publié]
+
+### Ajouté
+
+- Rouvrir le dernier onglet fermé : Ctrl+Maj+T, clic droit sur le `+`, ou
+  *Reopen closed tab* dans le menu sur Android. Il revient à sa place ; les
+  onglets privés ne reviennent pas.
+- Un onglet *Settings* dans le panneau latéral (un écran *Settings* sur
+  Android) :
+  - page d'accueil et moteur de recherche (DuckDuckGo, Google, Bing,
+    Brave, Ecosia, Qwant, Startpage) ;
+  - téléchargements : le dossier où ils arrivent, ou demander où
+    enregistrer chaque fichier ;
+  - proposer d'enregistrer les mots de passe tapés dans les pages
+    (Windows ; une extension comme Bitwarden marche dans tous les cas) ;
+  - le zoom retenu pour chaque site, et le remettre à 100 % ;
+  - effacer l'historique, les cookies et données des sites, le cache.
+  Le dossier de téléchargement, les mots de passe et le zoom restent
+  propres à chaque appareil ; la page d'accueil et le moteur de recherche
+  se synchronisent.
+- Zoom par site (Windows) : Ctrl+molette ou Ctrl +/- sur un site est
+  retenu pour ses pages suivantes ; la barre d'outils affiche le zoom
+  quand il n'est pas à 100 %, un clic le remet à 100 %.
+- Les vidéos en plein écran (YouTube…) prennent tout l'écran, sans les
+  barres du navigateur ; Échap ou le bouton de la vidéo en sort (Windows
+  et Android).
+- L'icône des sites dans les onglets (Windows).
+- Un haut-parleur sur les onglets qui jouent du son ; un clic coupe le
+  son de l'onglet, un autre le remet (Windows).
+- Dossiers de favoris : chaque favori peut être rangé dans un dossier
+  (bouton dossier dans la liste des favoris) ; la barre de favoris montre
+  les dossiers, qui s'ouvrent dans le panneau latéral. Synchronisés (une
+  version plus ancienne les ignore).
+- Importer les favoris d'un autre navigateur (onglet *Settings*) : Chrome,
+  Edge, Brave et Vivaldi sont lus directement, Firefox, Safari et les
+  autres par le fichier HTML qu'ils exportent. Ils arrivent dans un
+  dossier « Imported from … », avec leurs propres dossiers.
+
+### Corrigé
+
+- Certains sites restaient bloqués avec le bloqueur de pubs, par exemple
+  une bannière de cookies impossible à fermer sur monnaiedeparis.fr : un
+  script bloqué renvoie maintenant un script vide plutôt qu'une erreur,
+  comme uBlock Origin, et les sites qui chargent leurs scripts en chaîne
+  ne cassent plus.
+
 ## [0.14.5] - 2026-11-18
 
 ### Modifié

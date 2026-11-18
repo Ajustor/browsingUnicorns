@@ -44,11 +44,18 @@ binaire reste petit et le moteur profite des mises à jour de sécurité de l'OS
   sur la page (pas sous macOS et Linux, où WebKit ne le dit pas), blocage
   coupé pour un site ou partout ; réglages `blocker` et `blocker_allowlist`
   synchronisés avec les autres
-- ⬇️ Téléchargements dans le dossier Téléchargements : la barre de
-  notification dit quand ils commencent et finissent (*Open*, *Show in
-  folder*) ; sur Android, le gestionnaire de téléchargement du système
-- ⭐ Favoris : étoile dans la barre d'adresse (Ctrl+D), barre de favoris sous
-  la barre d'outils (clic molette : nouvel onglet)
+- ⬇️ Téléchargements dans le dossier Téléchargements, un autre dossier, ou
+  là où on le demande à chaque fois (*Settings*) : la barre du bas montre
+  leur progression, les annule, les ouvre ; sur Android, le gestionnaire
+  de téléchargement du système
+- ⭐ Favoris : étoile dans la barre d'adresse (Ctrl+D), dossiers, barre de
+  favoris sous la barre d'outils (clic molette : nouvel onglet) ; import
+  depuis Chrome, Edge, Brave, Vivaldi ou un fichier HTML exporté
+- ⚙️ *Settings* : page d'accueil, moteur de recherche, téléchargements,
+  mots de passe, zoom par site, effacer les données de navigation
+- ↩️ Rouvrir le dernier onglet fermé (Ctrl+Shift+T, clic droit sur `+`)
+- 🎬 Vidéos en plein écran sur tout l'écran ; icône des sites et
+  haut-parleur (clic : couper le son) sur les onglets
 - 🕘 Historique avec recherche (Ctrl+H) ; favoris (Ctrl+Shift+O) dans le même
   panneau latéral
 - ♻️ Les onglets ouverts sont rouverts au démarrage
