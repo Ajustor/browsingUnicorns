@@ -628,6 +628,8 @@ impl WebEngine for WryEngine {
         let on_downloaded = emit.clone();
         #[cfg(windows)]
         let on_frame_message = emit.clone();
+        #[cfg(windows)]
+        let on_moved = emit.clone();
         let builder = base_builder(
             &mut self.context,
             self.server.as_ref(),
@@ -736,6 +738,15 @@ impl WebEngine for WryEngine {
                 log::warn!("frames of tab {tab}: {e}");
             }
             self.frames.insert(tab, frames);
+        }
+        // Within the page (`history.pushState`): the address bar follows.
+        #[cfg(windows)]
+        if let Err(e) = crate::webview2_address::attach(&view, move |url| {
+            if let Ok(address) = WebAddress::parse(&url) {
+                on_moved(EngineEvent::LoadFinished { tab, address });
+            }
+        }) {
+            log::warn!("address of tab {tab}: {e}");
         }
         #[cfg(windows)]
         {

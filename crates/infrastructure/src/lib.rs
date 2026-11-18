@@ -34,6 +34,8 @@ pub mod user_scripts;
 #[cfg(all(any(target_os = "macos", target_os = "linux"), feature = "desktop"))]
 mod webkit_rules;
 #[cfg(all(windows, feature = "desktop"))]
+mod webview2_address;
+#[cfg(all(windows, feature = "desktop"))]
 mod webview2_blocking;
 #[cfg(all(windows, feature = "desktop"))]
 mod webview2_downloads;
