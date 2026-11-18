@@ -106,7 +106,10 @@ mod imp {
     use windows::Win32::System::Registry::{
         HKEY_CURRENT_USER, REG_SZ, RRF_RT_REG_SZ, RegGetValueW, RegSetKeyValueW,
     };
-    use windows::Win32::UI::Shell::{SHCNE_ASSOCCHANGED, SHCNF_IDLIST, SHChangeNotify};
+    use windows::Win32::UI::Shell::{
+        SHCNE_ASSOCCHANGED, SHCNF_IDLIST, SHChangeNotify, ShellExecuteW,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
     use windows_core::{HSTRING, PCWSTR};
 
     use super::{APP, registry_values};
@@ -194,11 +197,28 @@ mod imp {
     pub fn make_default() -> Result<(), String> {
         register()?;
         // Windows 11 opens the browser's own page; 10, the default apps.
-        std::process::Command::new("explorer")
-            .arg(format!("ms-settings:defaultapps?registeredAppUser={APP}"))
-            .spawn()
-            .map(drop)
-            .map_err(|e| format!("could not open the Settings: {e}"))
+        // Through the shell: `explorer <uri>` drops a URI with a query and
+        // opens the Documents folder instead.
+        let uri = HSTRING::from(format!("ms-settings:defaultapps?registeredAppUser={APP}"));
+        let result = unsafe {
+            ShellExecuteW(
+                None,
+                &HSTRING::from("open"),
+                &uri,
+                PCWSTR::null(),
+                PCWSTR::null(),
+                SW_SHOWNORMAL,
+            )
+        };
+        // Above 32: done.
+        if result.0 as isize > 32 {
+            Ok(())
+        } else {
+            Err(format!(
+                "could not open the Settings (error {})",
+                result.0 as isize
+            ))
+        }
     }
 }
 
