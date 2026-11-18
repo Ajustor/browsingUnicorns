@@ -390,6 +390,12 @@ private fun BottomBar(c: BrowserController) {
                         menu = false
                         c.act { openTab(null, false) }
                     })
+                    if (c.state.canReopenClosedTab) {
+                        DropdownMenuItem(text = { Text("Reopen closed tab") }, onClick = {
+                            menu = false
+                            c.act { reopenClosedTab() }
+                        })
+                    }
                     DropdownMenuItem(text = { Text("History") }, onClick = {
                         menu = false
                         c.screen = Screen.History

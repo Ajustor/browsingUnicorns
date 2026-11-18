@@ -8,6 +8,12 @@ use super::library::LibraryView;
 /// focus; on Windows the engine also takes them from the page that has it
 /// ([`page_keys`], [`from_page`]).
 const SHORTCUTS: &[(Modifiers, Key, Command)] = &[
+    // Before Ctrl+T, which matches with Shift held too.
+    (
+        Modifiers::COMMAND.plus(Modifiers::SHIFT),
+        Key::T,
+        Command::ReopenClosedTab,
+    ),
     (Modifiers::COMMAND, Key::T, Command::NewTab),
     (
         Modifiers::COMMAND.plus(Modifiers::SHIFT),
@@ -114,6 +120,10 @@ mod tests {
         assert!(matches!(
             from_page(&press("T", true, false, false)),
             Some(Command::NewTab)
+        ));
+        assert!(matches!(
+            from_page(&press("T", true, true, false)),
+            Some(Command::ReopenClosedTab)
         ));
         assert!(matches!(
             from_page(&press("Tab", true, true, false)),

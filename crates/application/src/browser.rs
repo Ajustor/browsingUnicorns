@@ -28,7 +28,12 @@ pub struct Browser<E: WebEngine> {
     remote_devices: Vec<RemoteDevice>,
     /// Bookmarks, settings or history changed since the last sync record.
     unsynced: bool,
+    /// The tabs closed, last closed last: their address and where they were.
+    closed: Vec<(WebAddress, usize)>,
 }
+
+/// How many closed tabs can be reopened.
+const CLOSED_TABS: usize = 25;
 
 impl<E: WebEngine> Browser<E> {
     /// A browser with no tab. Call [`Self::load_profile`] then
@@ -45,6 +50,7 @@ impl<E: WebEngine> Browser<E> {
             saved_session: SessionSnapshot::default(),
             remote_devices: Vec::new(),
             unsynced: false,
+            closed: Vec::new(),
         }
     }
 
@@ -318,10 +324,36 @@ impl<E: WebEngine> Browser<E> {
     }
 
     pub fn close_tab(&mut self, id: TabId) {
+        // Not a private one: it would come back in the open.
+        let index = self.session.tabs().iter().position(|t| t.id() == id);
+        if let (Some(index), Some(tab)) = (index, self.session.tab(id))
+            && !tab.is_private()
+            && let Some(address) = tab.address()
+        {
+            if self.closed.len() == CLOSED_TABS {
+                self.closed.remove(0);
+            }
+            self.closed.push((address.clone(), index));
+        }
         if self.session.close_tab(id) {
             self.engine.close_view(id);
             self.engine.show(self.session.active_id());
         }
+    }
+
+    /// Whether a closed tab can be reopened.
+    pub fn can_reopen_closed_tab(&self) -> bool {
+        !self.closed.is_empty()
+    }
+
+    /// Reopens the last tab closed where it was, shown (Ctrl+Shift+T).
+    pub fn reopen_closed_tab(&mut self) -> Result<Option<TabId>, BrowserError> {
+        let Some((address, index)) = self.closed.pop() else {
+            return Ok(None);
+        };
+        let id = self.open_tab(Some(address))?;
+        self.session.move_tab(id, index);
+        Ok(Some(id))
     }
 
     pub fn close_active_tab(&mut self) {
@@ -495,6 +527,13 @@ mod tests {
             }
             self.calls.push(Call::Open(tab.get(), address.to_string()));
             Ok(())
+        }
+        fn open_private_view(
+            &mut self,
+            tab: TabId,
+            address: &WebAddress,
+        ) -> Result<(), EngineError> {
+            self.open_view(tab, address)
         }
         fn close_view(&mut self, tab: TabId) {
             self.calls.push(Call::Close(tab.get()));
@@ -878,6 +917,42 @@ mod tests {
             vec![Call::Open(link.get(), "https://link.com/".into())],
             "opened but not shown"
         );
+    }
+
+    #[test]
+    fn closed_tabs_reopen_where_they_were_last_first() {
+        let mut b = browser();
+        let a = b.open_tab(None).unwrap();
+        finish(&mut b, a, "https://a.com/");
+        let m = b.open_tab(None).unwrap();
+        finish(&mut b, m, "https://m.com/");
+        let z = b.open_tab(None).unwrap();
+        finish(&mut b, z, "https://z.com/");
+        b.close_tab(m);
+        b.close_tab(a);
+        let private = b.open_tab_in(Some(addr("https://p.com/")), true).unwrap();
+        finish(&mut b, private, "https://p.com/");
+        b.close_tab(private);
+        let addresses = |b: &Browser<_>| -> Vec<String> {
+            b.session()
+                .tabs()
+                .iter()
+                .map(|t| t.address().unwrap().to_string())
+                .collect()
+        };
+        // The private one is not kept.
+        let first = b.reopen_closed_tab().unwrap().unwrap();
+        assert_eq!(b.session().active_id(), Some(first));
+        finish(&mut b, first, "https://a.com/");
+        assert_eq!(addresses(&b), ["https://a.com/", "https://z.com/"]);
+        let second = b.reopen_closed_tab().unwrap().unwrap();
+        finish(&mut b, second, "https://m.com/");
+        assert_eq!(
+            addresses(&b),
+            ["https://a.com/", "https://m.com/", "https://z.com/"]
+        );
+        assert!(!b.can_reopen_closed_tab());
+        assert_eq!(b.reopen_closed_tab().unwrap(), None);
     }
 
     #[test]

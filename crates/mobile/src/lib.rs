@@ -91,6 +91,8 @@ pub struct BrowserState {
     pub can_go_back: bool,
     pub can_go_forward: bool,
     pub bookmarked: bool,
+    /// A closed tab can be reopened.
+    pub can_reopen_closed_tab: bool,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -445,6 +447,7 @@ impl MobileBrowser {
             can_go_back: active.is_some_and(|t| t.history().can_go_back()),
             can_go_forward: active.is_some_and(|t| t.history().can_go_forward()),
             bookmarked: b.is_active_bookmarked(),
+            can_reopen_closed_tab: b.can_reopen_closed_tab(),
         }
     }
 
@@ -475,6 +478,17 @@ impl MobileBrowser {
         self.lock().browser.close_tab(TabId::new(id));
         self.blocked_lock().remove(&id);
         self.hub_tick();
+    }
+
+    /// Reopens the last tab closed where it was, shown.
+    pub fn reopen_closed_tab(&self) -> Result<(), MobileError> {
+        self.lock()
+            .browser
+            .reopen_closed_tab()
+            .map(drop)
+            .map_err(MobileError::new)?;
+        self.hub_tick();
+        Ok(())
     }
 
     /// Moves tab `id` to index `to` of all the tabs (private ones included).

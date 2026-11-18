@@ -102,9 +102,15 @@ pub fn show(
                     .frame(false),
             )
         })
-        .on_hover_text("New tab (Ctrl+T)");
+        .on_hover_text(
+            "New tab (Ctrl+T)
+Right-click: reopen the last tab closed (Ctrl+Shift+T)",
+        );
         if plus.clicked() {
             commands.push(Command::NewTab);
+        }
+        if plus.secondary_clicked() {
+            commands.push(Command::ReopenClosedTab);
         }
         if !cfg!(target_os = "macos") {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

@@ -150,6 +150,7 @@ impl BrowserApp {
                 self.browser.engine().focus_window();
                 self.omnibox.request_focus();
             }),
+            Command::ReopenClosedTab => self.browser.reopen_closed_tab().map(drop),
             Command::Home => self.browser.go_home(),
             Command::Submit(input) => self.browser.submit_omnibox(&input).map(|_| ()),
             Command::Open(address, target) => self.browser.load(address, target),
@@ -345,6 +346,7 @@ impl BrowserApp {
                 self.close_requested = true;
             }
             Command::NewTab
+            | Command::ReopenClosedTab
             | Command::Home
             | Command::Submit(_)
             | Command::Open(..)

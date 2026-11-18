@@ -9,6 +9,8 @@ use super::profiles::ProfileCommand;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
     NewTab,
+    /// Reopens the last tab closed (Ctrl+Shift+T).
+    ReopenClosedTab,
     /// A private window on this profile (its own process).
     OpenPrivateWindow,
     CloseTab(TabId),
