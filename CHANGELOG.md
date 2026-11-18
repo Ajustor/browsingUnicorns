@@ -4,6 +4,18 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.14.4] - 2026-11-18
+
+### Modifié
+
+- Un clic dans la barre d'adresse (ou Tab jusqu'à elle) sélectionne toute
+  l'adresse, prête à être remplacée ; un second clic place le curseur.
+
+### Corrigé
+
+- « Set as default » ouvrait le dossier Documents au lieu de la page des
+  applications par défaut dans les Paramètres (Windows).
+
 ## [0.14.3] - 2026-11-18
 
 ### Corrigé
