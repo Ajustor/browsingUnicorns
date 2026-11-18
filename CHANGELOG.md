@@ -4,6 +4,18 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.14.3] - 2026-11-18
+
+### Corrigé
+
+- La barre d'adresse ne suivait pas les sites qui changent de page sans
+  recharger (YouTube d'une vidéo à l'autre, et beaucoup d'applications
+  web) : elle garde maintenant l'adresse de la page affichée, et
+  Précédent/Suivant suivent (Windows).
+- Le bouton pour annuler un téléchargement (et celui pour l'afficher dans
+  son dossier) ne réagissait pas : la carte du téléchargement prenait le
+  clic à sa place.
+
 ## [0.14.2] - 2026-11-17
 
 ### Corrigé
