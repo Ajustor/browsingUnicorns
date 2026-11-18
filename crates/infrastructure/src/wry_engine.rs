@@ -688,6 +688,8 @@ impl WebEngine for WryEngine {
         let on_fullscreen = emit.clone();
         #[cfg(windows)]
         let on_favicon = emit.clone();
+        #[cfg(windows)]
+        let on_audio = emit.clone();
         let device_for_downloads = self.device.clone();
         let builder = base_builder(
             &mut self.context,
@@ -828,6 +830,15 @@ impl WebEngine for WryEngine {
                 on_favicon(EngineEvent::FaviconChanged { tab, png });
             }) {
                 log::warn!("icon of tab {tab}: {e}");
+            }
+            if let Err(e) = crate::webview2_settings::follow_audio(&view, move |playing, muted| {
+                on_audio(EngineEvent::AudioChanged {
+                    tab,
+                    playing,
+                    muted,
+                });
+            }) {
+                log::warn!("sound of tab {tab}: {e}");
             }
         }
         // Within the page (`history.pushState`): the address bar follows.
@@ -1065,6 +1076,15 @@ impl WebEngine for WryEngine {
                 crate::webview2_settings::set_zoom(view, settings.zoom_of(&host));
             }
         }
+    }
+
+    fn set_muted(&mut self, tab: TabId, muted: bool) {
+        #[cfg(windows)]
+        if let Some(view) = self.views.get(&tab) {
+            crate::webview2_settings::set_muted(view, muted);
+        }
+        #[cfg(not(windows))]
+        let _ = (tab, muted);
     }
 
     fn can_save_passwords(&self) -> bool {

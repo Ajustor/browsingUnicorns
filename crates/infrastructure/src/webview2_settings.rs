@@ -4,12 +4,14 @@
 use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_BROWSING_DATA_KINDS, COREWEBVIEW2_BROWSING_DATA_KINDS_ALL_SITE,
     COREWEBVIEW2_BROWSING_DATA_KINDS_DISK_CACHE, COREWEBVIEW2_FAVICON_IMAGE_FORMAT_PNG,
-    ICoreWebView2_13, ICoreWebView2_15, ICoreWebView2Profile2, ICoreWebView2Settings4,
+    ICoreWebView2, ICoreWebView2_8, ICoreWebView2_13, ICoreWebView2_15, ICoreWebView2Profile2,
+    ICoreWebView2Settings4,
 };
 use webview2_com::{
     ClearBrowsingDataCompletedHandler, ContainsFullScreenElementChangedEventHandler,
-    FaviconChangedEventHandler, GetFaviconCompletedHandler, SourceChangedEventHandler,
-    ZoomFactorChangedEventHandler, take_pwstr,
+    FaviconChangedEventHandler, GetFaviconCompletedHandler,
+    IsDocumentPlayingAudioChangedEventHandler, IsMutedChangedEventHandler,
+    SourceChangedEventHandler, ZoomFactorChangedEventHandler, take_pwstr,
 };
 use windows_core::{Interface, PWSTR};
 use wry::{WebView, WebViewExtWindows};
@@ -121,6 +123,46 @@ pub fn follow_favicon(
         view.webview()
             .cast::<ICoreWebView2_15>()?
             .add_FaviconChanged(&handler, &mut token)
+    }
+}
+
+/// Calls `on_audio` with whether `view`'s page plays sound and whether it
+/// is muted, each time either changes.
+pub fn follow_audio(
+    view: &WebView,
+    on_audio: impl Fn(bool, bool) + 'static,
+) -> windows_core::Result<()> {
+    let webview = view.webview().cast::<ICoreWebView2_8>()?;
+    let on_audio = std::rc::Rc::new(on_audio);
+    let report = move |sender: Option<ICoreWebView2>| -> windows_core::Result<()> {
+        let Some(sender) = sender else { return Ok(()) };
+        let sender = sender.cast::<ICoreWebView2_8>()?;
+        let (mut playing, mut muted) =
+            (windows_core::BOOL::default(), windows_core::BOOL::default());
+        unsafe {
+            sender.IsDocumentPlayingAudio(&mut playing)?;
+            sender.IsMuted(&mut muted)?;
+        }
+        on_audio(playing.as_bool(), muted.as_bool());
+        Ok(())
+    };
+    let report = std::rc::Rc::new(report);
+    let mut token = 0;
+    let r = report.clone();
+    let playing = IsDocumentPlayingAudioChangedEventHandler::create(Box::new(move |s, _| r(s)));
+    unsafe { webview.add_IsDocumentPlayingAudioChanged(&playing, &mut token)? };
+    let muted = IsMutedChangedEventHandler::create(Box::new(move |s, _| report(s)));
+    unsafe { webview.add_IsMutedChanged(&muted, &mut token) }
+}
+
+/// Mutes `view`'s page, or lets it play sound again.
+pub fn set_muted(view: &WebView, muted: bool) {
+    let result = view
+        .webview()
+        .cast::<ICoreWebView2_8>()
+        .and_then(|w| unsafe { w.SetIsMuted(muted) });
+    if let Err(e) = result {
+        log::debug!("mute: {e}");
     }
 }
 

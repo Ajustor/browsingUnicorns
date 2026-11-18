@@ -95,6 +95,8 @@ pub trait WebEngine {
     }
     /// Removes what sites left: their cookies and storage, the cache.
     fn clear_site_data(&mut self, _cookies: bool, _cache: bool) {}
+    /// Mutes `tab`'s page, or lets it play sound again.
+    fn set_muted(&mut self, _tab: TabId, _muted: bool) {}
 }
 
 /// A download under way: how much of `file` arrived, of `total` when known.
@@ -147,6 +149,12 @@ pub enum EngineEvent {
     DownloadStarted {
         url: String,
         file: std::path::PathBuf,
+    },
+    /// `tab`'s page started or stopped playing sound, or was muted.
+    AudioChanged {
+        tab: TabId,
+        playing: bool,
+        muted: bool,
     },
     /// `tab`'s page icon changed: a PNG (empty: none).
     FaviconChanged {

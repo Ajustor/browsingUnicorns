@@ -25,6 +25,8 @@ pub enum Command {
     ApplyZoom,
     /// Back to 100% on the active tab's site.
     ResetZoom,
+    /// Mutes a tab's page, or lets it play sound again.
+    SetMuted(TabId, bool),
     /// Reopens the last tab closed (Ctrl+Shift+T).
     ReopenClosedTab,
     /// A private window on this profile (its own process).

@@ -81,7 +81,8 @@ pub fn show(
                     for (index, tab) in session.tabs().iter().enumerate() {
                         let active = session.active_id() == Some(tab.id());
                         let icon = favicons.get(tab.id());
-                        let response = tab_button(ui, tab, icon, active, chrome, commands);
+                        let response =
+                            tab_button(ui, tab, icon, favicons, active, chrome, commands);
                         if active && newly_active {
                             response.scroll_to_me(None);
                         }
@@ -125,6 +126,7 @@ Right-click: reopen the last tab closed (Ctrl+Shift+T)",
         ui: &mut egui::Ui,
         tab: &domain::Tab,
         icon: Option<&egui::TextureHandle>,
+        favicons: &super::favicons::Favicons,
         active: bool,
         chrome: &super::theme::Chrome,
         commands: &mut Vec<Command>,
@@ -166,6 +168,30 @@ Right-click: reopen the last tab closed (Ctrl+Shift+T)",
                                     egui::Image::new(icon)
                                         .fit_to_exact_size(egui::vec2(14.0, 14.0)),
                                 );
+                            }
+                            if let Some(sound) = favicons.sound(tab.id()) {
+                                let (glyph, tip) = match sound {
+                                    super::favicons::Sound::Playing => {
+                                        (icon::SPEAKER_HIGH, "Mute this tab")
+                                    }
+                                    super::favicons::Sound::Muted => {
+                                        (icon::SPEAKER_SLASH, "Unmute this tab")
+                                    }
+                                };
+                                if super::theme::hover_fill(ui, |ui| {
+                                    ui.add(
+                                        Button::new(RichText::new(glyph).color(text).size(13.0))
+                                            .frame(false),
+                                    )
+                                })
+                                .on_hover_text(tip)
+                                .clicked()
+                                {
+                                    commands.push(Command::SetMuted(
+                                        tab.id(),
+                                        sound == super::favicons::Sound::Playing,
+                                    ));
+                                }
                             }
                             let title = truncate(tab.display_title(), TITLE_CHARS);
                             let label = ui

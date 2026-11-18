@@ -1,4 +1,5 @@
-//! The tabs' page icons, as textures for the tab strip.
+//! The tabs' page icons, as textures for the tab strip, and whether they
+//! play sound.
 
 use std::collections::HashMap;
 
@@ -10,6 +11,15 @@ pub struct Favicons {
     icons: HashMap<TabId, egui::TextureHandle>,
     /// Arrived from the engine, not made into textures yet.
     pending: Vec<(TabId, Vec<u8>)>,
+    /// The tabs that play sound or are muted: (playing, muted).
+    audio: HashMap<TabId, (bool, bool)>,
+}
+
+/// What a tab's sound button shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sound {
+    Playing,
+    Muted,
 }
 
 impl Favicons {
@@ -36,6 +46,26 @@ impl Favicons {
             }
         }
         self.icons.retain(|id, _| session.tab(*id).is_some());
+        self.audio.retain(|id, _| session.tab(*id).is_some());
+    }
+
+    /// `tab`'s page plays sound or not, muted or not.
+    pub fn audio(&mut self, tab: TabId, playing: bool, muted: bool) {
+        if playing || muted {
+            self.audio.insert(tab, (playing, muted));
+        } else {
+            self.audio.remove(&tab);
+        }
+    }
+
+    /// The sound button `tab` shows, if any: muted ones keep it to be
+    /// unmuted.
+    pub fn sound(&self, tab: TabId) -> Option<Sound> {
+        match self.audio.get(&tab)? {
+            (_, true) => Some(Sound::Muted),
+            (true, false) => Some(Sound::Playing),
+            (false, false) => None,
+        }
     }
 
     pub fn get(&self, tab: TabId) -> Option<&egui::TextureHandle> {

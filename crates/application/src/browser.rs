@@ -507,7 +507,9 @@ impl<E: WebEngine> Browser<E> {
             // Answered by the presentation (page scripts' bridge).
             EngineEvent::PageMessage { .. } => {}
             // Shown by the presentation.
-            EngineEvent::FullScreenChanged { .. } | EngineEvent::FaviconChanged { .. } => {}
+            EngineEvent::FullScreenChanged { .. }
+            | EngineEvent::FaviconChanged { .. }
+            | EngineEvent::AudioChanged { .. } => {}
             // Shown by the presentation.
             EngineEvent::DownloadStarted { .. } | EngineEvent::DownloadFinished { .. } => {}
         }

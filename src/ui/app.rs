@@ -393,6 +393,7 @@ impl BrowserApp {
                 self.updates.updater.schedule_restart();
                 self.close_requested = true;
             }
+            Command::SetMuted(tab, muted) => self.browser.engine_mut().set_muted(tab, muted),
             Command::ResetZoom => {
                 let host = self
                     .browser
@@ -613,6 +614,15 @@ impl BrowserApp {
             }
             if let EngineEvent::FaviconChanged { tab, png } = event {
                 self.favicons.changed(tab, png);
+                continue;
+            }
+            if let EngineEvent::AudioChanged {
+                tab,
+                playing,
+                muted,
+            } = event
+            {
+                self.favicons.audio(tab, playing, muted);
                 continue;
             }
             if let EngineEvent::FullScreenChanged { tab, on } = event {
