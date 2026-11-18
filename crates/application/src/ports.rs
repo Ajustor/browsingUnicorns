@@ -148,6 +148,11 @@ pub enum EngineEvent {
         url: String,
         file: std::path::PathBuf,
     },
+    /// `tab`'s page shows an element in full screen (a video), or not.
+    FullScreenChanged {
+        tab: TabId,
+        on: bool,
+    },
     /// The user zoomed `host`'s pages in or out (Ctrl+wheel, Ctrl +/-).
     ZoomChanged {
         host: String,

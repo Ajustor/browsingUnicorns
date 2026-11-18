@@ -31,6 +31,10 @@ pub type ExitSlot = Arc<Mutex<Option<ExitAction>>>;
 
 pub struct BrowserApp {
     browser: Browser<WryEngine>,
+    /// The tab whose page shows an element in full screen (a video).
+    page_fullscreen: Option<TabId>,
+    /// The window was put in full screen for it.
+    window_fullscreen: bool,
     events: Receiver<EngineEvent>,
     updates: Updates,
     sync: SyncRunner,
@@ -111,6 +115,8 @@ impl BrowserApp {
             profiles,
             exit_slot,
             omnibox: Omnibox::default(),
+            page_fullscreen: None,
+            window_fullscreen: false,
             library: Library::default(),
             notice: None,
             downloads: Default::default(),
@@ -602,6 +608,14 @@ impl BrowserApp {
             if self.downloads.handle(&event) {
                 continue;
             }
+            if let EngineEvent::FullScreenChanged { tab, on } = event {
+                if on {
+                    self.page_fullscreen = Some(tab);
+                } else if self.page_fullscreen == Some(tab) {
+                    self.page_fullscreen = None;
+                }
+                continue;
+            }
             if let Err(e) = self.browser.handle(event) {
                 self.report(e);
             }
@@ -684,36 +698,9 @@ fn writes_profile(command: &Command) -> bool {
     )
 }
 
-impl eframe::App for BrowserApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.browser.engine_mut().pump();
-        self.drain_engine_events();
-        self.open_handed_over(ctx);
-        if self.downloads.running() > 0 {
-            let progress = self.browser.engine_mut().downloads();
-            self.downloads.progress(&progress);
-        }
-        self.drive_sync(ctx);
-        self.blocker.follow(ctx, self.browser.settings());
-        self.extensions.poll(self.browser.engine_mut());
-        self.user_scripts.poll(self.browser.engine_mut());
-        let mut host = BrowserHub {
-            browser: &mut self.browser,
-            extensions: self.extensions.extensions(),
-        };
-        self.hub.tabs_changed(&mut host);
-        self.hub.pump_native(&mut host);
-        if let Some(notice) = self.updates.poll() {
-            self.notice = Some(notice);
-        }
-
-        self.sync_keyboard_focus(ctx);
-        let mut commands = Vec::new();
-        super::shortcuts::collect(ctx, &mut commands);
-        for press in self.browser.engine_mut().take_key_presses() {
-            commands.extend(super::shortcuts::from_page(&press));
-        }
-
+impl BrowserApp {
+    /// The tab strip, the toolbar, the bars and the side panel.
+    fn show_chrome(&mut self, ctx: &egui::Context, commands: &mut Vec<Command>) {
         let chrome = super::theme::Chrome::of(self.is_private());
         TopBottomPanel::top("tabs")
             .frame(egui::Frame::NONE.inner_margin(egui::Margin {
@@ -730,7 +717,7 @@ impl eframe::App for BrowserApp {
                     self.browser.session(),
                     &chrome,
                     self.is_private(),
-                    &mut commands,
+                    commands,
                 );
             });
         let actions = if infrastructure::builtin_extensions() {
@@ -765,16 +752,16 @@ impl eframe::App for BrowserApp {
                     self.profiles.current(),
                     downloads_tip.as_deref().map(|tip| (tip, downloads_running)),
                     zoom,
-                    &mut commands,
+                    commands,
                 );
             });
         if let Some(query) = self.omnibox.stale_query().map(str::to_owned) {
             let found = self.browser.suggest(&query, super::omnibox::SUGGESTIONS);
             self.omnibox.set_suggestions(query, found);
         }
-        self.omnibox.show_suggestions(ctx, &chrome, &mut commands);
+        self.omnibox.show_suggestions(ctx, &chrome, commands);
         self.site_info_bar(ctx);
-        self.shield_bar(ctx, &mut commands);
+        self.shield_bar(ctx, commands);
         if !self.browser.bookmarks().is_empty() {
             TopBottomPanel::top("bookmarks")
                 .frame(
@@ -784,7 +771,7 @@ impl eframe::App for BrowserApp {
                 .show_separator_line(false)
                 .show(ctx, |ui| {
                     super::theme::chrome_style(ui, &chrome);
-                    bookmarks_bar::show(ui, self.browser.bookmarks(), &mut commands);
+                    bookmarks_bar::show(ui, self.browser.bookmarks(), commands);
                     let r = ui.max_rect();
                     ui.painter().hline(
                         r.x_range(),
@@ -793,13 +780,13 @@ impl eframe::App for BrowserApp {
                     );
                 });
         }
-        self.updates.banner(ctx, &mut commands);
-        self.default_browser.banner(ctx, &mut commands);
+        self.updates.banner(ctx, commands);
+        self.default_browser.banner(ctx, commands);
         if self.library.open == Some(LibraryView::Profiles) && !self.is_private() {
             self.profiles.refresh(ctx);
         }
         let can_cancel = self.browser.engine().can_cancel_downloads();
-        for action in self.downloads.show(ctx, can_cancel, &mut commands) {
+        for action in self.downloads.show(ctx, can_cancel, commands) {
             match action {
                 super::downloads::Action::Cancel(file) => {
                     self.browser.engine_mut().cancel_download(&file);
@@ -841,12 +828,58 @@ impl eframe::App for BrowserApp {
                     default_download_dir: infrastructure::downloads_dir(),
                 },
             },
-            &mut commands,
+            commands,
         );
+    }
+}
+
+impl eframe::App for BrowserApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.browser.engine_mut().pump();
+        self.drain_engine_events();
+        self.open_handed_over(ctx);
+        if self.downloads.running() > 0 {
+            let progress = self.browser.engine_mut().downloads();
+            self.downloads.progress(&progress);
+        }
+        self.drive_sync(ctx);
+        self.blocker.follow(ctx, self.browser.settings());
+        self.extensions.poll(self.browser.engine_mut());
+        self.user_scripts.poll(self.browser.engine_mut());
+        let mut host = BrowserHub {
+            browser: &mut self.browser,
+            extensions: self.extensions.extensions(),
+        };
+        self.hub.tabs_changed(&mut host);
+        self.hub.pump_native(&mut host);
+        if let Some(notice) = self.updates.poll() {
+            self.notice = Some(notice);
+        }
+
+        self.sync_keyboard_focus(ctx);
+        let mut commands = Vec::new();
+        super::shortcuts::collect(ctx, &mut commands);
+        for press in self.browser.engine_mut().take_key_presses() {
+            commands.extend(super::shortcuts::from_page(&press));
+        }
+
+        // A video in full screen: the page alone, over the whole screen.
+        let fullscreen = self.page_fullscreen.is_some()
+            && self.page_fullscreen == self.browser.session().active_id();
+        // The window follows: full screen with the page, back after (only
+        // when the page asks: the user's own full screen stays).
+        if fullscreen != self.window_fullscreen {
+            self.window_fullscreen = fullscreen;
+            ctx.send_viewport_cmd(ViewportCommand::Fullscreen(fullscreen));
+        }
+        if !fullscreen {
+            self.show_chrome(ctx, &mut commands);
+        }
+        let chrome = super::theme::Chrome::of(self.is_private());
         // Without the system's frame, a thin border around the page is
         // where the window is resized: the page's native view would take
         // the pointer.
-        let border = if super::window_frame::resizable(ctx) {
+        let border = if !fullscreen && super::window_frame::resizable(ctx) {
             super::window_frame::BORDER as i8
         } else {
             0

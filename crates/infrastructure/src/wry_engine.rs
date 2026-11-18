@@ -684,6 +684,8 @@ impl WebEngine for WryEngine {
         let on_moved = emit.clone();
         #[cfg(windows)]
         let on_zoom = emit.clone();
+        #[cfg(windows)]
+        let on_fullscreen = emit.clone();
         let device_for_downloads = self.device.clone();
         let builder = base_builder(
             &mut self.context,
@@ -814,6 +816,11 @@ impl WebEngine for WryEngine {
                 move |host, percent| on_zoom(EngineEvent::ZoomChanged { host, percent }),
             ) {
                 log::warn!("zoom of tab {tab}: {e}");
+            }
+            if let Err(e) = crate::webview2_settings::follow_fullscreen(&view, move |on| {
+                on_fullscreen(EngineEvent::FullScreenChanged { tab, on });
+            }) {
+                log::warn!("full screen of tab {tab}: {e}");
             }
         }
         // Within the page (`history.pushState`): the address bar follows.

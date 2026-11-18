@@ -7,8 +7,8 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
     ICoreWebView2Settings4,
 };
 use webview2_com::{
-    ClearBrowsingDataCompletedHandler, SourceChangedEventHandler, ZoomFactorChangedEventHandler,
-    take_pwstr,
+    ClearBrowsingDataCompletedHandler, ContainsFullScreenElementChangedEventHandler,
+    SourceChangedEventHandler, ZoomFactorChangedEventHandler, take_pwstr,
 };
 use windows_core::{Interface, PWSTR};
 use wry::{WebView, WebViewExtWindows};
@@ -68,6 +68,27 @@ pub fn follow_zoom(
     }));
     let mut token = 0;
     unsafe { controller.add_ZoomFactorChanged(&handler, &mut token) }
+}
+
+/// Calls `on_change` when `view`'s page puts an element in full screen (a
+/// video) or takes it out.
+pub fn follow_fullscreen(
+    view: &WebView,
+    on_change: impl Fn(bool) + 'static,
+) -> windows_core::Result<()> {
+    let handler =
+        ContainsFullScreenElementChangedEventHandler::create(Box::new(move |sender, _| {
+            let Some(sender) = sender else { return Ok(()) };
+            let mut on = windows_core::BOOL::default();
+            unsafe { sender.ContainsFullScreenElement(&mut on)? };
+            on_change(on.as_bool());
+            Ok(())
+        }));
+    let mut token = 0;
+    unsafe {
+        view.webview()
+            .add_ContainsFullScreenElementChanged(&handler, &mut token)
+    }
 }
 
 /// Sets `view`'s zoom, in percent.
