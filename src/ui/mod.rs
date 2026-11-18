@@ -12,6 +12,7 @@ mod extensions;
 mod library;
 mod omnibox;
 mod profiles;
+mod settings_panel;
 mod shield;
 mod shortcuts;
 mod site_info;

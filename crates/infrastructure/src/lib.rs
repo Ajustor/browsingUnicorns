@@ -45,6 +45,8 @@ mod webview2_extensions;
 mod webview2_frames;
 #[cfg(all(windows, feature = "desktop"))]
 mod webview2_keys;
+#[cfg(all(windows, feature = "desktop"))]
+mod webview2_settings;
 #[cfg(feature = "desktop")]
 mod wry_engine;
 
@@ -73,6 +75,11 @@ pub fn profile_dir() -> Option<PathBuf> {
         Some(dir) if !dir.is_empty() => Some(dir.into()),
         _ => dirs::data_dir().map(|d| d.join("browsing-unicorns")),
     }
+}
+
+/// The system's Downloads folder.
+pub fn downloads_dir() -> Option<PathBuf> {
+    dirs::download_dir()
 }
 
 /// `<data dir>/browsing-unicorns/blocker`: the ad blocker's lists, shared

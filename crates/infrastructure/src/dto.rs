@@ -149,6 +149,8 @@ impl SettingsDto {
             updated_at: self.updated_at,
             blocker: self.blocker,
             blocker_allowlist: self.blocker_allowlist,
+            // Not synced: the device keeps its own.
+            device: Default::default(),
         })
     }
 }

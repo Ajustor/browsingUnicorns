@@ -239,6 +239,18 @@ impl<E: WebEngine> Browser<E> {
         Ok(())
     }
 
+    /// Replaces this device's own settings (not synced).
+    pub fn update_device_settings(
+        &mut self,
+        device: domain::DeviceSettings,
+    ) -> Result<(), BrowserError> {
+        if self.settings.device != device {
+            self.settings.device = device;
+            self.profile.settings.save(&self.settings)?;
+        }
+        Ok(())
+    }
+
     /// Loads `address` in the active tab or a new one.
     pub fn load(&mut self, address: WebAddress, target: Target) -> Result<(), BrowserError> {
         match (target, self.session.active_id()) {
@@ -485,6 +497,12 @@ impl<E: WebEngine> Browser<E> {
             }
             EngineEvent::NewTabRequested { opener, address } => {
                 self.open_link_tab(opener, address)?;
+            }
+            // Kept for the site's next pages; this device's, not synced.
+            EngineEvent::ZoomChanged { host, percent } => {
+                if self.settings.device.set_zoom(&host, percent) {
+                    self.profile.settings.save(&self.settings)?;
+                }
             }
             // Answered by the presentation (page scripts' bridge).
             EngineEvent::PageMessage { .. } => {}

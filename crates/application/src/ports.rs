@@ -82,6 +82,19 @@ pub trait WebEngine {
     }
     /// Stops downloading `file`.
     fn cancel_download(&mut self, _file: &std::path::Path) {}
+    /// Applies this device's preferences: download folder, passwords,
+    /// zoom by site.
+    fn apply_device_settings(&mut self, _settings: &domain::DeviceSettings) {}
+    /// Whether the engine can save the passwords typed in pages.
+    fn can_save_passwords(&self) -> bool {
+        false
+    }
+    /// Whether [`Self::clear_site_data`] does something.
+    fn can_clear_site_data(&self) -> bool {
+        false
+    }
+    /// Removes what sites left: their cookies and storage, the cache.
+    fn clear_site_data(&mut self, _cookies: bool, _cache: bool) {}
 }
 
 /// A download under way: how much of `file` arrived, of `total` when known.
@@ -134,6 +147,11 @@ pub enum EngineEvent {
     DownloadStarted {
         url: String,
         file: std::path::PathBuf,
+    },
+    /// The user zoomed `host`'s pages in or out (Ctrl+wheel, Ctrl +/-).
+    ZoomChanged {
+        host: String,
+        percent: u32,
     },
     /// A download ended, well (`ok`) or not (failed, cancelled); `file`
     /// where the engine tells it.

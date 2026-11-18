@@ -12,6 +12,7 @@ default = ["desktop"]
 # brings its own WebView and HTTP client, and builds without it.
 desktop = [
     "dep:wry",
+    "dep:rfd",
     "dep:raw-window-handle",
     "dep:gtk",
     "dep:ureq",
@@ -47,6 +48,8 @@ data-encoding = "2"
 # The OS web view (WebView2 / WKWebView / WebKitGTK): no engine to ship.
 # `devtools`: the web inspector in release builds too.
 wry = { version = "0.57", optional = true, features = ["devtools"] }
+# The "save as" dialog of downloads.
+rfd = { version = "0.18", optional = true }
 raw-window-handle = { version = "0.6", optional = true }
 # `platform-verifier`: the system's certificates (corporate proxies...).
 ureq = { version = "3", features = ["platform-verifier"], optional = true }

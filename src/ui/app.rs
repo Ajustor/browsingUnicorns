@@ -151,6 +151,20 @@ impl BrowserApp {
                 self.omnibox.request_focus();
             }),
             Command::ReopenClosedTab => self.browser.reopen_closed_tab().map(drop),
+            Command::UpdateSettings(settings) => {
+                // Only this device's own: nothing for the other devices.
+                let mut shared = (*settings).clone();
+                shared.device = self.browser.settings().device.clone();
+                let r = if shared == *self.browser.settings() {
+                    self.browser.update_device_settings(settings.device)
+                } else {
+                    self.browser.update_settings(*settings)
+                };
+                let device = self.browser.settings().device.clone();
+                self.browser.engine_mut().apply_device_settings(&device);
+                r
+            }
+            Command::ClearBrowsingData(what) => self.clear_browsing_data(what),
             Command::Home => self.browser.go_home(),
             Command::Submit(input) => self.browser.submit_omnibox(&input).map(|_| ()),
             Command::Open(address, target) => self.browser.load(address, target),
@@ -260,6 +274,31 @@ impl BrowserApp {
         }
     }
 
+    /// Removes what was asked, and says what it did.
+    fn clear_browsing_data(
+        &mut self,
+        what: super::command::ClearData,
+    ) -> Result<(), application::BrowserError> {
+        let mut done = Vec::new();
+        if what.history {
+            self.browser.clear_history()?;
+            done.push("history");
+        }
+        if what.cookies || what.cache {
+            self.browser
+                .engine_mut()
+                .clear_site_data(what.cookies, what.cache);
+            if what.cookies {
+                done.push("cookies and site data");
+            }
+            if what.cache {
+                done.push("cache");
+            }
+        }
+        self.library.settings.cleared = Some(format!("Cleared: {}.", done.join(", ")));
+        Ok(())
+    }
+
     /// Opens tab `id`'s page in a window of its own and closes the tab. Not
     /// in a private window (a new one would not share its cookies), nor for
     /// the last tab.
@@ -345,8 +384,14 @@ impl BrowserApp {
                 self.updates.updater.schedule_restart();
                 self.close_requested = true;
             }
+            Command::ApplyZoom => {
+                let device = self.browser.settings().device.clone();
+                self.browser.engine_mut().apply_device_settings(&device);
+            }
             Command::NewTab
             | Command::ReopenClosedTab
+            | Command::UpdateSettings(_)
+            | Command::ClearBrowsingData(_)
             | Command::Home
             | Command::Submit(_)
             | Command::Open(..)
@@ -761,6 +806,12 @@ impl eframe::App for BrowserApp {
                     self.default_browser.status()
                 } else {
                     None
+                },
+                settings: super::settings_panel::SettingsView {
+                    settings: self.browser.settings(),
+                    passwords: self.browser.engine().can_save_passwords(),
+                    clear_site_data: self.browser.engine().can_clear_site_data(),
+                    default_download_dir: infrastructure::downloads_dir(),
                 },
             },
             &mut commands,

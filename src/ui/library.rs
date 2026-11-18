@@ -11,6 +11,7 @@ use updater::{UpdateState, Updater};
 use super::command::Command;
 use super::extensions::{ExtensionsPanel, ExtensionsView};
 use super::profiles::{ProfilesPanel, ProfilesRunner};
+use super::settings_panel::{SettingsPanel, SettingsView};
 use super::sync_panel::{SyncPanel, SyncView};
 
 const MAX_ROWS: usize = 300;
@@ -22,6 +23,7 @@ pub enum LibraryView {
     Sync,
     Extensions,
     Profiles,
+    Settings,
     About,
 }
 
@@ -39,6 +41,7 @@ pub struct LibraryData<'a> {
     /// Whether it is the system's default browser (`None`: unknown, or not
     /// available here).
     pub default_browser: Option<bool>,
+    pub settings: SettingsView<'a>,
 }
 
 #[derive(Default)]
@@ -48,6 +51,7 @@ pub struct Library {
     sync: SyncPanel,
     extensions: ExtensionsPanel,
     pub profiles: ProfilesPanel,
+    pub settings: SettingsPanel,
 }
 
 impl Library {
@@ -78,6 +82,7 @@ impl Library {
             profiles,
             private,
             default_browser,
+            settings,
         } = data;
         SidePanel::right("library")
             .resizable(true)
@@ -113,6 +118,10 @@ impl Library {
                                     LibraryView::Profiles,
                                     format!("{} Profiles", icon::USER_CIRCLE),
                                 ),
+                                (
+                                    LibraryView::Settings,
+                                    format!("{} Settings", icon::GEAR_SIX),
+                                ),
                                 (LibraryView::About, format!("{} About", icon::INFO)),
                             ] {
                                 if super::theme::pill(ui, view == v, label).clicked() && view != v {
@@ -130,7 +139,10 @@ impl Library {
                 });
                 let not_private = matches!(
                     view,
-                    LibraryView::Sync | LibraryView::Extensions | LibraryView::Profiles
+                    LibraryView::Sync
+                        | LibraryView::Extensions
+                        | LibraryView::Profiles
+                        | LibraryView::Settings
                 );
                 if private && not_private {
                     ui.separator();
@@ -160,6 +172,13 @@ impl Library {
                         });
                         return;
                     }
+                    LibraryView::Settings => {
+                        ui.separator();
+                        egui::ScrollArea::vertical().show(ui, |ui| {
+                            self.settings.show(ui, settings, commands);
+                        });
+                        return;
+                    }
                     _ => {}
                 }
                 ui.add(
@@ -174,7 +193,8 @@ impl Library {
                     LibraryView::About
                     | LibraryView::Sync
                     | LibraryView::Extensions
-                    | LibraryView::Profiles => {}
+                    | LibraryView::Profiles
+                    | LibraryView::Settings => {}
                 }
             });
     }

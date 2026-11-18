@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use crate::{SearchEngine, Timestamp, WebAddress};
 
 /// User preferences.
@@ -12,13 +14,56 @@ pub struct Settings {
     pub blocker: bool,
     /// Hosts where the ad blocker is off (each covers its subdomains).
     pub blocker_allowlist: Vec<String>,
+    /// This device's own: not synced, kept when others' settings win.
+    pub device: DeviceSettings,
+}
+
+/// Preferences that belong to one device (paths, screen), not synced.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct DeviceSettings {
+    /// Where downloads go (`None`: the system's Downloads folder).
+    pub download_dir: Option<PathBuf>,
+    /// Ask where to save each download.
+    pub ask_where_to_save: bool,
+    /// The web view offers to save the passwords typed in pages.
+    pub save_passwords: bool,
+    /// Zoom of the sites zoomed in or out, in percent, by host.
+    pub site_zoom: Vec<(String, u32)>,
+}
+
+impl DeviceSettings {
+    /// The zoom of `host`'s pages, in percent (100 unless it was changed).
+    pub fn zoom_of(&self, host: &str) -> u32 {
+        let host = normalize_host(host);
+        self.site_zoom
+            .iter()
+            .find(|(h, _)| *h == host)
+            .map_or(100, |(_, z)| *z)
+    }
+
+    /// Remembers `host`'s zoom; 100 forgets it. Returns whether it changed.
+    pub fn set_zoom(&mut self, host: &str, percent: u32) -> bool {
+        let host = normalize_host(host);
+        if host.is_empty() || self.zoom_of(&host) == percent {
+            return false;
+        }
+        self.site_zoom.retain(|(h, _)| *h != host);
+        if percent != 100 {
+            self.site_zoom.push((host, percent));
+        }
+        true
+    }
 }
 
 impl Settings {
     /// Takes `other` when it is more recent. Returns whether it did.
     pub fn merge(&mut self, other: &Settings) -> bool {
         if other.updated_at > self.updated_at {
-            *self = other.clone();
+            let device = std::mem::take(&mut self.device);
+            *self = Settings {
+                device,
+                ..other.clone()
+            };
             true
         } else {
             false
@@ -79,6 +124,7 @@ impl Default for Settings {
             updated_at: 0,
             blocker: true,
             blocker_allowlist: Vec::new(),
+            device: DeviceSettings::default(),
         }
     }
 }
@@ -86,6 +132,29 @@ impl Default for Settings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn device_settings_stay_when_others_win() {
+        let mut mine = Settings::default();
+        mine.device.ask_where_to_save = true;
+        let theirs = Settings {
+            updated_at: 5,
+            ..Settings::default()
+        };
+        assert!(mine.merge(&theirs));
+        assert!(mine.device.ask_where_to_save);
+    }
+
+    #[test]
+    fn zoom_is_kept_by_site() {
+        let mut d = DeviceSettings::default();
+        assert_eq!(d.zoom_of("example.com"), 100);
+        assert!(d.set_zoom("www.Example.com", 125));
+        assert_eq!(d.zoom_of("example.com"), 125);
+        assert!(!d.set_zoom("example.com", 125));
+        assert!(d.set_zoom("example.com", 100));
+        assert!(d.site_zoom.is_empty());
+    }
 
     #[test]
     fn the_most_recent_settings_win() {

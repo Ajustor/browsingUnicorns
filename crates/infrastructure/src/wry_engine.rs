@@ -78,6 +78,8 @@ pub fn builtin_extensions() -> bool {
 /// Must live on the UI thread, like the window it is embedded in.
 pub struct WryEngine {
     parent: ParentWindow,
+    /// This device's preferences: download folder, passwords, zoom.
+    device: std::rc::Rc<std::cell::RefCell<domain::DeviceSettings>>,
     views: HashMap<TabId, WebView>,
     shown: Option<TabId>,
     viewport: Viewport,
@@ -151,6 +153,55 @@ pub struct WryEngine {
 
 fn engine_error(e: wry::Error) -> EngineError {
     EngineError(e.to_string())
+}
+
+/// Where a download goes: `suggested` (the Downloads folder), the folder
+/// chosen instead, or where the user says when asked (`None`: cancelled).
+fn download_target(
+    device: &domain::DeviceSettings,
+    suggested: &std::path::Path,
+) -> Option<std::path::PathBuf> {
+    let name = suggested.file_name()?.to_owned();
+    let dir = device
+        .download_dir
+        .clone()
+        .or_else(|| suggested.parent().map(std::path::Path::to_path_buf));
+    if device.ask_where_to_save {
+        let mut dialog = rfd::FileDialog::new()
+            .set_title("Save as")
+            .set_file_name(name.to_string_lossy());
+        if let Some(dir) = &dir {
+            dialog = dialog.set_directory(dir);
+        }
+        return dialog.save_file();
+    }
+    match &device.download_dir {
+        // Rebuilt from its parts: `C:/x` becomes `C:\x`, which WebView2
+        // wants (a download into a path with `/` fails).
+        Some(dir) => Some(free_name(
+            &dir.components().collect::<std::path::PathBuf>(),
+            &name,
+        )),
+        None => Some(suggested.to_path_buf()),
+    }
+}
+
+/// `name` in `dir`, or `name (1)`, `name (2)`... when it is taken.
+fn free_name(dir: &std::path::Path, name: &std::ffi::OsStr) -> std::path::PathBuf {
+    let first = dir.join(name);
+    if !first.exists() {
+        return first;
+    }
+    let path = std::path::Path::new(name);
+    let stem = path.file_stem().unwrap_or(name).to_string_lossy();
+    let ext = path
+        .extension()
+        .map(|e| format!(".{}", e.to_string_lossy()))
+        .unwrap_or_default();
+    (1..)
+        .map(|i| dir.join(format!("{stem} ({i}){ext}")))
+        .find(|p| !p.exists())
+        .expect("a free name")
 }
 
 fn bounds(v: Viewport) -> Rect {
@@ -280,6 +331,7 @@ impl WryEngine {
         Self {
             parent,
             views: HashMap::new(),
+            device: Default::default(),
             shown: None,
             viewport: Viewport::default(),
             events,
@@ -630,6 +682,9 @@ impl WebEngine for WryEngine {
         let on_frame_message = emit.clone();
         #[cfg(windows)]
         let on_moved = emit.clone();
+        #[cfg(windows)]
+        let on_zoom = emit.clone();
+        let device_for_downloads = self.device.clone();
         let builder = base_builder(
             &mut self.context,
             self.server.as_ref(),
@@ -668,8 +723,13 @@ impl WebEngine for WryEngine {
             .with_document_title_changed_handler(move |title| {
                 on_title(EngineEvent::TitleChanged { tab, title });
             })
-            // Into the user's Downloads folder (WebView2 picks a free name).
+            // Into the user's Downloads folder (WebView2 picks a free name),
+            // the one chosen, or where the user says.
             .with_download_started_handler(move |url, file| {
+                let Some(target) = download_target(&device_for_downloads.borrow(), file) else {
+                    return false;
+                };
+                *file = target;
                 on_download(EngineEvent::DownloadStarted {
                     url,
                     file: file.clone(),
@@ -738,6 +798,23 @@ impl WebEngine for WryEngine {
                 log::warn!("frames of tab {tab}: {e}");
             }
             self.frames.insert(tab, frames);
+        }
+        // This device's passwords and zoom by site.
+        #[cfg(windows)]
+        {
+            let device = self.device.borrow();
+            if let Err(e) = crate::webview2_settings::save_passwords(&view, device.save_passwords) {
+                log::warn!("passwords in tab {tab}: {e}");
+            }
+            drop(device);
+            let device = self.device.clone();
+            if let Err(e) = crate::webview2_settings::follow_zoom(
+                &view,
+                move |host| device.borrow().zoom_of(host),
+                move |host, percent| on_zoom(EngineEvent::ZoomChanged { host, percent }),
+            ) {
+                log::warn!("zoom of tab {tab}: {e}");
+            }
         }
         // Within the page (`history.pushState`): the address bar follows.
         #[cfg(windows)]
@@ -957,6 +1034,44 @@ impl WebEngine for WryEngine {
     }
 
     #[cfg(windows)]
+    fn apply_device_settings(&mut self, settings: &domain::DeviceSettings) {
+        *self.device.borrow_mut() = settings.clone();
+        #[cfg(windows)]
+        for (tab, view) in &self.views {
+            if let Err(e) = crate::webview2_settings::save_passwords(view, settings.save_passwords)
+            {
+                log::warn!("passwords in tab {tab}: {e}");
+            }
+            let host = self
+                .tab_pages
+                .get(tab)
+                .and_then(|p| WebAddress::parse(&p.borrow()).ok())
+                .and_then(|a| a.host().map(str::to_owned));
+            if let Some(host) = host {
+                crate::webview2_settings::set_zoom(view, settings.zoom_of(&host));
+            }
+        }
+    }
+
+    fn can_save_passwords(&self) -> bool {
+        cfg!(windows)
+    }
+
+    fn can_clear_site_data(&self) -> bool {
+        cfg!(windows)
+    }
+
+    fn clear_site_data(&mut self, cookies: bool, cache: bool) {
+        #[cfg(windows)]
+        if let Some(view) = self.views.values().next()
+            && let Err(e) = crate::webview2_settings::clear_site_data(view, cookies, cache)
+        {
+            log::warn!("clear browsing data: {e}");
+        }
+        #[cfg(not(windows))]
+        let _ = (cookies, cache);
+    }
+
     fn cancel_download(&mut self, file: &std::path::Path) {
         crate::webview2_downloads::cancel(&self.downloads, file);
     }

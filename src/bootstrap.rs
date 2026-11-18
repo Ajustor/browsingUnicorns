@@ -225,6 +225,9 @@ pub fn build(
         .engine_mut()
         .set_user_scripts(user_scripts.scripts());
     let script_storage = ScriptStorage::new(files_dir.join("script-storage"), page_token);
+    // Before the first tab: its downloads, passwords and zoom follow them.
+    let device = browser.settings().device.clone();
+    browser.engine_mut().apply_device_settings(&device);
     if setup.restore_session {
         browser
             .restore_session()

@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use application::ports::{Repository, RepositoryError};
-use domain::{SearchEngine, Settings, WebAddress};
+use domain::{DeviceSettings, SearchEngine, Settings, WebAddress};
 use serde::{Deserialize, Serialize};
 
 use crate::files;
@@ -23,6 +23,20 @@ struct SettingsFile {
     blocker: bool,
     /// Hosts where the ad blocker is off.
     blocker_allowlist: Vec<String>,
+    /// Where downloads go (empty: the system's Downloads folder).
+    download_dir: String,
+    /// Ask where to save each download.
+    ask_where_to_save: bool,
+    /// Offer to save the passwords typed in pages.
+    save_passwords: bool,
+    /// Zoom of the sites zoomed in or out.
+    site_zoom: Vec<SiteZoomFile>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SiteZoomFile {
+    host: String,
+    percent: u32,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -48,6 +62,23 @@ impl From<&Settings> for SettingsFile {
             updated_at: s.updated_at,
             blocker: s.blocker,
             blocker_allowlist: s.blocker_allowlist.clone(),
+            download_dir: s
+                .device
+                .download_dir
+                .as_ref()
+                .map(|d| d.display().to_string())
+                .unwrap_or_default(),
+            ask_where_to_save: s.device.ask_where_to_save,
+            save_passwords: s.device.save_passwords,
+            site_zoom: s
+                .device
+                .site_zoom
+                .iter()
+                .map(|(host, percent)| SiteZoomFile {
+                    host: host.clone(),
+                    percent: *percent,
+                })
+                .collect(),
         }
     }
 }
@@ -62,6 +93,17 @@ impl SettingsFile {
             updated_at: self.updated_at,
             blocker: self.blocker,
             blocker_allowlist: self.blocker_allowlist,
+            device: DeviceSettings {
+                download_dir: (!self.download_dir.is_empty())
+                    .then(|| PathBuf::from(self.download_dir)),
+                ask_where_to_save: self.ask_where_to_save,
+                save_passwords: self.save_passwords,
+                site_zoom: self
+                    .site_zoom
+                    .into_iter()
+                    .map(|z| (z.host, z.percent))
+                    .collect(),
+            },
         })
     }
 }
@@ -71,8 +113,12 @@ impl TomlSettingsRepository {
         Self { path: path.into() }
     }
 
-    /// `<config dir>/browsing-unicorns/settings.toml`.
+    /// `<config dir>/browsing-unicorns/settings.toml`; in `BU_PROFILE_DIR`
+    /// when it is set (tests leave the user's settings alone).
     pub fn default_location() -> Option<Self> {
+        if let Some(dir) = std::env::var_os("BU_PROFILE_DIR").filter(|d| !d.is_empty()) {
+            return Some(Self::new(PathBuf::from(dir).join("settings.toml")));
+        }
         dirs::config_dir().map(|d| Self::new(d.join("browsing-unicorns").join("settings.toml")))
     }
 
@@ -121,6 +167,12 @@ mod tests {
             updated_at: 42,
             blocker: false,
             blocker_allowlist: vec!["lemonde.fr".into()],
+            device: DeviceSettings {
+                download_dir: Some(PathBuf::from("D:/Download")),
+                ask_where_to_save: true,
+                save_passwords: true,
+                site_zoom: vec![("example.com".into(), 125), ("b.org".into(), 80)],
+            },
         };
         repo(&dir).save(&settings).unwrap();
         assert_eq!(repo(&dir).load().unwrap(), settings);

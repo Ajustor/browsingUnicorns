@@ -4,11 +4,25 @@ use domain::{ExtensionId, TabId, UserScriptId, WebAddress};
 use super::library::LibraryView;
 use super::profiles::ProfileCommand;
 
+/// What "Clear browsing data" removes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ClearData {
+    pub history: bool,
+    pub cookies: bool,
+    pub cache: bool,
+}
+
 /// What the user asked for, collected from widgets and shortcuts and run
 /// once per frame by [`super::BrowserApp`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
     NewTab,
+    /// Saves new settings (the Settings view).
+    UpdateSettings(Box<domain::Settings>),
+    /// Removes the history, the sites' data or the cache.
+    ClearBrowsingData(ClearData),
+    /// Applies the zoom by site to the open tabs.
+    ApplyZoom,
     /// Reopens the last tab closed (Ctrl+Shift+T).
     ReopenClosedTab,
     /// A private window on this profile (its own process).
