@@ -237,6 +237,9 @@ fn card(
         State::Cancelled => (visuals.weak_text_color(), "Cancelled".to_owned()),
     };
     let done = matches!(item.state, State::Done { .. });
+    // Whether the pointer is on one of the card's buttons: the card itself
+    // must not take their click.
+    let mut on_button = false;
     let background = ui.painter().add(egui::Shape::Noop);
     let inner = Frame::NONE
         .inner_margin(Margin::symmetric(10, 7))
@@ -272,12 +275,13 @@ fn card(
                     }
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let button = |ui: &mut egui::Ui, glyph: &str, tip: &str| {
-                        super::theme::hover_fill(ui, |ui| {
+                    let mut button = |ui: &mut egui::Ui, glyph: &str, tip: &str| {
+                        let response = super::theme::hover_fill(ui, |ui| {
                             ui.add(egui::Button::new(RichText::new(glyph).size(16.0)).frame(false))
                         })
-                        .on_hover_text(tip)
-                        .clicked()
+                        .on_hover_text(tip);
+                        on_button |= response.hovered();
+                        response.clicked()
                     };
                     match item.state {
                         State::Running { .. } if can_cancel => {
@@ -304,8 +308,10 @@ fn card(
             });
         });
     let rect = inner.response.rect;
-    // Done: the whole card opens the file.
-    let card = ui.interact(rect, ui.id().with(&item.file), Sense::click());
+    // Done: the rest of the card opens the file. Sensed for hover only: a
+    // click sense laid over the buttons, after them, would take their
+    // clicks (egui gives a click to the last widget under the pointer).
+    let card = ui.interact(rect, ui.id().with(&item.file), Sense::hover());
     let hovered = card.hovered() || ui.rect_contains_pointer(rect);
     let fill = if hovered && done {
         visuals.widgets.hovered.weak_bg_fill
@@ -325,13 +331,13 @@ fn card(
             egui::StrokeKind::Inside,
         ),
     );
-    if done {
+    if done && !on_button {
         let card = card.on_hover_text(format!("Open {}", name(&item.file)));
         if card.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-        }
-        if card.clicked() {
-            open(&item.file);
+            if ui.input(|i| i.pointer.primary_clicked()) {
+                open(&item.file);
+            }
         }
     }
 }
@@ -495,6 +501,55 @@ mod tests {
         assert_eq!(d.items.len(), 2);
         assert_eq!(d.items[1].state, State::Failed);
         assert_eq!(d.running(), 1);
+    }
+
+    /// Clicks at `pos` in a frame of the bar; what it asked for.
+    fn click(ctx: &egui::Context, d: &mut Downloads, pos: egui::Pos2) -> Vec<Action> {
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
+        let mut actions = Vec::new();
+        for events in [
+            vec![egui::Event::PointerMoved(pos)],
+            vec![egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: Default::default(),
+            }],
+            vec![egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: Default::default(),
+            }],
+        ] {
+            let input = egui::RawInput {
+                screen_rect: Some(screen),
+                events,
+                ..Default::default()
+            };
+            let _ = ctx.run(input, |ctx| {
+                actions.extend(d.show(ctx, true, &mut Vec::new()));
+            });
+        }
+        actions
+    }
+
+    #[test]
+    fn the_cancel_button_cancels() {
+        let ctx = egui::Context::default();
+        let mut d = Downloads::default();
+        d.handle(&started("https://a.test/x.zip", "C:/D/x.zip"));
+        // Somewhere on the card's row is its cancel button.
+        let hit = (0..60)
+            .flat_map(|y| (0..80).map(move |x| egui::pos2(x as f32 * 5.0, 600.0 - y as f32)))
+            .find_map(|pos| {
+                click(&ctx, &mut d, pos)
+                    .into_iter()
+                    .map(|Action::Cancel(f)| f)
+                    .next()
+            });
+        assert_eq!(hit, Some(PathBuf::from("C:/D/x.zip")));
+        assert_eq!(d.items[0].state, State::Cancelled);
     }
 
     #[test]
