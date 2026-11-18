@@ -26,6 +26,7 @@ pub fn show(
     actions: &[Action],
     profile: &Profile,
     downloads: Option<(&str, bool)>,
+    zoom: Option<u32>,
     commands: &mut Vec<Command>,
 ) {
     let history = active.map(Tab::history);
@@ -131,6 +132,16 @@ pub fn show(
                 }
             }
             extension_bar::show(ui, actions, commands);
+            if let Some(percent) = zoom
+                && button(
+                    ui,
+                    RichText::new(format!("{percent}%")).size(13.0),
+                    "Zoom of this site (Ctrl+wheel, Ctrl +/-): click for 100%",
+                    true,
+                )
+            {
+                commands.push(Command::ResetZoom);
+            }
             let (star, tip) = if bookmarked {
                 (
                     RichText::new(icon::STAR).strong().color(super::theme::CYAN),

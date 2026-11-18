@@ -384,6 +384,23 @@ impl BrowserApp {
                 self.updates.updater.schedule_restart();
                 self.close_requested = true;
             }
+            Command::ResetZoom => {
+                let host = self
+                    .browser
+                    .session()
+                    .active()
+                    .and_then(|t| t.address())
+                    .and_then(|a| a.host().map(str::to_owned));
+                let mut device = self.browser.settings().device.clone();
+                if let Some(host) = host
+                    && device.set_zoom(&host, 100)
+                {
+                    if let Err(e) = self.browser.update_device_settings(device.clone()) {
+                        self.report(e);
+                    }
+                    self.browser.engine_mut().apply_device_settings(&device);
+                }
+            }
             Command::ApplyZoom => {
                 let device = self.browser.settings().device.clone();
                 self.browser.engine_mut().apply_device_settings(&device);
@@ -724,6 +741,15 @@ impl eframe::App for BrowserApp {
         let shield = self.shield_button();
         let downloads_tip = super::downloads::toolbar_tip(&self.downloads);
         let downloads_running = self.downloads.running() > 0;
+        // The active site's zoom, when not 100%.
+        let zoom = self
+            .browser
+            .session()
+            .active()
+            .and_then(|t| t.address())
+            .and_then(|a| a.host())
+            .map(|h| self.browser.settings().device.zoom_of(h))
+            .filter(|&z| z != 100);
         TopBottomPanel::top("toolbar")
             .frame(super::theme::chrome_frame(&chrome))
             .show_separator_line(false)
@@ -738,6 +764,7 @@ impl eframe::App for BrowserApp {
                     &actions,
                     self.profiles.current(),
                     downloads_tip.as_deref().map(|tip| (tip, downloads_running)),
+                    zoom,
                     &mut commands,
                 );
             });

@@ -23,6 +23,8 @@ pub enum Command {
     ClearBrowsingData(ClearData),
     /// Applies the zoom by site to the open tabs.
     ApplyZoom,
+    /// Back to 100% on the active tab's site.
+    ResetZoom,
     /// Reopens the last tab closed (Ctrl+Shift+T).
     ReopenClosedTab,
     /// A private window on this profile (its own process).
