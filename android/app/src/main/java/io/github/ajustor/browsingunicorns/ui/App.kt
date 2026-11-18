@@ -95,8 +95,10 @@ fun App(c: BrowserController) {
                 Screen.Bookmarks -> BookmarksScreen(c)
                 Screen.Sync -> SyncScreen(c)
                 Screen.Extensions -> ExtensionsScreen(c)
+                Screen.Settings -> SettingsScreen(c)
             }
             c.popup?.let { ExtensionPopup(c, it) }
+            c.fullscreen?.let { FullscreenView(it) }
         }
     }
 }
@@ -414,6 +416,10 @@ private fun BottomBar(c: BrowserController) {
                         c.refreshExtensions()
                         c.screen = Screen.Extensions
                     })
+                    DropdownMenuItem(text = { Text("Settings") }, onClick = {
+                        menu = false
+                        c.screen = Screen.Settings
+                    })
                     DropdownMenuItem(
                         text = { Text("Check for updates (${c.updates.currentVersion})") },
                         onClick = {
@@ -458,3 +464,21 @@ private fun ExtensionPopup(c: BrowserController, view: android.webkit.WebView) {
     }
 }
 
+
+/** A page's element in full screen (a video), over everything, the system
+ *  bars hidden while it shows. */
+@Composable
+private fun FullscreenView(view: android.view.View) {
+    val window = (androidx.compose.ui.platform.LocalContext.current as? android.app.Activity)?.window
+    DisposableEffect(view) {
+        val insets = window?.let { androidx.core.view.WindowCompat.getInsetsController(it, it.decorView) }
+        insets?.systemBarsBehavior =
+            androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        insets?.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+        onDispose { insets?.show(androidx.core.view.WindowInsetsCompat.Type.systemBars()) }
+    }
+    androidx.compose.ui.viewinterop.AndroidView(
+        factory = { view.also { (it.parent as? android.view.ViewGroup)?.removeView(it) } },
+        modifier = Modifier.fillMaxSize().background(Color.Black),
+    )
+}

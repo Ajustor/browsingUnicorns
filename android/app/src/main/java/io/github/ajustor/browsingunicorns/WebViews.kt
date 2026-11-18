@@ -241,6 +241,15 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
     /** Called with the page's load progress (0-100). */
     var onProgress: (Int) -> Unit = {}
 
+    /** A page shows an element in full screen (a video), with how to leave
+     *  it; `null` when it left. */
+    var onFullscreen: (View?, (() -> Unit)?) -> Unit = { _, _ -> }
+
+    /** Empties the cache the pages share. */
+    fun clearCache() {
+        views.values.firstOrNull()?.clearCache(true)
+    }
+
     fun active(): WebView? = views.values.firstOrNull { it.visibility == View.VISIBLE }
 
     override fun openView(tab: ULong, url: String, private: Boolean) {
@@ -402,6 +411,15 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
 
             override fun onProgressChanged(view: WebView, newProgress: Int) {
                 if (view.visibility == View.VISIBLE) onProgress(newProgress)
+            }
+
+            // A video's full screen button: its view over everything.
+            override fun onShowCustomView(view: View, callback: CustomViewCallback) {
+                onFullscreen(view) { callback.onCustomViewHidden() }
+            }
+
+            override fun onHideCustomView() {
+                onFullscreen(null, null)
             }
 
             override fun onReceivedIcon(view: WebView, icon: Bitmap?) {

@@ -45,6 +45,7 @@ class MainActivity : ComponentActivity() {
 
         onBackPressedDispatcher.addCallback(this) {
             when {
+                controller.fullscreen != null -> controller.exitFullscreen()
                 controller.screen != Screen.Browser -> controller.screen = Screen.Browser
                 controller.goBack() -> {}
                 else -> {

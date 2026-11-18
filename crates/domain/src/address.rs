@@ -51,6 +51,19 @@ impl WebAddress {
         self.0.scheme()
     }
 
+    /// A site as typed in a setting: a full address, or a host name
+    /// (`example.com`, `localhost:3000`).
+    pub fn parse_site(text: &str) -> Option<Self> {
+        let text = text.trim();
+        Self::parse(text)
+            .ok()
+            .or_else(|| Self::parse(&format!("https://{text}")).ok())
+            .filter(|a| {
+                a.host()
+                    .is_some_and(|h| h.contains('.') || h == "localhost")
+            })
+    }
+
     pub fn host(&self) -> Option<&str> {
         self.0.host_str()
     }

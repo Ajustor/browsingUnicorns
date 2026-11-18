@@ -95,6 +95,14 @@ pub struct BrowserState {
     pub can_reopen_closed_tab: bool,
 }
 
+/// The settings screen's general part.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct GeneralSettings {
+    pub home_page: String,
+    pub search_engine: String,
+    pub engines: Vec<String>,
+}
+
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct PageLink {
     pub url: String,
@@ -820,6 +828,36 @@ impl MobileBrowser {
                     .map_or(0, |d| d.as_secs() as i64)
             }),
         }
+    }
+
+    /// The home page and the search engine, and the engines to choose from.
+    pub fn general_settings(&self) -> GeneralSettings {
+        let inner = self.lock();
+        let s = inner.browser.settings();
+        GeneralSettings {
+            home_page: s.home_page.to_string(),
+            search_engine: s.search_engine.name.clone(),
+            engines: domain::SearchEngine::well_known()
+                .into_iter()
+                .map(|e| e.name)
+                .collect(),
+        }
+    }
+
+    /// Sets the home page: a full address or a host name.
+    pub fn set_home_page(&self, input: String) -> Result<(), MobileError> {
+        let address = WebAddress::parse_site(&input)
+            .ok_or_else(|| MobileError::new(format!("Not a web address: {input}")))?;
+        self.change_settings(|s| s.home_page = address)
+    }
+
+    /// Searches with the engine named `name` (one of the well known ones).
+    pub fn set_search_engine(&self, name: String) -> Result<(), MobileError> {
+        let engine = domain::SearchEngine::well_known()
+            .into_iter()
+            .find(|e| e.name == name)
+            .ok_or_else(|| MobileError::new(format!("Unknown search engine: {name}")))?;
+        self.change_settings(|s| s.search_engine = engine)
     }
 
     /// Turns the ad blocker on or off (reload the page to apply it).

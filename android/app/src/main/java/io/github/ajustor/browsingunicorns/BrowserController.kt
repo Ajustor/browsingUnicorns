@@ -18,7 +18,7 @@ import uniffi.mobile.SuggestionInfo
 import uniffi.mobile.SyncInfo
 import uniffi.mobile.UserScriptInfo
 
-enum class Screen { Browser, Tabs, History, Bookmarks, Sync, Extensions }
+enum class Screen { Browser, Tabs, History, Bookmarks, Sync, Extensions, Settings }
 
 /**
  * The screen's state, refreshed from the Rust core after every action, and
@@ -65,6 +65,29 @@ class BrowserController(
     var blocker by mutableStateOf<BlockerInfo?>(null)
         private set
 
+    /** A page's element in full screen (a video), and how to leave it. */
+    var fullscreen by mutableStateOf<android.view.View?>(null)
+        private set
+    private var leaveFullscreen: (() -> Unit)? = null
+
+    /** Leaves the full screen of a page's element. */
+    fun exitFullscreen() {
+        leaveFullscreen?.invoke()
+        fullscreen = null
+        leaveFullscreen = null
+    }
+
+    /** Removes the history, the cookies and site data, the cache. */
+    fun clearBrowsingData(history: Boolean, cookies: Boolean, cache: Boolean) {
+        if (history) act { clearHistory() }
+        if (cookies) {
+            android.webkit.CookieManager.getInstance().removeAllCookies(null)
+            android.webkit.WebStorage.getInstance().deleteAllData()
+        }
+        if (cache) views.clearCache()
+        message = "Cleared"
+    }
+
     /** The extension popup shown, and its title. */
     var popup by mutableStateOf<android.webkit.WebView?>(null)
         private set
@@ -80,6 +103,10 @@ class BrowserController(
             refreshBlocker()
         }
         views.onPanel = { popup = it }
+        views.onFullscreen = { view, leave ->
+            fullscreen = view
+            leaveFullscreen = leave
+        }
         views.onLinkTab = { message = "Opened in a new tab" }
         updates.onMessage = { message = it }
         refreshExtensions()

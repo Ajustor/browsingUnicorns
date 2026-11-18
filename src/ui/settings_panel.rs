@@ -251,16 +251,8 @@ fn section(ui: &mut egui::Ui, glyph: &str, title: &str) {
     ui.label(RichText::new(format!("{glyph} {title}")).strong());
 }
 
-/// The home page typed: a full address, or a host name.
 fn parse_home(text: &str) -> Option<WebAddress> {
-    let text = text.trim();
-    WebAddress::parse(text)
-        .ok()
-        .or_else(|| WebAddress::parse(&format!("https://{text}")).ok())
-        .filter(|a| {
-            a.host()
-                .is_some_and(|h| h.contains('.') || h == "localhost")
-        })
+    WebAddress::parse_site(text)
 }
 
 #[cfg(test)]
