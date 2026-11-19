@@ -24,26 +24,31 @@ use crate::extensions::Download;
 use crate::extensions::safari::MAX_RULES;
 use crate::files;
 
-/// The lists: file name in the cache, address.
-pub const LISTS: [(&str, &str); 4] = [
-    ("easylist.txt", "https://easylist.to/easylist/easylist.txt"),
+/// The lists: file name in the cache, address, whether their scriptlets are
+/// trusted (uBlock Origin's own lists may use the `trusted-*` ones, as
+/// uBlock Origin lets them).
+pub const LISTS: [(&str, &str, bool); 4] = [
+    (
+        "easylist.txt",
+        "https://easylist.to/easylist/easylist.txt",
+        false,
+    ),
     (
         "easyprivacy.txt",
         "https://easylist.to/easylist/easyprivacy.txt",
+        false,
     ),
     (
         "ublock-filters.txt",
         "https://ublockorigin.github.io/uAssets/filters/filters.txt",
+        true,
     ),
     (
         "ublock-quick-fixes.txt",
         "https://ublockorigin.github.io/uAssets/filters/quick-fixes.txt",
+        true,
     ),
 ];
-
-/// uBlock Origin's own lists: their scriptlets may use the trusted ones
-/// (`trusted-*`), as uBlock Origin lets them.
-const TRUSTED: [&str; 2] = ["ublock-filters.txt", "ublock-quick-fixes.txt"];
 
 /// The code of the scriptlets the lists name (Brave's, in adblock-rust's
 /// format): file name in the cache, address.
@@ -380,21 +385,33 @@ pub fn webkit_rules_in(dir: &Path, policy: &BlockerPolicy) -> Option<String> {
 fn cached_lists(dir: &Path) -> Vec<(bool, String)> {
     LISTS
         .iter()
-        .filter_map(|(name, _)| {
+        .filter_map(|(name, _, trusted)| {
             let text = fs::read_to_string(dir.join(name)).ok()?;
-            Some((TRUSTED.contains(name), text))
+            Some((*trusted, text))
         })
         .collect()
 }
 
+/// The cache files the app expects: the lists and the resources.
+fn known_files() -> Vec<String> {
+    LISTS
+        .iter()
+        .map(|(name, ..)| *name)
+        .chain([RESOURCES.0])
+        .map(str::to_owned)
+        .collect()
+}
+
 /// `state.json`: when the lists were last checked and last downloaded (unix
-/// seconds).
+/// seconds), and the files the app knew then.
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct State {
     #[serde(default)]
     last_check: Option<u64>,
     #[serde(default)]
     updated: Option<u64>,
+    #[serde(default)]
+    lists: Vec<String>,
 }
 
 fn unix(t: SystemTime) -> u64 {
@@ -504,7 +521,7 @@ impl BlockerLists {
     /// could be downloaded.
     pub fn refresh(&self) -> Result<Blocker, String> {
         let mut fetched = 0;
-        for (name, url) in LISTS {
+        for (name, url, _) in LISTS {
             let text = (self.download)(url)
                 .and_then(|bytes| String::from_utf8(bytes).map_err(|e| e.to_string()));
             match text {
@@ -523,7 +540,9 @@ impl BlockerLists {
             Ok(json)
                 if serde_json::from_str::<Vec<Resource>>(&json).is_ok_and(|r| !r.is_empty()) =>
             {
-                files::write(&self.dir.join(name), &json).map_err(|e| e.to_string())?;
+                if let Err(e) = files::write(&self.dir.join(name), &json) {
+                    log::warn!("blocker: {e}");
+                }
             }
             Ok(_) => log::warn!("blocker: {url} is unreadable, the cached copy is kept"),
             Err(e) => log::warn!("blocker: {url}: {e}"),
@@ -538,27 +557,24 @@ impl BlockerLists {
         self.save_state(&State {
             last_check: Some(unix(now)),
             updated: Some(unix(now)),
+            lists: known_files(),
         });
         Ok(blocker)
     }
 
-    /// The lists were never checked, or not for a day.
+    /// The lists were never checked, not for a day, or a list is new to the
+    /// app since the last check (an update added it).
     pub fn due(&self) -> bool {
         self.due_at(SystemTime::now())
     }
 
     fn due_at(&self, now: SystemTime) -> bool {
-        // A list added by an update, or never downloaded: at once.
-        let missing = LISTS
-            .iter()
-            .map(|(name, _)| *name)
-            .chain([RESOURCES.0])
-            .any(|name| !self.dir.join(name).exists());
-        missing
-            || self
-                .state()
-                .last_check
-                .is_none_or(|t| unix(now).saturating_sub(t) >= CHECK_EVERY.as_secs())
+        let state = self.state();
+        // A source that keeps failing is not retried before the day is up.
+        let new = known_files().iter().any(|f| !state.lists.contains(f));
+        new || state
+            .last_check
+            .is_none_or(|t| unix(now).saturating_sub(t) >= CHECK_EVERY.as_secs())
     }
 }
 
@@ -699,7 +715,7 @@ b.test##.other-ad
         let dir = tempfile::tempdir().unwrap();
         // Everything is served, so nothing is missing afterwards.
         let mut answers: Vec<(&str, &'static str)> =
-            LISTS.iter().map(|(_, url)| (*url, LIST)).collect();
+            LISTS.iter().map(|(_, url, _)| (*url, LIST)).collect();
         answers.push((RESOURCES.1, RESOURCES_JSON));
         let lists = BlockerLists::new(dir.path(), fake(&answers));
         assert!(lists.load_cached().is_none());
@@ -834,37 +850,49 @@ b.test##.other-ad
     }
 
     #[test]
-    fn a_list_missing_from_the_cache_makes_the_lists_due() {
+    fn a_list_unknown_to_the_last_refresh_makes_the_lists_due() {
         let dir = tempfile::tempdir().unwrap();
-        let lists = BlockerLists::new(dir.path(), fake(&[(EASYLIST, LIST)]));
+        let lists = BlockerLists::new(dir.path(), fake(&[]));
         let now = SystemTime::now();
+        // Checked a minute ago by an app that did not know all the lists
+        // (an update added some, or an old state.json): due again.
         lists.save_state(&State {
             last_check: Some(unix(now)),
-            updated: None,
+            lists: vec!["easylist.txt".into()],
+            ..State::default()
         });
-        // Checked a minute ago, but only EasyList is there (an update added
-        // lists): due again.
-        fs::write(dir.path().join("easylist.txt"), LIST).unwrap();
         assert!(lists.due_at(now + Duration::from_secs(60)));
-        for (name, _) in LISTS {
-            fs::write(dir.path().join(name), LIST).unwrap();
-        }
-        fs::write(dir.path().join(RESOURCES.0), RESOURCES_JSON).unwrap();
+        lists.save_state(&State {
+            last_check: Some(unix(now)),
+            ..State::default()
+        });
+        assert!(lists.due_at(now + Duration::from_secs(60)));
+        lists.save_state(&State {
+            last_check: Some(unix(now)),
+            lists: known_files(),
+            ..State::default()
+        });
         assert!(!lists.due_at(now + Duration::from_secs(60)));
+    }
+
+    #[test]
+    fn a_source_that_keeps_failing_does_not_make_the_lists_due() {
+        let dir = tempfile::tempdir().unwrap();
+        let lists = BlockerLists::new(dir.path(), fake(&[(EASYLIST, LIST)]));
+        lists.refresh().unwrap();
+        assert!(!dir.path().join("ublock-filters.txt").exists());
+        assert!(!lists.due_at(SystemTime::now() + Duration::from_secs(60)));
     }
 
     #[test]
     fn the_lists_are_due_after_a_day() {
         let dir = tempfile::tempdir().unwrap();
         let lists = BlockerLists::new(dir.path(), fake(&[]));
-        for (name, _) in LISTS {
-            fs::write(dir.path().join(name), LIST).unwrap();
-        }
-        fs::write(dir.path().join(RESOURCES.0), RESOURCES_JSON).unwrap();
         let now = SystemTime::now();
         lists.save_state(&State {
             last_check: Some(unix(now)),
-            updated: None,
+            lists: known_files(),
+            ..State::default()
         });
         assert!(!lists.due_at(now + Duration::from_secs(60)));
         assert!(lists.due_at(now + CHECK_EVERY));
