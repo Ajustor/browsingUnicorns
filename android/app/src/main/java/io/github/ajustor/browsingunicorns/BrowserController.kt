@@ -355,13 +355,17 @@ class BrowserController(
 
 data class StoreOffer(val id: String, val name: String)
 
-/** The extension id of a Chrome Web Store detail page (`…/detail/<name>/<id>`), if [url] is one. */
+/**
+ * The extension id of a Chrome Web Store or Edge Add-ons detail page
+ * (`…/detail/<name>/<id>`), if [url] is one.
+ */
 fun storeExtensionId(url: String?): String? {
     val uri = android.net.Uri.parse(url ?: return null)
     val path = uri.pathSegments ?: return null
     val onStore = when (uri.host) {
         "chromewebstore.google.com" -> path.firstOrNull() == "detail"
         "chrome.google.com" -> path.take(2) == listOf("webstore", "detail")
+        "microsoftedge.microsoft.com" -> path.take(2) == listOf("addons", "detail")
         else -> false
     }
     if (!onStore) return null

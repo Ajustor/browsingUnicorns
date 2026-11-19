@@ -649,6 +649,15 @@ impl BrowserApp {
             if self.downloads.handle(&event) {
                 continue;
             }
+            // A store's "Add to Chrome": installed here, followed in the
+            // Extensions panel.
+            if let EngineEvent::ExtensionOffered { id } = event {
+                if !self.is_private() {
+                    self.library.open = Some(LibraryView::Extensions);
+                }
+                self.run(Command::InstallExtension(id.to_string()));
+                continue;
+            }
             if let EngineEvent::FaviconChanged { tab, png } = event {
                 self.favicons.changed(tab, png);
                 continue;

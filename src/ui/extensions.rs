@@ -63,7 +63,7 @@ impl ExtensionsRunner {
     pub fn install(&mut self, input: &str) {
         let Some(source) = source_of(input) else {
             self.status = Some(Err(
-                "Paste a Chrome Web Store link, an extension id, or the path of a .crx file \
+                "Paste a Chrome Web Store or Edge Add-ons link, an extension id, or the path of a .crx file \
                  or of an unpacked extension's folder."
                     .into(),
             ));
@@ -174,7 +174,9 @@ impl ExtensionsPanel {
             ExtensionSupport::Full => {}
         }
         let runner = view.runner;
-        ui.label("Chrome Web Store link, extension id, .crx file or unpacked folder:");
+        ui.label(
+            "Chrome Web Store or Edge Add-ons link, extension id, .crx file or unpacked folder:",
+        );
         let field = ui.add(
             TextEdit::singleline(&mut self.input)
                 .hint_text("https://chromewebstore.google.com/detail/…")
