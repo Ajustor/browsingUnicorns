@@ -7,6 +7,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.os.Message
+import android.util.Log
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -101,6 +102,7 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
         if (documentStart) {
             runCatching { WebViewCompat.addDocumentStartJavaScript(view, script, setOf(origin)) }
                 .onSuccess { added[origin] = it }
+                .onFailure { Log.w(TAG, "scriptlets: adding for $origin failed", it) }
         } else {
             // Best effort (after the page's first scripts); the host guard
             // makes a run on another page harmless.
@@ -524,5 +526,7 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
     companion object {
         /** The WebView profile of the private tabs. */
         const val PRIVATE_PROFILE = "bu-private"
+
+        private const val TAG = "WebViews"
     }
 }

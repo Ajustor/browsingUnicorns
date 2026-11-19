@@ -71,6 +71,12 @@ impl<H> SiteScripts<H> {
         self.handles.push(handle);
     }
 
+    /// Forgets `host` alone (its script was refused): the next navigation
+    /// to it asks for a script again.
+    pub fn forget(&mut self, host: &str) {
+        self.hosts.remove(host);
+    }
+
     /// Forgets every site; the handles, to remove their scripts.
     pub fn clear(&mut self) -> Vec<H> {
         self.hosts.clear();
@@ -134,6 +140,16 @@ mod tests {
                 .script_for("https://site.test/", |_| "x();".into())
                 .is_some()
         );
+    }
+
+    #[test]
+    fn a_forgotten_site_is_asked_again() {
+        let mut sites = SiteScripts::<u32>::default();
+        let with = |_: &str| "x();".to_string();
+        assert!(sites.script_for("https://site.test/", with).is_some());
+        assert_eq!(sites.script_for("https://site.test/", with), None);
+        sites.forget("site.test");
+        assert!(sites.script_for("https://site.test/", with).is_some());
     }
 
     #[test]

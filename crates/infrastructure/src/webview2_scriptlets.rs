@@ -1,6 +1,8 @@
 //! Windows: the ad blocker's scriptlets, added at the start of each
 //! top-level navigation (`NavigationStarting`), before the new document
-//! exists, so they run before the page's own scripts. Frames are left out.
+//! exists, so they run before the page's own scripts. A frame's own
+//! navigations are not seen, but a script added for a host also runs in
+//! that host's frames (the script guards on the hostname).
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -12,7 +14,7 @@ use windows_core::{HSTRING, PWSTR};
 use wry::{WebView, WebViewExtWindows};
 
 use crate::blocker::{BlockerChanges, BlockerHandle};
-use crate::site_scripts::SiteScripts;
+use crate::site_scripts::{self, SiteScripts};
 
 /// A tab's sites, with the ids WebView2 gave their scripts, and how many
 /// times the blocker's changes cleared them (an id arriving after a clear
@@ -44,6 +46,15 @@ impl Sites {
         self.scripts.keep(id);
         None
     }
+
+    /// Forgets `host` after a refused add, unless a clear came in since
+    /// `epoch` (the host is then already forgotten), so its next navigation
+    /// tries again.
+    fn refused(&mut self, host: &str, epoch: u64) {
+        if epoch == self.epoch {
+            self.scripts.forget(host);
+        }
+    }
 }
 
 /// Adds the scriptlets of each site `view` navigates to, once per site. A
@@ -60,6 +71,7 @@ pub fn attach(view: &WebView, blocker: BlockerHandle) -> windows_core::Result<()
         let mut uri = PWSTR::null();
         unsafe { args.Uri(&mut uri)? };
         let uri = take_pwstr(uri);
+        let host = site_scripts::web_host(&uri);
         let (stale, script, epoch) = {
             let mut sites = sites.borrow_mut();
             let stale = sites.stale(&blocker);
@@ -75,6 +87,7 @@ pub fn attach(view: &WebView, blocker: BlockerHandle) -> windows_core::Result<()
             return Ok(());
         };
         let (ids, webview) = (sites.clone(), sender.clone());
+        let (refused_sites, refused_host) = (sites.clone(), host.clone());
         let done = AddScriptToExecuteOnDocumentCreatedCompletedHandler::create(Box::new(
             move |result, id| {
                 match result {
@@ -84,7 +97,12 @@ pub fn attach(view: &WebView, blocker: BlockerHandle) -> windows_core::Result<()
                             remove(&webview, id);
                         }
                     }
-                    Err(e) => log::warn!("scriptlets: adding: {e}"),
+                    Err(e) => {
+                        log::warn!("scriptlets: adding: {e}");
+                        if let Some(host) = &host {
+                            ids.borrow_mut().refused(host, epoch);
+                        }
+                    }
                 }
                 Ok(())
             },
@@ -93,6 +111,9 @@ pub fn attach(view: &WebView, blocker: BlockerHandle) -> windows_core::Result<()
             sender.AddScriptToExecuteOnDocumentCreated(&HSTRING::from(script.as_str()), &done)
         } {
             log::warn!("scriptlets: adding: {e}");
+            if let Some(host) = &refused_host {
+                refused_sites.borrow_mut().refused(host, epoch);
+            }
         }
         Ok(())
     }));
