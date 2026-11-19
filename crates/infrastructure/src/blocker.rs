@@ -94,13 +94,27 @@ fn has_rules(list: &str) -> bool {
         .any(|line| parse_filter(line, false, ParseOptions::default()).is_ok())
 }
 
-/// `script` is vaft: a userscript header naming it.
+/// The least code vaft has after its header. The real file is about 216 KB;
+/// a download cut short could still carry a whole header, and a syntax error
+/// in vaft would take uBlock's Twitch scriptlets, injected in the same guarded
+/// block, down with it. Well under the real size, well over a stub.
+const VAFT_MIN_BODY: usize = 10_000;
+
+/// `script` is vaft: a userscript header naming it, ended, then enough code.
 fn is_vaft(script: &str) -> bool {
-    let mut lines = script.trim_start_matches('\u{feff}').lines().map(str::trim);
+    const END: &str = "// ==/UserScript==";
+    let script = script.trim_start_matches('\u{feff}');
+    let Some(end) = script.find(END) else {
+        return false;
+    };
+    let (header, body) = (&script[..end], &script[end + END.len()..]);
+    let mut lines = header.lines().map(str::trim);
     lines.next() == Some("// ==UserScript==")
+        && body.len() > VAFT_MIN_BODY
         && lines
-            .take_while(|l| *l != "// ==/UserScript==")
             .filter_map(|l| l.strip_prefix("// @name"))
+            // The key is `@name` itself, not `@namespace`.
+            .filter(|rest| rest.starts_with(char::is_whitespace))
             .any(|name| name.contains("vaft"))
 }
 
@@ -109,6 +123,8 @@ fn on_twitch(url: &str) -> bool {
     WebAddress::parse(url)
         .ok()
         .and_then(|a| a.host().map(str::to_ascii_lowercase))
+        // `www.twitch.tv.` is the same host.
+        .map(|h| h.trim_end_matches('.').to_owned())
         .is_some_and(|h| h == "twitch.tv" || h.ends_with(".twitch.tv"))
 }
 
@@ -1063,16 +1079,24 @@ sub.site.test#@#+js(say, hello)
     }
 
     /// A stand-in for vaft: its header, then code.
-    const VAFT: &str = "// ==UserScript==
+    const VAFT_HEADER: &str = "// ==UserScript==
 // @name         TwitchAdSolutions (vaft)
 // @match        *://*.twitch.tv/*
 // ==/UserScript==
-(function() { window.vaft = true; })();
 ";
+
+    /// A stand-in as long as the real one is not, but past the minimum.
+    static VAFT: std::sync::LazyLock<&'static str> = std::sync::LazyLock::new(|| {
+        let body = format!(
+            "(function() {{ window.vaft = true; }})();\n{}",
+            "// padding\n".repeat(1_000)
+        );
+        Box::leak(format!("{VAFT_HEADER}{body}").into_boxed_str())
+    });
 
     fn with_vaft() -> Blocker {
         let mut b = blocker();
-        assert!(b.use_twitch(VAFT));
+        assert!(b.use_twitch(*VAFT));
         b
     }
 
@@ -1104,7 +1128,7 @@ sub.site.test#@#+js(say, hello)
     fn vaft_follows_ublocks_scriptlets() {
         let mut b = Blocker::from_lists(&["twitch.tv##+js(say, hello)\n"]).unwrap();
         assert!(b.use_resources(RESOURCES_JSON));
-        assert!(b.use_twitch(VAFT));
+        assert!(b.use_twitch(*VAFT));
         let script = b.scriptlets("https://www.twitch.tv/x");
         let prelude = script.find("const scriptletGlobals").expect(&script);
         let ublock = script.find("window.said").expect(&script);
@@ -1119,6 +1143,34 @@ sub.site.test#@#+js(say, hello)
         assert!(!b.use_twitch("// ==UserScript==\n// @name Other\n// ==/UserScript==\n"));
         assert!(!b.use_twitch("(function() {})();\n// @name vaft\n"));
         assert_eq!(b.scriptlets("https://www.twitch.tv/x"), "");
+    }
+
+    #[test]
+    fn a_truncated_vaft_is_refused() {
+        let mut b = blocker();
+        // A valid header with a stub body, or a header that never ends.
+        assert!(!b.use_twitch(&format!(
+            "{VAFT_HEADER}(function() {{ window.vaft = true; }})();"
+        )));
+        assert!(!b.use_twitch("// ==UserScript==\n// @name vaft\n(function() {"));
+        assert_eq!(b.scriptlets("https://www.twitch.tv/x"), "");
+        assert!(b.use_twitch(*VAFT));
+    }
+
+    #[test]
+    fn vaft_is_named_exactly() {
+        let mut b = blocker();
+        let body = "// padding\n".repeat(1_000);
+        let other = format!(
+            "// ==UserScript==\n// @name Other\n// @namespace https://github.com/vaft\n// ==/UserScript==\n{body}"
+        );
+        assert!(!b.use_twitch(&other));
+    }
+
+    #[test]
+    fn a_trailing_dot_host_is_twitch() {
+        assert!(on_twitch("https://www.twitch.tv./x"));
+        assert!(!on_twitch("https://nottwitch.tv./"));
     }
 
     #[test]
@@ -1141,13 +1193,16 @@ sub.site.test#@#+js(say, hello)
     #[test]
     fn vaft_is_cached_and_survives_the_engine() {
         let dir = tempfile::tempdir().unwrap();
-        let lists = BlockerLists::new(dir.path(), fake(&[(EASYLIST, LIST), (TWITCH.1, VAFT)]));
+        let lists = BlockerLists::new(dir.path(), fake(&[(EASYLIST, LIST), (TWITCH.1, *VAFT)]));
         let b = lists.refresh().unwrap();
         assert!(
             b.scriptlets("https://www.twitch.tv/x")
                 .contains("window.vaft")
         );
-        assert_eq!(fs::read_to_string(dir.path().join(TWITCH.0)).unwrap(), VAFT);
+        assert_eq!(
+            fs::read_to_string(dir.path().join(TWITCH.0)).unwrap(),
+            *VAFT
+        );
         // From engine.dat, then from the lists.
         let b = lists.load_cached().unwrap();
         assert!(
@@ -1179,12 +1234,15 @@ sub.site.test#@#+js(say, hello)
             .unwrap();
         assert!(!dir.path().join(TWITCH.0).exists());
         // The cached copy stays.
-        BlockerLists::new(dir.path(), fake(&[(EASYLIST, LIST), (TWITCH.1, VAFT)]))
+        BlockerLists::new(dir.path(), fake(&[(EASYLIST, LIST), (TWITCH.1, *VAFT)]))
             .refresh()
             .unwrap();
         let lists = BlockerLists::new(dir.path(), fake(&[(EASYLIST, LIST), (TWITCH.1, "<html>")]));
         let b = lists.refresh().unwrap();
-        assert_eq!(fs::read_to_string(dir.path().join(TWITCH.0)).unwrap(), VAFT);
+        assert_eq!(
+            fs::read_to_string(dir.path().join(TWITCH.0)).unwrap(),
+            *VAFT
+        );
         assert!(
             b.scriptlets("https://www.twitch.tv/x")
                 .contains("window.vaft")
