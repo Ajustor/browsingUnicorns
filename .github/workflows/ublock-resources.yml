@@ -1,10 +1,10 @@
 name: uBlock resources
 
 # uBlock Origin's scriptlets (the code the filter lists' `+js(...)` rules
-# run), converted for adblock-rust by scripts/ublock-resources.mjs and
-# published each day as the asset of the `ublock-resources` pre-release,
-# where the ad blocker downloads them. A pre-release: the site and the
-# updater only look at stable releases.
+# run), from its latest release, converted for adblock-rust by
+# scripts/ublock-resources.mjs and published each day as the asset of the
+# `ublock-resources` pre-release, where the ad blocker downloads them. A
+# pre-release: the site and the updater only look at stable releases.
 on:
   schedule:
     - cron: '17 4 * * *'
@@ -15,35 +15,70 @@ on:
       - '.github/workflows/ublock-resources.yml'
   workflow_dispatch:
 
-permissions:
-  contents: write
+permissions: {}
 
 concurrency:
   group: ublock-resources
   cancel-in-progress: false
 
 jobs:
-  publish:
+  # Runs uBlock's code: no write token here.
+  convert:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.ublock.outputs.tag }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v5
         with:
           node-version: 22
       - name: uBlock Origin's scriptlets
+        id: ublock
         run: |
-          git clone --depth 1 --filter=blob:none --sparse https://github.com/gorhill/uBlock.git ublock
+          set -euo pipefail
+          tag=$(git ls-remote --tags --refs --sort=-v:refname https://github.com/gorhill/uBlock.git \
+            | awk -F/ '{print $3}' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+          echo "uBlock Origin $tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          git clone --depth 1 --branch "$tag" --filter=blob:none --sparse https://github.com/gorhill/uBlock.git ublock
+          # Cone mode also brings src/js's own files, which the scriptlets
+          # import (`../urlskip.js`, `../jsonpath.js`, ...).
           git -C ublock sparse-checkout set src/js/resources
       - name: Convert
         run: node scripts/ublock-resources.mjs ublock ublock-resources.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ublock-resources
+          path: ublock-resources.json
+          if-no-files-found: error
+
+  publish:
+    needs: convert
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ublock-resources
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.convert.outputs.tag }}
         run: |
           set -euo pipefail
           if ! gh release view ublock-resources --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release create ublock-resources --repo "$GITHUB_REPOSITORY" --prerelease \
               --target "$GITHUB_SHA" --title "uBlock Origin scriptlets" \
-              --notes "uBlock Origin's scriptlets (GPL-3.0, https://github.com/gorhill/uBlock), converted for adblock-rust each day. Downloaded by the ad blocker; not a release of the app."
+              --notes "uBlock Origin's scriptlets (GPL-3.0, https://github.com/gorhill/uBlock), converted for adblock-rust each day from its latest release. Downloaded by the ad blocker; not a release of the app."
           fi
+          # `--clobber` removes the asset before uploading it again: for that
+          # moment its download fails and the ad blocker keeps its cache.
+          echo "Publishing uBlock Origin $TAG's scriptlets"
           gh release upload ublock-resources ublock-resources.json --repo "$GITHUB_REPOSITORY" --clobber
+          gh release edit ublock-resources --repo "$GITHUB_REPOSITORY" \
+            --notes "uBlock Origin's scriptlets (GPL-3.0, https://github.com/gorhill/uBlock), converted for adblock-rust each day from its latest release; now ${TAG}. Downloaded by the ad blocker; not a release of the app."
