@@ -1,6 +1,6 @@
 # Pubs Twitch
 
-Date : 2026-11-19 · Statut : validé (brainstorming), à implémenter
+Date : 2026-11-19 · Statut : implémenté
 
 ## But
 
@@ -26,7 +26,11 @@ réglage à part pour Twitch.
   `blocker/twitch-vaft.user.js` (dans `known_files()`, donc demandé dès la
   mise à jour de l'app). Rien d'embarqué dans le programme.
 - Gardé seulement s'il ressemble au bon script : en-tête `==UserScript==`
-  et `@name` contenant `vaft`. Sinon (page d'erreur, autre fichier) : on
+  fermé par `// ==/UserScript==`, clé `@name` (pas `@namespace`)
+  contenant `vaft`, et plus de 10 000 caractères après la fin de l'en-tête
+  (le vrai fichier en fait environ 216 Ko). Un fichier tronqué aurait
+  une erreur de syntaxe qui emporterait aussi les scriptlets d'uBlock
+  injectés dans le même bloc. Sinon (page d'erreur, autre fichier) : on
   garde la copie en cache, journal `warn`. Son échec ne fait pas échouer la
   mise à jour des listes.
 
@@ -35,7 +39,7 @@ réglage à part pour Twitch.
 - Le moteur garde le script (`Blocker`, chargé depuis le cache à chaque
   construction ou lecture du moteur, comme les ressources des scriptlets).
 - `Blocker::scriptlets(url)` y ajoute vaft quand l'hôte est `twitch.tv` ou
-  un sous-domaine (`www.twitch.tv`, `m.twitch.tv`, `player.twitch.tv`…),
+  un sous-domaine (point final ignoré) (`www.twitch.tv`, `m.twitch.tv`, `player.twitch.tv`…),
   après les scriptlets d'uBlock. Le prélude `scriptletGlobals` ne concerne
   que ceux d'uBlock.
 - Tout le reste vient du chantier YouTube, sans code de plus : injection en

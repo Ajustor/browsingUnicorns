@@ -40,7 +40,10 @@ binaire reste petit et le moteur profite des mises à jour de sécurité de l'OS
   ordinateur et Android : requêtes bloquées, emplacements de pub masqués sur
   les sites que les listes nomment, et les scriptlets d'uBlock Origin (GPL,
   téléchargés depuis la pré-version `ublock-resources` du projet, convertis
-  chaque jour) qui retirent les pubs de YouTube. Listes téléchargées au premier lancement puis vérifiées
+  chaque jour) qui retirent les pubs de YouTube, et sur Twitch le script
+  *vaft* de TwitchAdSolutions (MIT, la suite maintenue par ryanbr,
+  téléchargée avec les listes) qui remplace les coupures par un flux sans
+  pub. Listes téléchargées au premier lancement puis vérifiées
   chaque jour, rangées dans `<data>/browsing-unicorns/blocker/`. Bouclier à côté du
   cadenas (dans la barre d'adresse sur Android) : nombre d'éléments bloqués
   sur la page (pas sous macOS et Linux, où WebKit ne le dit pas), blocage
