@@ -14,6 +14,11 @@ Toutes les évolutions notables de browsingUnicorns. Format :
   publicités). Cela vaut pour tous les sites que ces listes couvrent, sur
   ordinateur comme sur Android. *Bloquer sur ce site* les désactive comme le
   reste.
+- Les publicités Twitch sont contournées, sur ordinateur comme sur Android,
+  avec le script *vaft* de TwitchAdSolutions. Twitch glisse ses publicités
+  dans le flux vidéo lui-même : le plus souvent, la coupure est remplacée
+  par le flux en basse qualité (360p) plutôt que retirée. *Bloquer sur ce
+  site* le désactive comme le reste.
 
 ### Corrigé
 
