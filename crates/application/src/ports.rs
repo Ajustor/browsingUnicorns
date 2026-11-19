@@ -145,6 +145,11 @@ pub enum EngineEvent {
         from: PageSource,
         body: String,
     },
+    /// A page's store button ("Add to Chrome") fetched the package of
+    /// extension `id`: its download was stopped, the browser installs it.
+    ExtensionOffered {
+        id: ExtensionId,
+    },
     /// A page started downloading `url`, saved to `file`.
     DownloadStarted {
         url: String,

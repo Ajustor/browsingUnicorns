@@ -551,7 +551,9 @@ impl<E: WebEngine> Browser<E> {
             | EngineEvent::FaviconChanged { .. }
             | EngineEvent::AudioChanged { .. } => {}
             // Shown by the presentation.
-            EngineEvent::DownloadStarted { .. } | EngineEvent::DownloadFinished { .. } => {}
+            EngineEvent::DownloadStarted { .. }
+            | EngineEvent::DownloadFinished { .. }
+            | EngineEvent::ExtensionOffered { .. } => {}
         }
         Ok(())
     }

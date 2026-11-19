@@ -17,14 +17,27 @@ impl ExtensionId {
         (id.len() == 32 && id.bytes().all(|b| (b'a'..=b'p').contains(&b))).then_some(Self(id))
     }
 
-    /// An id, or a Chrome Web Store link
-    /// (`https://chromewebstore.google.com/detail/<name>/<id>`).
+    /// An id, or a Chrome Web Store or Edge Add-ons link
+    /// (`https://chromewebstore.google.com/detail/<name>/<id>`,
+    /// `https://microsoftedge.microsoft.com/addons/detail/<name>/<id>`).
     pub fn from_store_input(input: &str) -> Option<Self> {
         let input = input.trim();
         Self::parse(input).or_else(|| {
             let path = input.split(['?', '#']).next()?;
             path.split('/').rev().find_map(Self::parse)
         })
+    }
+
+    /// The extension a download is the store package of (what a store's
+    /// "Add to Chrome" button fetches): a `.crx` file whose name or address
+    /// names its id.
+    pub fn of_store_package(url: &str, file_name: &str) -> Option<Self> {
+        if !file_name.to_ascii_lowercase().ends_with(".crx") {
+            return None;
+        }
+        // Ids are lowercase: `id%3D<id>%26` splits around them.
+        let named = |text: &str| text.split(|c: char| !c.is_ascii_lowercase()).find_map(Self::parse);
+        named(file_name).or_else(|| named(url))
     }
 
     /// The id of the extension signed with `public_key` (DER): the first
@@ -175,6 +188,8 @@ mod tests {
             format!("https://chromewebstore.google.com/detail/ublock-origin-lite/{UBO_LITE}"),
             format!("https://chromewebstore.google.com/detail/ublock-origin-lite/{UBO_LITE}?hl=fr"),
             format!("https://chrome.google.com/webstore/detail/x/{UBO_LITE}/"),
+            format!("https://microsoftedge.microsoft.com/addons/detail/x/{UBO_LITE}"),
+            format!("https://chromewebstore.google.com/detail/heylogin-%E2%80%93-password-manag/{UBO_LITE}"),
             format!("  {UBO_LITE} "),
         ] {
             assert_eq!(
@@ -184,6 +199,20 @@ mod tests {
             );
         }
         assert!(ExtensionId::from_store_input("https://example.com/").is_none());
+    }
+
+    #[test]
+    fn store_packages_name_their_extension() {
+        let store = "https://clients2.google.com/service/update2/crx?response=redirect\
+                     &x=id%3Dddkjiahejlhfcafbddmgiahcphecmpfh%26installsource%3Dondemand%26uc";
+        let blob = "https://clients2.googleusercontent.com/crx/blobs/AV8Xwo6/x.crx";
+        let id = |url: &str, file: &str| ExtensionId::of_store_package(url, file).map(|i| i.0);
+        // Named by the file, or by the address.
+        assert_eq!(id(blob, &format!("{UBO_LITE}_2025_1_0.crx")).as_deref(), Some(UBO_LITE));
+        assert_eq!(id(store, "extension.crx").as_deref(), Some(UBO_LITE));
+        // Not a package, or no id: an ordinary download.
+        assert_eq!(id(store, "notes.txt"), None);
+        assert_eq!(id(blob, "extension.crx"), None);
     }
 
     #[test]

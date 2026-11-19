@@ -691,6 +691,9 @@ impl WebEngine for WryEngine {
         #[cfg(windows)]
         let on_audio = emit.clone();
         let device_for_downloads = self.device.clone();
+        // Downloads the browser stopped before they began.
+        let refused = Rc::new(std::cell::RefCell::new(std::collections::HashSet::new()));
+        let refused_by_start = refused.clone();
         let builder = base_builder(
             &mut self.context,
             self.server.as_ref(),
@@ -732,7 +735,19 @@ impl WebEngine for WryEngine {
             // Into the user's Downloads folder (WebView2 picks a free name),
             // the one chosen, or where the user says.
             .with_download_started_handler(move |url, file| {
+                // A store's "Add to Chrome": the web view would only save
+                // the package (and fail); the browser installs it.
+                if let Some(id) = file
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .and_then(|n| domain::ExtensionId::of_store_package(&url, n))
+                {
+                    on_download(EngineEvent::ExtensionOffered { id });
+                    refused_by_start.borrow_mut().insert(url);
+                    return false;
+                }
                 let Some(target) = download_target(&device_for_downloads.borrow(), file) else {
+                    refused_by_start.borrow_mut().insert(url);
                     return false;
                 };
                 *file = target;
@@ -743,6 +758,11 @@ impl WebEngine for WryEngine {
                 true
             })
             .with_download_completed_handler(move |url, file, ok| {
+                // Refused above: the web view reports it failed, but there
+                // is no download to show.
+                if refused.borrow_mut().remove(&url) {
+                    return;
+                }
                 on_downloaded(EngineEvent::DownloadFinished { url, file, ok });
             })
             .with_new_window_req_handler(move |url, features| {
