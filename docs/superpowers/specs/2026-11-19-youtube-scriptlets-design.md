@@ -1,6 +1,6 @@
 # Scriptlets du bloqueur (pubs YouTube)
 
-Date : 2026-11-19 · Statut : validé (brainstorming), à planifier
+Date : 2026-11-19 · Statut : implémenté
 
 ## But
 
@@ -29,9 +29,11 @@ déjà enregistré dans l'onglet), les filtres personnels.
   pas est ignoré. Ces deux listes ont droit aux scriptlets « trusted »
   (`trusted-*`, utilisés pour YouTube), comme dans uBlock Origin ; EasyList
   et EasyPrivacy non.
-- Un fichier attendu absent du cache (liste ajoutée par une mise à jour de
+- Un fichier inconnu de la dernière vérification (`lists` de `state.json`
+  comparé à `known_files()`, donc une liste ajoutée par une mise à jour de
   l'app) rend les listes « à vérifier » tout de suite, sans attendre le
-  délai d'un jour.
+  délai d'un jour. Un fichier absent parce que son téléchargement a échoué
+  ne les rend pas « à vérifier » avant la fin de la journée.
 - Les ressources des scriptlets : ceux d'**uBlock Origin**. Le
   `resources.json` public de Brave n'a que les ressources propres à Brave
   (aucun `set-constant`, `json-prune`… que les règles YouTube appellent),
@@ -65,7 +67,9 @@ déjà enregistré dans l'onglet), les filtres personnels.
 
 - `Blocker::scriptlets(url) -> String` : le script à injecter pour le site
   de `url`, `url_cosmetic_resources(url).injected_script` (exceptions
-  `#@#+js` des listes comprises).
+  `#@#+js` des listes comprises), précédé de `const scriptletGlobals = {};`
+  quand il n'est pas vide (`safe-self.fn`, `prevent-xhr.fn` d'uBlock le
+  lisent).
 - Sur le `BlockerHandle` partagé (comme `cosmetic_css`) : chaîne vide si le
   bloqueur est coupé, si le site est en liste blanche ou s'il n'y a pas
   encore de moteur.
@@ -79,26 +83,39 @@ qui sert de clé. Chaque vue garde l'ensemble des hôtes déjà enregistrés :
 un hôte n'est enregistré qu'une fois, les scripts s'accumulent (un par site
 visité, pour la vie de la vue).
 
-Quand la **page principale** d'un onglet commence une navigation : calcul de
-`scriptlets(url)` ; s'il n'est pas vide et que l'hôte n'est pas encore
-enregistré, ajout du script gardé en début de document :
+Quand la navigation d'un onglet commence (page principale sur Windows et
+Android ; WebKit voit aussi celles des cadres, accepté : la garde sur
+l'hôte suffit) : calcul de `scriptlets(url)` ; s'il n'est pas vide et que
+l'hôte n'est pas encore enregistré, ajout du script gardé en début de
+document :
 
-- **Windows** : dans le gestionnaire de navigation wry existant
-  (`NavigationStarting`, `wry_engine.rs`), qui reçoit l'accès à la vue
-  WebView2 juste après sa création ; `AddScriptToExecuteOnDocumentCreated`.
-- **macOS / Linux** : le même gestionnaire wry (décision de navigation
-  WebKit) ; `WKUserScript` / `UserScript` GTK en début de document, à côté
-  des scripts de page existants (`page_injection.rs`), qui restent.
-- **Android** : `shouldOverrideUrlLoading` (liens, redirections) et juste
-  avant `loadUrl` (adresse tapée, onglet restauré) appellent
+- **Windows** : `webview2_scriptlets.rs::attach`, appelé par `wry_engine`
+  après la création de la vue, branche son propre gestionnaire
+  `NavigationStarting` ; `AddScriptToExecuteOnDocumentCreated`. Le
+  changement du bloqueur est détecté dans le gestionnaire ; une époque
+  (compteur de vidages) fait retirer les identifiants qui arrivent après un
+  vidage. Si l'ajout est refusé, l'hôte est oublié : la navigation suivante
+  réessaie.
+- **macOS / Linux** : `webkit_scriptlets.rs`, `Sites::navigating` appelé
+  depuis le gestionnaire de navigation de wry ; `WKUserScript` / `UserScript`
+  GTK en début de document, à côté des scripts de page existants
+  (`page_injection.rs`), qui restent. Sous macOS, le retrait reconstruit les
+  scripts du contrôleur sans ceux qui portent `site_scripts::MARKER`.
+- **Android** : préparé dans `openView`, `navigate`,
+  `shouldOverrideUrlLoading` (cadre principal), rechargement, et
+  précédent/suivant (page de la liste d'historique où l'on va) ; appelle
   `scriptlets(url)` côté Rust (via `MobileBrowser`, comme `intercept`), puis
-  `WebViewCompat.addDocumentStartJavaScript(view, script,
-  setOf("https://<hôte>"))`. Sans `DOCUMENT_START_SCRIPT` : au mieux, par le
-  `evaluateJavascript` de `onPageStarted`.
+  `WebViewCompat.addDocumentStartJavaScript(view, script, setOf(origine))`,
+  l'origine étant `schéma://hôte[:port]`. Suivi par onglet et par origine.
+  Sans `DOCUMENT_START_SCRIPT` : au mieux, par le `evaluateJavascript` de
+  `onPageStarted`.
 
-Quand un réglage du bloqueur change (interrupteur général, liste blanche),
-tous les scripts de scriptlets des vues sont retirés et l'ensemble des
-hôtes vidé ; la page est déjà rechargée par le bouclier.
+Quand le bloqueur change (interrupteur général, liste blanche, nouveau
+moteur), les scripts de scriptlets sont retirés et les hôtes oubliés :
+sur ordinateur, paresseusement, vue par vue, à sa prochaine navigation ;
+sur Android, tout de suite aux bascules du bouclier et quand
+`updateBlockerLists()` rend vrai (nouveau moteur). La page est déjà
+rechargée par le bouclier.
 
 Fenêtres privées : pareil, tout en mémoire.
 
@@ -108,8 +125,9 @@ Fenêtres privées : pareil, tout en mémoire.
   journal `warn`. Ni cache ni réseau : pas de scriptlets, le reste bloque.
 - Scriptlet qui lève une exception : arrêté par le `try/catch` de la garde,
   la page continue.
-- Injection refusée (WebView2, WebKit, Android) : journal `warn`, la page se
-  charge normalement.
+- Injection refusée : journal `warn` sous Windows et Android, la page se
+  charge normalement ; l'ajout de WebKit est synchrone et ne peut pas
+  échouer.
 - Site cassé par une règle : « Bloquer sur ce site » du bouclier la coupe.
 
 ## Tests
@@ -122,9 +140,9 @@ Fenêtres privées : pareil, tout en mémoire.
   le blocage réseau marche.
 - Fonction de garde : le script ne vise que son hôte ; un hôte déjà
   enregistré ne l'est pas deux fois ; le vidage remet à zéro.
-- Téléchargement : les nouvelles listes et `resources.json` passent par le
+- Téléchargement : les nouvelles listes et `ublock-resources.json` passent par le
   même cache que les listes actuelles (téléchargement factice, comme les
-  tests existants).
+  tests existants) ; l'ancien `resources.json` est supprimé à la mise à jour.
 - Sur une build de dev Windows (par Claude) : une page locale et une règle
   `+js` maison, le scriptlet passe avant le script de la page dès le premier
   chargement ; puis YouTube, la réponse du lecteur sans pubs

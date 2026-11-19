@@ -35,11 +35,13 @@ binaire reste petit et le moteur profite des mises à jour de sécurité de l'OS
 - 🔒 Indicateur HTTPS ; un clic sur le cadenas montre la connexion (protocole,
   chiffrement) et la chaîne de certificats du site (Windows, Android). Titre
   de la page dans l'onglet et la fenêtre
-- 🛡️ Bloqueur de pubs et de traqueurs intégré (EasyList, EasyPrivacy, avec
-  le moteur de Brave `adblock-rust`), sur ordinateur et Android : requêtes
-  bloquées, emplacements de pub masqués sur les sites que les listes
-  nomment. Listes téléchargées au premier lancement puis vérifiées chaque
-  jour, rangées dans `<data>/browsing-unicorns/blocker/`. Bouclier à côté du
+- 🛡️ Bloqueur de pubs et de traqueurs intégré (EasyList, EasyPrivacy, filtres
+  et Quick fixes d'uBlock, avec le moteur de Brave `adblock-rust`), sur
+  ordinateur et Android : requêtes bloquées, emplacements de pub masqués sur
+  les sites que les listes nomment, et les scriptlets d'uBlock Origin (GPL,
+  téléchargés depuis la pré-version `ublock-resources` du projet, convertis
+  chaque jour) qui retirent les pubs de YouTube. Listes téléchargées au premier lancement puis vérifiées
+  chaque jour, rangées dans `<data>/browsing-unicorns/blocker/`. Bouclier à côté du
   cadenas (dans la barre d'adresse sur Android) : nombre d'éléments bloqués
   sur la page (pas sous macOS et Linux, où WebKit ne le dit pas), blocage
   coupé pour un site ou partout ; réglages `blocker` et `blocker_allowlist`
