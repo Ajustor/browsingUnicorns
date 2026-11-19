@@ -28,8 +28,27 @@ const resources = builtinScriptlets.map((s) => ({
   ...(s.requiresTrust ? { permission: 1 } : {}),
 }));
 
-if (!resources.some((r) => r.name === 'set-constant.js')) {
-  console.error('set-constant.js missing: uBlock changed its scriptlets');
+// What adblock-rust would drop without a word: refused here.
+const problems = [];
+const names = new Set();
+for (const r of resources) {
+  for (const name of [r.name, ...r.aliases]) {
+    if (names.has(name)) problems.push(`${name}: named twice`);
+    names.add(name);
+  }
+}
+for (const s of builtinScriptlets) {
+  // Not a named function: taken for a template, never called.
+  if (!s.name.endsWith('.fn') && !/^function\s+[^\s(){}]+\s*\(/.test(s.fn.toString())) {
+    problems.push(`${s.name}: not a named function`);
+  }
+  for (const dep of s.dependencies ?? []) {
+    if (!names.has(dep)) problems.push(`${s.name}: depends on ${dep}, which is no resource`);
+  }
+}
+if (!names.has('set-constant.js')) problems.push('set-constant.js missing');
+if (problems.length > 0) {
+  console.error(`uBlock changed its scriptlets:\n  ${problems.join('\n  ')}`);
   process.exit(1);
 }
 fs.writeFileSync(out, JSON.stringify(resources));
