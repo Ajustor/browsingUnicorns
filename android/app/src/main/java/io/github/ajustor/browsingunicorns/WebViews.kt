@@ -78,7 +78,7 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
     private val injected = HashMap<ULong, List<ScriptHandler>>()
     private val documentStart = WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
 
-    /** The ad blocker's scriptlets added to each tab, by host. */
+    /** The ad blocker's scriptlets added to each tab, by origin. */
     private val scriptlets = HashMap<ULong, HashMap<String, ScriptHandler>>()
 
     /** Older WebViews: each tab's scriptlets for its next page, run in onPageStarted. */
@@ -86,22 +86,42 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
 
     /**
      * Before [url] loads in [tab]: its site's scriptlets, at document start
-     * for that origin only (once per host).
+     * for that origin only (once per origin).
      */
     private fun prepareScriptlets(tab: ULong, view: WebView, url: String) {
         val uri = android.net.Uri.parse(url)
         val scheme = uri.scheme ?: return
         val host = uri.host ?: return
         if (scheme != "http" && scheme != "https") return
+        val origin = "$scheme://$host" + if (uri.port != -1) ":${uri.port}" else ""
         val added = scriptlets.getOrPut(tab) { HashMap() }
-        if (host in added) return
+        if (origin in added) return
         val script = runCatching { browser.scriptlets(url) }.getOrDefault("")
         if (script.isEmpty()) return
         if (documentStart) {
-            added[host] = WebViewCompat.addDocumentStartJavaScript(view, script, setOf("$scheme://$host"))
+            runCatching { WebViewCompat.addDocumentStartJavaScript(view, script, setOf(origin)) }
+                .onSuccess { added[origin] = it }
         } else {
+            // Best effort (after the page's first scripts); the host guard
+            // makes a run on another page harmless.
             pendingScriptlets[tab] = script
         }
+    }
+
+    /** Before a step [by] in [tab]'s history: the scriptlets of the page it lands on. */
+    private fun prepareHistory(tab: ULong, view: WebView, by: Int) {
+        val history = view.copyBackForwardList()
+        val index = history.currentIndex + by
+        if (index !in 0 until history.size) return
+        history.getItemAtIndex(index)?.url?.let { prepareScriptlets(tab, view, it) }
+    }
+
+    /** The shown tab goes back a page, if it can (the system Back). */
+    fun goBackActive(): Boolean {
+        val (tab, view) = views.entries.firstOrNull { it.value.visibility == View.VISIBLE } ?: return false
+        if (!view.canGoBack()) return false
+        goBack(tab)
+        return true
     }
 
     /** The ad blocker changed: the scriptlets added so far go. */
@@ -327,12 +347,17 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
         view.loadUrl(url)
     }
 
+    // History steps bypass shouldOverrideUrlLoading: the scriptlets first.
     override fun goBack(tab: ULong) {
-        views[tab]?.goBack()
+        val view = views[tab] ?: return
+        prepareHistory(tab, view, -1)
+        view.goBack()
     }
 
     override fun goForward(tab: ULong) {
-        views[tab]?.goForward()
+        val view = views[tab] ?: return
+        prepareHistory(tab, view, 1)
+        view.goForward()
     }
 
     override fun reload(tab: ULong) {

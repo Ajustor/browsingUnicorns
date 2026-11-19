@@ -784,23 +784,30 @@ impl MobileBrowser {
 
     /// Loads the cached lists when none is loaded, then downloads them when
     /// due (once a day). Blocking (network): call it off the main thread,
-    /// at start and when the app comes back.
-    pub fn update_blocker_lists(&self) {
+    /// at start and when the app comes back. True when it set a new engine
+    /// (what the app derived from the old one, its scriptlets, goes).
+    pub fn update_blocker_lists(&self) -> bool {
         if self.blocker_busy.swap(true, Ordering::AcqRel) {
-            return;
+            return false;
         }
+        let mut changed = false;
         if self.blocker.get().is_none()
             && let Some(blocker) = self.blocker_lists.load_cached()
         {
             self.blocker.set(blocker);
+            changed = true;
         }
         if self.blocker_lists.due() {
             match self.blocker_lists.refresh() {
-                Ok(blocker) => self.blocker.set(blocker),
+                Ok(blocker) => {
+                    self.blocker.set(blocker);
+                    changed = true;
+                }
                 Err(e) => eprintln!("ad blocker lists: {e}"),
             }
         }
         self.blocker_busy.store(false, Ordering::Release);
+        changed
     }
 
     /// The ad blocker's state for `tab`'s page.

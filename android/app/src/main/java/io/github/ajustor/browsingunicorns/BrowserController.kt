@@ -163,21 +163,16 @@ class BrowserController(
         screen = Screen.Browser
     }
 
-    fun goBack(): Boolean {
-        val view = views.active() ?: return false
-        if (!view.canGoBack()) return false
-        view.goBack()
-        return true
-    }
+    fun goBack(): Boolean = views.goBackActive()
 
     // --- Ad blocker ---------------------------------------------------------
 
     /** Loads the cached lists, and downloads them when due (once a day). */
     fun updateBlockerLists() {
         scope.launch {
-            withContext(Dispatchers.IO) { browser.updateBlockerLists() }
-            // Maybe new lists: the scriptlets are asked again from the next page.
-            views.clearScriptlets()
+            val changed = withContext(Dispatchers.IO) { browser.updateBlockerLists() }
+            // A new engine: the scriptlets are asked again from the next page.
+            if (changed) views.clearScriptlets()
             refresh()
         }
     }
