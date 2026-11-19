@@ -1,8 +1,9 @@
-//! The built-in ad blocker: EasyList and EasyPrivacy through adblock-rust
-//! (Brave's engine). The lists are downloaded and cached under the app's
-//! data folder with the compiled engine; the request hooks (WebView2,
-//! Android) and the cosmetic page script consult it through a
-//! [`BlockerHandle`].
+//! The built-in ad blocker: EasyList, EasyPrivacy and uBlock Origin's own
+//! lists through adblock-rust (Brave's engine), with Brave's scriptlet
+//! resources for the lists' `+js(...)` rules. The lists are downloaded and
+//! cached under the app's data folder with the compiled engine; the request
+//! hooks (WebView2, Android), the cosmetic page script and the scriptlet
+//! injection consult it through a [`BlockerHandle`].
 
 use std::collections::HashSet;
 use std::fs;
@@ -14,6 +15,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use adblock::Engine;
 use adblock::lists::{FilterSet, ParseOptions, RuleTypes, parse_filter};
 use adblock::request::Request;
+use adblock::resources::{PermissionMask, Resource};
 use domain::{ResourceType, Settings, WebAddress, allowlisted};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -23,13 +25,32 @@ use crate::extensions::safari::MAX_RULES;
 use crate::files;
 
 /// The lists: file name in the cache, address.
-pub const LISTS: [(&str, &str); 2] = [
+pub const LISTS: [(&str, &str); 4] = [
     ("easylist.txt", "https://easylist.to/easylist/easylist.txt"),
     (
         "easyprivacy.txt",
         "https://easylist.to/easylist/easyprivacy.txt",
     ),
+    (
+        "ublock-filters.txt",
+        "https://ublockorigin.github.io/uAssets/filters/filters.txt",
+    ),
+    (
+        "ublock-quick-fixes.txt",
+        "https://ublockorigin.github.io/uAssets/filters/quick-fixes.txt",
+    ),
 ];
+
+/// uBlock Origin's own lists: their scriptlets may use the trusted ones
+/// (`trusted-*`), as uBlock Origin lets them.
+const TRUSTED: [&str; 2] = ["ublock-filters.txt", "ublock-quick-fixes.txt"];
+
+/// The code of the scriptlets the lists name (Brave's, in adblock-rust's
+/// format): file name in the cache, address.
+pub const RESOURCES: (&str, &str) = (
+    "resources.json",
+    "https://raw.githubusercontent.com/brave/adblock-resources/master/dist/resources.json",
+);
 
 const ENGINE_FILE: &str = "engine.dat";
 const STATE_FILE: &str = "state.json";
@@ -81,17 +102,48 @@ fn request_type(kind: Option<ResourceType>) -> Option<&'static str> {
 impl Blocker {
     /// Compiles `lists`; `None` when none has a rule.
     pub fn from_lists(lists: &[&str]) -> Option<Self> {
-        if !lists.iter().any(|l| has_rules(l)) {
+        let lists: Vec<(bool, &str)> = lists.iter().map(|l| (false, *l)).collect();
+        Self::compile(&lists)
+    }
+
+    /// Compiles `lists`, each with whether its scriptlets are trusted;
+    /// `None` when none has a rule.
+    fn compile(lists: &[(bool, &str)]) -> Option<Self> {
+        if !lists.iter().any(|(_, l)| has_rules(l)) {
             return None;
         }
         let mut set = FilterSet::new(false);
-        for list in lists {
-            set.add_filter_list(list.to_string(), ParseOptions::default());
+        for (trusted, list) in lists {
+            let options = if *trusted {
+                ParseOptions {
+                    permissions: PermissionMask::from_bits(u8::MAX),
+                    ..ParseOptions::default()
+                }
+            } else {
+                ParseOptions::default()
+            };
+            set.add_filter_list(list.to_string(), options);
         }
         Some(Self::new(
             Engine::new_with_filter_set(set),
             SystemTime::now(),
         ))
+    }
+
+    /// Gives the engine the scriptlets' code (`resources.json`); false when
+    /// unreadable.
+    pub fn use_resources(&mut self, json: &str) -> bool {
+        match serde_json::from_str::<Vec<Resource>>(json) {
+            Ok(resources) if !resources.is_empty() => {
+                self.engine.use_resources(resources);
+                true
+            }
+            Ok(_) => false,
+            Err(e) => {
+                log::warn!("blocker: resources: {e}");
+                false
+            }
+        }
     }
 
     fn new(engine: Engine, updated: SystemTime) -> Self {
@@ -318,17 +370,20 @@ pub fn webkit_rules_in(dir: &Path, policy: &BlockerPolicy) -> Option<String> {
         return None;
     }
     let json = webkit_rules(
-        &lists.iter().map(String::as_str).collect::<Vec<_>>(),
+        &lists.iter().map(|(_, l)| l.as_str()).collect::<Vec<_>>(),
         &policy.allowlist,
     );
     Some(json)
 }
 
-/// The lists cached in `dir`.
-fn cached_lists(dir: &Path) -> Vec<String> {
+/// The lists cached in `dir`, with whether their scriptlets are trusted.
+fn cached_lists(dir: &Path) -> Vec<(bool, String)> {
     LISTS
         .iter()
-        .filter_map(|(name, _)| fs::read_to_string(dir.join(name)).ok())
+        .filter_map(|(name, _)| {
+            let text = fs::read_to_string(dir.join(name)).ok()?;
+            Some((TRUSTED.contains(name), text))
+        })
         .collect()
 }
 
@@ -385,10 +440,25 @@ impl BlockerLists {
         }
     }
 
-    /// The engine from the cached lists.
+    /// The engine from the cached lists, with the cached resources.
     fn build(&self) -> Option<Blocker> {
         let lists = cached_lists(&self.dir);
-        Blocker::from_lists(&lists.iter().map(String::as_str).collect::<Vec<_>>())
+        let mut blocker = Blocker::compile(
+            &lists
+                .iter()
+                .map(|(t, l)| (*t, l.as_str()))
+                .collect::<Vec<_>>(),
+        )?;
+        self.load_resources(&mut blocker);
+        Some(blocker)
+    }
+
+    /// Hands `blocker` the cached scriptlets' code, when there is some
+    /// (`engine.dat` does not keep it).
+    fn load_resources(&self, blocker: &mut Blocker) {
+        if let Ok(json) = fs::read_to_string(self.dir.join(RESOURCES.0)) {
+            blocker.use_resources(&json);
+        }
     }
 
     /// The cached engine (`engine.dat`), or one rebuilt from the cached
@@ -408,7 +478,10 @@ impl BlockerLists {
             .ok()
             .and_then(|b| Blocker::deserialize(&b))
         {
-            Some(blocker) => blocker,
+            Some(mut blocker) => {
+                self.load_resources(&mut blocker);
+                blocker
+            }
             None => {
                 let blocker = self.build()?;
                 if save {
@@ -443,6 +516,18 @@ impl BlockerLists {
                 Err(e) => log::warn!("blocker: {url}: {e}"),
             }
         }
+        let (name, url) = RESOURCES;
+        match (self.download)(url)
+            .and_then(|bytes| String::from_utf8(bytes).map_err(|e| e.to_string()))
+        {
+            Ok(json)
+                if serde_json::from_str::<Vec<Resource>>(&json).is_ok_and(|r| !r.is_empty()) =>
+            {
+                files::write(&self.dir.join(name), &json).map_err(|e| e.to_string())?;
+            }
+            Ok(_) => log::warn!("blocker: {url} is unreadable, the cached copy is kept"),
+            Err(e) => log::warn!("blocker: {url}: {e}"),
+        }
         if fetched == 0 {
             return Err("no list could be downloaded".into());
         }
@@ -463,9 +548,17 @@ impl BlockerLists {
     }
 
     fn due_at(&self, now: SystemTime) -> bool {
-        self.state()
-            .last_check
-            .is_none_or(|t| unix(now).saturating_sub(t) >= CHECK_EVERY.as_secs())
+        // A list added by an update, or never downloaded: at once.
+        let missing = LISTS
+            .iter()
+            .map(|(name, _)| *name)
+            .chain([RESOURCES.0])
+            .any(|name| !self.dir.join(name).exists());
+        missing
+            || self
+                .state()
+                .last_check
+                .is_none_or(|t| unix(now).saturating_sub(t) >= CHECK_EVERY.as_secs())
     }
 }
 
@@ -585,18 +678,30 @@ b.test##.other-ad
         assert!(!handle.should_block(ad, PAGE, Some(ResourceType::Script)));
     }
 
-    fn fake(lists: Vec<Result<&'static str, &'static str>>) -> Download {
-        let lists = std::sync::Mutex::new(lists.into_iter());
-        Arc::new(move |_: &str| {
-            let next = lists.lock().unwrap().next().expect("one answer per list");
-            next.map(|t| t.as_bytes().to_vec()).map_err(String::from)
+    /// Answers `answers` by address; any other address is offline.
+    fn fake(answers: &[(&str, &'static str)]) -> Download {
+        let answers: std::collections::HashMap<String, &'static str> = answers
+            .iter()
+            .map(|(url, text)| (url.to_string(), *text))
+            .collect();
+        Arc::new(move |url: &str| {
+            answers
+                .get(url)
+                .map(|t| t.as_bytes().to_vec())
+                .ok_or_else(|| "offline".to_string())
         })
     }
+
+    const EASYLIST: &str = "https://easylist.to/easylist/easylist.txt";
 
     #[test]
     fn refresh_downloads_and_caches_the_lists() {
         let dir = tempfile::tempdir().unwrap();
-        let lists = BlockerLists::new(dir.path(), fake(vec![Ok(LIST), Err("offline")]));
+        // Everything is served, so nothing is missing afterwards.
+        let mut answers: Vec<(&str, &'static str)> =
+            LISTS.iter().map(|(_, url)| (*url, LIST)).collect();
+        answers.push((RESOURCES.1, RESOURCES_JSON));
+        let lists = BlockerLists::new(dir.path(), fake(&answers));
         assert!(lists.load_cached().is_none());
         assert!(lists.due());
         let b = lists.refresh().unwrap();
@@ -611,17 +716,10 @@ b.test##.other-ad
     #[test]
     fn a_failed_or_empty_download_keeps_the_cached_list() {
         let dir = tempfile::tempdir().unwrap();
-        BlockerLists::new(dir.path(), fake(vec![Ok(LIST), Err("offline")]))
+        BlockerLists::new(dir.path(), fake(&[(EASYLIST, LIST)]))
             .refresh()
             .unwrap();
-        let lists = BlockerLists::new(
-            dir.path(),
-            fake(vec![
-                Ok("! no rule
-"),
-                Err("offline"),
-            ]),
-        );
+        let lists = BlockerLists::new(dir.path(), fake(&[(EASYLIST, "! no rule\n")]));
         assert!(lists.refresh().is_err());
         assert_eq!(
             fs::read_to_string(dir.path().join("easylist.txt")).unwrap(),
@@ -634,7 +732,7 @@ b.test##.other-ad
     #[test]
     fn the_engine_is_rebuilt_from_the_lists_when_unreadable() {
         let dir = tempfile::tempdir().unwrap();
-        let lists = BlockerLists::new(dir.path(), fake(vec![Ok(LIST), Ok(LIST)]));
+        let lists = BlockerLists::new(dir.path(), fake(&[(EASYLIST, LIST)]));
         lists.refresh().unwrap();
         fs::write(dir.path().join(ENGINE_FILE), b"garbage").unwrap();
         let b = lists.read_cached().unwrap();
@@ -704,10 +802,65 @@ b.test##.other-ad
         assert!(!changes.changed(&handle));
     }
 
+    /// A scriptlet: sets `window.said` to its first argument.
+    const RESOURCES_JSON: &str = r#"[{"name":"say.js","aliases":[],"kind":{"mime":"application/javascript"},"content":"d2luZG93LnNhaWQgPSAie3sxfX0iOw=="}]"#;
+
+    #[test]
+    fn the_ublock_lists_and_the_resources_are_cached() {
+        let dir = tempfile::tempdir().unwrap();
+        let ublock = "https://ublockorigin.github.io/uAssets/filters/filters.txt";
+        let lists = BlockerLists::new(
+            dir.path(),
+            fake(&[
+                (EASYLIST, LIST),
+                (ublock, "site.test##+js(say, hello)\n"),
+                (RESOURCES.1, RESOURCES_JSON),
+            ]),
+        );
+        lists.refresh().unwrap();
+        assert!(dir.path().join("ublock-filters.txt").exists());
+        assert!(dir.path().join(RESOURCES.0).exists());
+    }
+
+    #[test]
+    fn unreadable_resources_are_not_cached() {
+        let dir = tempfile::tempdir().unwrap();
+        let lists = BlockerLists::new(
+            dir.path(),
+            fake(&[(EASYLIST, LIST), (RESOURCES.1, "not json")]),
+        );
+        lists.refresh().unwrap();
+        assert!(!dir.path().join(RESOURCES.0).exists());
+    }
+
+    #[test]
+    fn a_list_missing_from_the_cache_makes_the_lists_due() {
+        let dir = tempfile::tempdir().unwrap();
+        let lists = BlockerLists::new(dir.path(), fake(&[(EASYLIST, LIST)]));
+        let now = SystemTime::now();
+        lists.save_state(&State {
+            last_check: Some(unix(now)),
+            updated: None,
+        });
+        // Checked a minute ago, but only EasyList is there (an update added
+        // lists): due again.
+        fs::write(dir.path().join("easylist.txt"), LIST).unwrap();
+        assert!(lists.due_at(now + Duration::from_secs(60)));
+        for (name, _) in LISTS {
+            fs::write(dir.path().join(name), LIST).unwrap();
+        }
+        fs::write(dir.path().join(RESOURCES.0), RESOURCES_JSON).unwrap();
+        assert!(!lists.due_at(now + Duration::from_secs(60)));
+    }
+
     #[test]
     fn the_lists_are_due_after_a_day() {
         let dir = tempfile::tempdir().unwrap();
-        let lists = BlockerLists::new(dir.path(), fake(vec![]));
+        let lists = BlockerLists::new(dir.path(), fake(&[]));
+        for (name, _) in LISTS {
+            fs::write(dir.path().join(name), LIST).unwrap();
+        }
+        fs::write(dir.path().join(RESOURCES.0), RESOURCES_JSON).unwrap();
         let now = SystemTime::now();
         lists.save_state(&State {
             last_check: Some(unix(now)),
