@@ -26,7 +26,12 @@ déjà enregistré dans l'onglet), les filtres personnels.
   - `ublock-quick-fixes.txt` :
     `https://ublockorigin.github.io/uAssets/filters/quick-fixes.txt`.
   Syntaxe uBlock (`##+js(...)`…) : adblock-rust la lit ; ce qu'il ne gère
-  pas est ignoré.
+  pas est ignoré. Ces deux listes ont droit aux scriptlets « trusted »
+  (`trusted-*`, utilisés pour YouTube), comme dans uBlock Origin ; EasyList
+  et EasyPrivacy non.
+- Un fichier attendu absent du cache (liste ajoutée par une mise à jour de
+  l'app) rend les listes « à vérifier » tout de suite, sans attendre le
+  délai d'un jour.
 - Les ressources des scriptlets : `resources.json` de Brave
   (`https://raw.githubusercontent.com/brave/adblock-resources/master/dist/resources.json`),
   au format `Vec<adblock::resources::Resource>`, téléchargé et mis en cache
