@@ -95,7 +95,19 @@ document :
   changement du bloqueur est détecté dans le gestionnaire ; une époque
   (compteur de vidages) fait retirer les identifiants qui arrivent après un
   vidage. Si l'ajout est refusé, l'hôte est oublié : la navigation suivante
-  réessaie.
+  réessaie. L'ajout est asynchrone et WebView2 ne l'attend pas (mesuré sur
+  Twitch : document créé ~70 ms après `NavigationStarting`, ajout terminé
+  ~450 ms après) : une navigation qui demande un nouveau script est donc
+  annulée puis refaite (`Navigate`) quand l'ajout est terminé, si aucune
+  autre navigation n'est venue entre-temps. Pas celle qui porte un corps
+  (`Content-Type` : un POST deviendrait un GET) ni celle de l'historique
+  (elle deviendrait une nouvelle entrée) : le script vaut alors dès le
+  document suivant. Depuis la page vierge d'un nouvel onglet (entrée de
+  l'historique dès que sa première navigation est annulée), elle est refaite
+  par `location.replace`, pour ne pas la laisser derrière. Une navigation partie avant que le moteur n'existe (au
+  démarrage, le cache se charge ~100 ms après la restauration des onglets)
+  est refaite une fois quand il arrive (`Scriptlets::catch_up`, appelé par
+  `WryEngine::pump`), si son site a des scriptlets.
 - **macOS / Linux** : `webkit_scriptlets.rs`, `Sites::navigating` appelé
   depuis le gestionnaire de navigation de wry ; `WKUserScript` / `UserScript`
   GTK en début de document, à côté des scripts de page existants

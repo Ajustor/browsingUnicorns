@@ -149,6 +149,9 @@ pub struct WryEngine {
     /// Windows: each tab's connection security, as last told.
     #[cfg(windows)]
     security: HashMap<TabId, Rc<RefCell<Option<crate::certificates::Certificates>>>>,
+    /// Windows: each tab's ad blocker scriptlets.
+    #[cfg(windows)]
+    scriptlets: HashMap<TabId, crate::webview2_scriptlets::Scriptlets>,
 }
 
 fn engine_error(e: wry::Error) -> EngineError {
@@ -380,6 +383,8 @@ impl WryEngine {
             page_focused: Default::default(),
             #[cfg(windows)]
             security: HashMap::new(),
+            #[cfg(windows)]
+            scriptlets: HashMap::new(),
         }
     }
 
@@ -404,6 +409,11 @@ impl WryEngine {
                     crate::webkit_rules::RuleLists::apply(view, &lists);
                 }
             }
+        }
+        // A page loaded before the ad blocker's lists: again with them.
+        #[cfg(windows)]
+        for scriptlets in self.scriptlets.values() {
+            scriptlets.catch_up();
         }
         self.measure_panel();
     }
@@ -885,8 +895,11 @@ impl WebEngine for WryEngine {
             log::warn!("address of tab {tab}: {e}");
         }
         #[cfg(windows)]
-        if let Err(e) = crate::webview2_scriptlets::attach(&view, self.blocker.clone()) {
-            log::warn!("scriptlets of tab {tab}: {e}");
+        match crate::webview2_scriptlets::attach(&view, self.blocker.clone()) {
+            Ok(scriptlets) => {
+                self.scriptlets.insert(tab, scriptlets);
+            }
+            Err(e) => log::warn!("scriptlets of tab {tab}: {e}"),
         }
         #[cfg(windows)]
         {
@@ -936,6 +949,8 @@ impl WebEngine for WryEngine {
         self.blocked.remove(&tab);
         #[cfg(windows)]
         self.security.remove(&tab);
+        #[cfg(windows)]
+        self.scriptlets.remove(&tab);
         #[cfg(windows)]
         self.frames.remove(&tab);
         if self.shown == Some(tab) {
