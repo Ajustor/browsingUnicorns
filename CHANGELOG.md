@@ -4,6 +4,14 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.15.1] - 2026-11-19
+
+### Corrigé
+
+- La barre des téléchargements : les cartes descendaient en escalier
+  au lieu d'être alignées, et les boutons *Open folder*, *Clear* et la
+  croix restaient en haut au lieu d'être centrés sur elles.
+
 ## [0.15.0] - 2026-11-18
 
 ### Ajouté
