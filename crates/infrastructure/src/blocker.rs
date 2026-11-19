@@ -1,6 +1,6 @@
 //! The built-in ad blocker: EasyList, EasyPrivacy and uBlock Origin's own
-//! lists through adblock-rust (Brave's engine), with Brave's scriptlet
-//! resources for the lists' `+js(...)` rules. The lists are downloaded and
+//! lists through adblock-rust (Brave's engine), with uBlock Origin's
+//! scriptlets for the lists' `+js(...)` rules. The lists are downloaded and
 //! cached under the app's data folder with the compiled engine; the request
 //! hooks (WebView2, Android), the cosmetic page script and the scriptlet
 //! injection consult it through a [`BlockerHandle`].
@@ -50,11 +50,13 @@ pub const LISTS: [(&str, &str, bool); 4] = [
     ),
 ];
 
-/// The code of the scriptlets the lists name (Brave's, in adblock-rust's
-/// format): file name in the cache, address.
+/// The code of the scriptlets the lists name: uBlock Origin's, converted to
+/// adblock-rust's format each day by the project
+/// (`.github/workflows/ublock-resources.yml`): file name in the cache,
+/// address.
 pub const RESOURCES: (&str, &str) = (
-    "resources.json",
-    "https://raw.githubusercontent.com/brave/adblock-resources/master/dist/resources.json",
+    "ublock-resources.json",
+    "https://github.com/Ajustor/browsingUnicorns/releases/download/ublock-resources/ublock-resources.json",
 );
 
 const ENGINE_FILE: &str = "engine.dat";
@@ -135,7 +137,7 @@ impl Blocker {
         ))
     }
 
-    /// Gives the engine the scriptlets' code (`resources.json`); false when
+    /// Gives the engine the scriptlets' code ([`RESOURCES`]); false when
     /// unreadable.
     pub fn use_resources(&mut self, json: &str) -> bool {
         match serde_json::from_str::<Vec<Resource>>(json) {
