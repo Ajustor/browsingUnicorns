@@ -713,6 +713,17 @@ impl WebEngine for WryEngine {
                 true
             })
         };
+        // The ad blocker's scriptlets, at the start of each navigation.
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        let sites = crate::webkit_scriptlets::Sites::default();
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        let builder = {
+            let (sites, blocker) = (sites.clone(), self.blocker.clone());
+            builder.with_navigation_handler(move |url| {
+                sites.navigating(&url, &blocker);
+                true
+            })
+        };
         // No address yet: the page scripts must be in before the first load.
         let view = builder
             .with_bounds(bounds(self.viewport))
@@ -768,6 +779,9 @@ impl WebEngine for WryEngine {
             .map_err(engine_error)?;
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         self.rule_lists.attach(&view);
+        // Before the first load, which comes through the navigation handler.
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        sites.attach(&view);
         // On every tab: the ad blocker, and the extensions' rules when the
         // browser runs them (empty otherwise).
         #[cfg(windows)]
