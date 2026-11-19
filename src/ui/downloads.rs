@@ -24,6 +24,9 @@ pub struct Downloads {
     items: Vec<Item>,
     /// Whether the bar shows (a new download shows it).
     pub shown: bool,
+    /// The cards' height at the last frame: the buttons beside them are
+    /// laid out first, centered on it.
+    row_height: f32,
 }
 
 struct Item {
@@ -157,6 +160,7 @@ impl Downloads {
             .frame(frame)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
+                    ui.set_min_height(self.row_height);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         close = super::theme::hover_fill(ui, |ui| {
                             ui.add(egui::Button::new(icon::X).frame(false))
@@ -188,18 +192,22 @@ impl Downloads {
                         }
                         ui.separator();
                         ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                            egui::ScrollArea::horizontal()
+                            let cards = egui::ScrollArea::horizontal()
                                 .scroll_bar_visibility(
                                     egui::scroll_area::ScrollBarVisibility::AlwaysHidden,
                                 )
                                 .show(ui, |ui| {
                                     ui.style_mut().always_scroll_the_only_direction = true;
-                                    ui.horizontal(|ui| {
+                                    // Aligned on their top: centered in a row
+                                    // that grows with them, they came out
+                                    // staggered.
+                                    ui.horizontal_top(|ui| {
                                         for item in &mut self.items {
                                             card(ui, item, can_cancel, &mut actions, commands);
                                         }
                                     });
                                 });
+                            self.row_height = cards.content_size.y;
                         });
                     });
                 });
