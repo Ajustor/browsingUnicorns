@@ -882,8 +882,16 @@ sub.site.test#@#+js(say, hello)
     fn without_resources_there_is_no_scriptlet() {
         let b = Blocker::from_lists(&[SCRIPTLET_LIST]).unwrap();
         assert_eq!(b.scriptlets("https://site.test/"), "");
-        assert!(!Blocker::from_lists(&[SCRIPTLET_LIST]).unwrap().use_resources("[]"));
-        assert!(!Blocker::from_lists(&[SCRIPTLET_LIST]).unwrap().use_resources("nope"));
+        assert!(
+            !Blocker::from_lists(&[SCRIPTLET_LIST])
+                .unwrap()
+                .use_resources("[]")
+        );
+        assert!(
+            !Blocker::from_lists(&[SCRIPTLET_LIST])
+                .unwrap()
+                .use_resources("nope")
+        );
     }
 
     #[test]

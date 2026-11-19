@@ -28,9 +28,9 @@ mod parent_window;
 mod private_data;
 pub mod profiles;
 pub mod script_storage;
-pub mod site_scripts;
 mod settings_store;
 mod shared_store;
+pub mod site_scripts;
 pub mod sync;
 pub mod user_scripts;
 #[cfg(all(any(target_os = "macos", target_os = "linux"), feature = "desktop"))]

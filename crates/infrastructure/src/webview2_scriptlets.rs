@@ -63,7 +63,9 @@ pub fn attach(view: &WebView, blocker: BlockerHandle) -> windows_core::Result<()
         let (stale, script, epoch) = {
             let mut sites = sites.borrow_mut();
             let stale = sites.stale(&blocker);
-            let script = sites.scripts.script_for(&uri, |url| blocker.scriptlets(url));
+            let script = sites
+                .scripts
+                .script_for(&uri, |url| blocker.scriptlets(url));
             (stale, script, sites.epoch)
         };
         for id in stale {
@@ -116,7 +118,12 @@ mod tests {
         let blocker = BlockerHandle::default();
         let mut sites = Sites::default();
         assert!(sites.stale(&blocker).is_empty());
-        assert!(sites.scripts.script_for("https://site.test/", SCRIPT).is_some());
+        assert!(
+            sites
+                .scripts
+                .script_for("https://site.test/", SCRIPT)
+                .is_some()
+        );
         assert_eq!(sites.added("a".into(), sites.epoch), None);
         assert!(sites.stale(&blocker).is_empty());
         assert_eq!(sites.scripts.script_for("https://site.test/", SCRIPT), None);
@@ -126,7 +133,12 @@ mod tests {
             allowlist: Vec::new(),
         });
         assert_eq!(sites.stale(&blocker), vec!["a".to_string()]);
-        assert!(sites.scripts.script_for("https://site.test/", SCRIPT).is_some());
+        assert!(
+            sites
+                .scripts
+                .script_for("https://site.test/", SCRIPT)
+                .is_some()
+        );
     }
 
     #[test]

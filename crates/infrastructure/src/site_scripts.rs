@@ -20,11 +20,13 @@ pub fn web_host(url: &str) -> Option<String> {
 /// `script`, run on `host`'s documents only, its errors caught.
 pub fn guarded(host: &str, script: &str) -> String {
     let host = serde_json::to_string(host).expect("a string");
-    format!("{MARKER}
+    format!(
+        "{MARKER}
 if (location.hostname === {host}) {{ try {{
 {script}
 }} catch (e) {{}} }}
-")
+"
+    )
 }
 
 /// The sites a view has a scriptlet script for, and what the web view
@@ -46,7 +48,11 @@ impl<H> Default for SiteScripts<H> {
 impl<H> SiteScripts<H> {
     /// The script to add for a navigation to `url`, when its host has
     /// scriptlets (`scriptlets(url)` not empty) and none was added yet.
-    pub fn script_for(&mut self, url: &str, scriptlets: impl FnOnce(&str) -> String) -> Option<String> {
+    pub fn script_for(
+        &mut self,
+        url: &str,
+        scriptlets: impl FnOnce(&str) -> String,
+    ) -> Option<String> {
         let host = web_host(url)?;
         if self.hosts.contains(&host) {
             return None;
@@ -78,8 +84,14 @@ mod tests {
 
     #[test]
     fn web_pages_have_a_host() {
-        assert_eq!(web_host("https://www.youtube.com/watch?v=1").as_deref(), Some("www.youtube.com"));
-        assert_eq!(web_host("http://127.0.0.1:8000/").as_deref(), Some("127.0.0.1"));
+        assert_eq!(
+            web_host("https://www.youtube.com/watch?v=1").as_deref(),
+            Some("www.youtube.com")
+        );
+        assert_eq!(
+            web_host("http://127.0.0.1:8000/").as_deref(),
+            Some("127.0.0.1")
+        );
         assert_eq!(web_host("file:///C:/page.html"), None);
         assert_eq!(web_host("about:blank"), None);
         assert_eq!(web_host("not a url"), None);
@@ -89,7 +101,10 @@ mod tests {
     fn the_script_runs_on_its_host_only() {
         let s = guarded("www.youtube.com", "window.x = 1;");
         assert!(s.starts_with(MARKER));
-        assert!(s.contains(r#"location.hostname === "www.youtube.com""#), "{s}");
+        assert!(
+            s.contains(r#"location.hostname === "www.youtube.com""#),
+            "{s}"
+        );
         assert!(s.contains("try {") && s.contains("catch (e)"), "{s}");
         assert!(s.contains("window.x = 1;"));
         // A host cannot end the string it is compared with.
@@ -109,15 +124,25 @@ mod tests {
     #[test]
     fn a_site_without_scriptlets_is_asked_again() {
         let mut sites = SiteScripts::<u32>::default();
-        assert_eq!(sites.script_for("https://site.test/", |_| String::new()), None);
+        assert_eq!(
+            sites.script_for("https://site.test/", |_| String::new()),
+            None
+        );
         // The lists arrived, or the site left the allowlist.
-        assert!(sites.script_for("https://site.test/", |_| "x();".into()).is_some());
+        assert!(
+            sites
+                .script_for("https://site.test/", |_| "x();".into())
+                .is_some()
+        );
     }
 
     #[test]
     fn other_addresses_get_nothing() {
         let mut sites = SiteScripts::<u32>::default();
-        assert_eq!(sites.script_for("file:///page.html", |_| "x();".into()), None);
+        assert_eq!(
+            sites.script_for("file:///page.html", |_| "x();".into()),
+            None
+        );
     }
 
     #[test]
@@ -127,6 +152,10 @@ mod tests {
         sites.keep(7u32);
         assert_eq!(sites.clear(), vec![7]);
         assert!(sites.clear().is_empty());
-        assert!(sites.script_for("https://site.test/", |_| "x();".into()).is_some());
+        assert!(
+            sites
+                .script_for("https://site.test/", |_| "x();".into())
+                .is_some()
+        );
     }
 }
