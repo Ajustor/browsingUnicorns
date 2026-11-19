@@ -22,9 +22,10 @@ use domain::{Extension, ExtensionId, Extensions, RuleSet};
 
 /// Packages bigger than this are refused.
 pub const MAX_PACKAGE: u64 = 100 * 1024 * 1024;
-/// The browser version announced to the Web Store, which serves the build of
-/// the extension made for it.
-const CHROME_VERSION: &str = "140.0.0.0";
+/// The browser version announced to the stores, which serve the build of
+/// the extension made for it, and nothing (204) when the extension needs a
+/// newer browser: the web view's engine (WebView2) version.
+const CHROME_VERSION: &str = "157.0.0.0";
 
 /// Fetches a URL (following redirects) and returns the body, or an error
 /// message. Each app brings its HTTP client.
@@ -40,6 +41,16 @@ pub fn store_package_url(id: &ExtensionId) -> String {
     format!(
         "https://clients2.google.com/service/update2/crx?response=redirect\
          &prodversion={CHROME_VERSION}&acceptformat=crx2,crx3&x=id%3D{id}%26uc"
+    )
+}
+
+/// Where Microsoft Edge Add-ons serves the package of `id` (its extensions
+/// have ids of their own). The package itself comes over plain HTTP: its
+/// signature is checked against `id` all the same.
+pub fn edge_package_url(id: &ExtensionId) -> String {
+    format!(
+        "https://edge.microsoft.com/extensionwebstorebase/v1/crx?response=redirect\
+         &prodversion={CHROME_VERSION}&x=id%3D{id}%26installsource%3Dondemand%26uc"
     )
 }
 
@@ -130,13 +141,21 @@ impl ExtensionFolder {
         &self.dir
     }
 
+    /// The package of `id`: from the Chrome Web Store, else from Microsoft
+    /// Edge Add-ons.
     fn download(&self, id: &ExtensionId) -> Result<Vec<u8>, ExtensionError> {
-        let body = (self.download)(&store_package_url(id))
-            .map_err(|e| error(format!("Chrome Web Store: {e}")))?;
-        if body.is_empty() {
-            return Err(error("the Chrome Web Store has no extension with this id"));
+        let mut failures = Vec::new();
+        for (store, url) in [
+            ("Chrome Web Store", store_package_url(id)),
+            ("Edge Add-ons", edge_package_url(id)),
+        ] {
+            match (self.download)(&url) {
+                Ok(body) if !body.is_empty() => return Ok(body),
+                Ok(_) => failures.push(format!("{store}: no extension with this id")),
+                Err(e) => failures.push(format!("{store}: {e}")),
+            }
         }
-        Ok(body)
+        Err(error(failures.join("; ")))
     }
 
     /// Unpacks `zip` into `to` (emptied first).
@@ -432,6 +451,58 @@ mod tests {
         folder.remove(&ext.id).unwrap();
     }
 
+    /// Answers `answers` by address; any other address is offline.
+    fn serving(answers: Vec<(String, Vec<u8>)>) -> Download {
+        let answers: std::collections::HashMap<String, Vec<u8>> = answers.into_iter().collect();
+        Arc::new(move |url: &str| answers.get(url).cloned().ok_or_else(|| "offline".to_owned()))
+    }
+
+    #[test]
+    fn edge_add_ons_serve_what_the_chrome_web_store_has_not() {
+        let root = tempfile::tempdir().unwrap();
+        let id = crx::id_of_key(b"publisher key");
+        // The Chrome Web Store answers "nothing" (204), Edge has it.
+        let folder = ExtensionFolder::new(
+            root.path(),
+            serving(vec![
+                (store_package_url(&id), Vec::new()),
+                (edge_package_url(&id), package("From Edge")),
+            ]),
+        );
+        let ext = folder.install(&ExtensionSource::Store(id.clone())).unwrap();
+        assert_eq!((ext.id, ext.name.as_str()), (id, "From Edge"));
+    }
+
+    #[test]
+    fn the_chrome_web_store_comes_first() {
+        let root = tempfile::tempdir().unwrap();
+        let id = crx::id_of_key(b"publisher key");
+        let folder = ExtensionFolder::new(
+            root.path(),
+            serving(vec![
+                (store_package_url(&id), package("From Chrome")),
+                (edge_package_url(&id), package("From Edge")),
+            ]),
+        );
+        let ext = folder.install(&ExtensionSource::Store(id)).unwrap();
+        assert_eq!(ext.name, "From Chrome");
+    }
+
+    #[test]
+    fn an_id_neither_store_has_names_both() {
+        let root = tempfile::tempdir().unwrap();
+        let id = crx::id_of_key(b"publisher key");
+        let folder = ExtensionFolder::new(
+            root.path(),
+            serving(vec![(store_package_url(&id), Vec::new())]),
+        );
+        let err = folder
+            .install(&ExtensionSource::Store(id))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("Chrome Web Store") && err.contains("Edge Add-ons"), "{err}");
+    }
+
     #[test]
     fn a_store_package_must_be_the_one_asked_for() {
         let root = tempfile::tempdir().unwrap();
@@ -442,6 +513,26 @@ mod tests {
             fs::read_dir(root.path()).unwrap().next().is_none(),
             "nothing left"
         );
+    }
+
+    /// Talks to the real stores: uBlock Origin from Edge Add-ons (its id
+    /// there is Edge's own), heylogin (which needs a recent browser) from
+    /// the Chrome Web Store.
+    #[cfg(feature = "desktop")]
+    #[test]
+    #[ignore = "downloads from Edge Add-ons and the Chrome Web Store"]
+    fn installs_from_both_stores() {
+        let root = tempfile::tempdir().unwrap();
+        let folder = ExtensionFolder::new(root.path(), ureq_download());
+        for id in [
+            "odfafepnkmbhccpbejgmiehpchacaeak",
+            "kghbmcgihmefcbjlfiafjcigdcbmecbf",
+        ] {
+            let id = ExtensionId::parse(id).unwrap();
+            let ext = folder.install(&ExtensionSource::Store(id.clone())).unwrap();
+            assert_eq!(ext.id, id);
+            println!("{} {}", ext.name, ext.version);
+        }
     }
 
     /// Talks to the real Chrome Web Store.
