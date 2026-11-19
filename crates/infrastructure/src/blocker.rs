@@ -180,7 +180,13 @@ impl Blocker {
     /// The script the lists' `+js(...)` rules inject into `url`'s pages
     /// (their exceptions included), empty when none.
     pub fn scriptlets(&self, url: &str) -> String {
-        self.engine.url_cosmetic_resources(url).injected_script
+        let script = self.engine.url_cosmetic_resources(url).injected_script;
+        if script.is_empty() {
+            return script;
+        }
+        // uBlock's scriptlets read the globals its own injection declares
+        // (`safe-self.fn`, `prevent-xhr.fn`); adblock-rust's does not.
+        format!("const scriptletGlobals = {{}};\n{script}")
     }
 
     /// The style sheet hiding the ad slots the lists name for `url`'s site,
@@ -857,6 +863,19 @@ sub.site.test#@#+js(say, hello)
         assert_eq!(b.scriptlets("https://other.test/"), "");
         // `#@#+js` cancels it on that subdomain.
         assert_eq!(b.scriptlets("https://sub.site.test/"), "");
+    }
+
+    #[test]
+    fn scriptlets_find_the_globals_ublock_declares() {
+        // Reads `scriptletGlobals`, as uBlock's `safe-self.fn` does.
+        let json = r#"[{"name":"glob.js","aliases":[],"kind":{"mime":"application/javascript"},"content":"d2luZG93LnNlY3JldCA9IHNjcmlwdGxldEdsb2JhbHMuYmNTZWNyZXQ7"}]"#;
+        let mut b = Blocker::from_lists(&["site.test##+js(glob)\n"]).unwrap();
+        assert!(b.use_resources(json));
+        let script = b.scriptlets("https://site.test/");
+        let declared = script.find("const scriptletGlobals = {};").expect(&script);
+        let used = script.find("scriptletGlobals.bcSecret").expect(&script);
+        assert!(declared < used, "{script}");
+        assert_eq!(b.scriptlets("https://other.test/"), "");
     }
 
     #[test]
