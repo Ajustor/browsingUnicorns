@@ -175,6 +175,12 @@ impl Blocker {
             .is_ok_and(|r| self.engine.check_network_request(&r).should_block())
     }
 
+    /// The script the lists' `+js(...)` rules inject into `url`'s pages
+    /// (their exceptions included), empty when none.
+    pub fn scriptlets(&self, url: &str) -> String {
+        self.engine.url_cosmetic_resources(url).injected_script
+    }
+
     /// The style sheet hiding the ad slots the lists name for `url`'s site,
     /// empty when none.
     pub fn cosmetic_css(&self, url: &str) -> String {
@@ -296,6 +302,15 @@ impl BlockerHandle {
     pub fn cosmetic_css(&self, url: &str) -> String {
         match self.get() {
             Some(blocker) if self.policy().applies_to(url) => blocker.cosmetic_css(url),
+            _ => String::new(),
+        }
+    }
+
+    /// The scriptlets for `url`'s pages; empty when the policy does not
+    /// apply or no list is loaded.
+    pub fn scriptlets(&self, url: &str) -> String {
+        match self.get() {
+            Some(blocker) if self.policy().applies_to(url) => blocker.scriptlets(url),
             _ => String::new(),
         }
     }
@@ -820,6 +835,69 @@ b.test##.other-ad
 
     /// A scriptlet: sets `window.said` to its first argument.
     const RESOURCES_JSON: &str = r#"[{"name":"say.js","aliases":[],"kind":{"mime":"application/javascript"},"content":"d2luZG93LnNhaWQgPSAie3sxfX0iOw=="}]"#;
+
+    const SCRIPTLET_LIST: &str = "site.test##+js(say, hello)
+sub.site.test#@#+js(say, hello)
+";
+
+    fn with_scriptlets() -> Blocker {
+        let mut b = Blocker::from_lists(&[SCRIPTLET_LIST]).unwrap();
+        assert!(b.use_resources(RESOURCES_JSON));
+        b
+    }
+
+    #[test]
+    fn scriptlets_are_the_sites_own() {
+        let b = with_scriptlets();
+        let script = b.scriptlets("https://www.site.test/watch");
+        assert!(script.contains("window.said"), "{script}");
+        assert!(script.contains("hello"), "{script}");
+        assert_eq!(b.scriptlets("https://other.test/"), "");
+        // `#@#+js` cancels it on that subdomain.
+        assert_eq!(b.scriptlets("https://sub.site.test/"), "");
+    }
+
+    #[test]
+    fn without_resources_there_is_no_scriptlet() {
+        let b = Blocker::from_lists(&[SCRIPTLET_LIST]).unwrap();
+        assert_eq!(b.scriptlets("https://site.test/"), "");
+        assert!(!Blocker::from_lists(&[SCRIPTLET_LIST]).unwrap().use_resources("[]"));
+        assert!(!Blocker::from_lists(&[SCRIPTLET_LIST]).unwrap().use_resources("nope"));
+    }
+
+    #[test]
+    fn a_cached_engine_gets_its_resources_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let lists = BlockerLists::new(
+            dir.path(),
+            fake(&[(LISTS[2].1, SCRIPTLET_LIST), (RESOURCES.1, RESOURCES_JSON)]),
+        );
+        lists.refresh().unwrap();
+        // From engine.dat, then from the lists.
+        let b = lists.load_cached().unwrap();
+        assert!(b.scriptlets("https://site.test/").contains("window.said"));
+        fs::write(dir.path().join(ENGINE_FILE), b"garbage").unwrap();
+        let b = lists.read_cached().unwrap();
+        assert!(b.scriptlets("https://site.test/").contains("window.said"));
+    }
+
+    #[test]
+    fn the_handle_gives_scriptlets_under_the_policy() {
+        let handle = BlockerHandle::default();
+        assert_eq!(handle.scriptlets("https://site.test/"), "");
+        handle.set(with_scriptlets());
+        assert!(!handle.scriptlets("https://site.test/").is_empty());
+        handle.set_policy(BlockerPolicy {
+            enabled: true,
+            allowlist: vec!["site.test".into()],
+        });
+        assert_eq!(handle.scriptlets("https://www.site.test/"), "");
+        handle.set_policy(BlockerPolicy {
+            enabled: false,
+            allowlist: Vec::new(),
+        });
+        assert_eq!(handle.scriptlets("https://site.test/"), "");
+    }
 
     #[test]
     fn the_ublock_lists_and_the_resources_are_cached() {
