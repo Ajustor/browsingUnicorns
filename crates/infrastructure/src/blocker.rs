@@ -570,6 +570,8 @@ impl BlockerLists {
             Ok(_) => log::warn!("blocker: {url} is unreadable, the cached copy is kept"),
             Err(e) => log::warn!("blocker: {url}: {e}"),
         }
+        // Brave's resources, cached under this name before uBlock's.
+        let _ = fs::remove_file(self.dir.join("resources.json"));
         if fetched == 0 {
             return Err("no list could be downloaded".into());
         }
@@ -943,6 +945,17 @@ sub.site.test#@#+js(say, hello)
         lists.refresh().unwrap();
         assert!(dir.path().join("ublock-filters.txt").exists());
         assert!(dir.path().join(RESOURCES.0).exists());
+    }
+
+    #[test]
+    fn the_former_resources_file_goes() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("resources.json"), "[]").unwrap();
+        let lists = BlockerLists::new(dir.path(), fake(&[(EASYLIST, LIST)]));
+        lists.refresh().unwrap();
+        assert!(!dir.path().join("resources.json").exists());
+        // Nothing to remove: no harm.
+        lists.refresh().unwrap();
     }
 
     #[test]
