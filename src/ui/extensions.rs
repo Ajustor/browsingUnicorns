@@ -174,7 +174,9 @@ impl ExtensionsPanel {
             ExtensionSupport::Full => {}
         }
         let runner = view.runner;
-        ui.label("Chrome Web Store or Edge Add-ons link, extension id, .crx file or unpacked folder:");
+        ui.label(
+            "Chrome Web Store or Edge Add-ons link, extension id, .crx file or unpacked folder:",
+        );
         let field = ui.add(
             TextEdit::singleline(&mut self.input)
                 .hint_text("https://chromewebstore.google.com/detail/…")

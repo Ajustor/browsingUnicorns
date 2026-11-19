@@ -692,7 +692,7 @@ impl WebEngine for WryEngine {
         let on_audio = emit.clone();
         let device_for_downloads = self.device.clone();
         // Downloads the browser stopped before they began.
-        let refused = Rc::new(std::cell::RefCell::new(std::collections::HashSet::new()));
+        let refused = std::rc::Rc::new(std::cell::RefCell::new(std::collections::HashSet::new()));
         let refused_by_start = refused.clone();
         let builder = base_builder(
             &mut self.context,

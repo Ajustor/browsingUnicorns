@@ -454,7 +454,12 @@ mod tests {
     /// Answers `answers` by address; any other address is offline.
     fn serving(answers: Vec<(String, Vec<u8>)>) -> Download {
         let answers: std::collections::HashMap<String, Vec<u8>> = answers.into_iter().collect();
-        Arc::new(move |url: &str| answers.get(url).cloned().ok_or_else(|| "offline".to_owned()))
+        Arc::new(move |url: &str| {
+            answers
+                .get(url)
+                .cloned()
+                .ok_or_else(|| "offline".to_owned())
+        })
     }
 
     #[test]
@@ -500,7 +505,10 @@ mod tests {
             .install(&ExtensionSource::Store(id))
             .unwrap_err()
             .to_string();
-        assert!(err.contains("Chrome Web Store") && err.contains("Edge Add-ons"), "{err}");
+        assert!(
+            err.contains("Chrome Web Store") && err.contains("Edge Add-ons"),
+            "{err}"
+        );
     }
 
     #[test]

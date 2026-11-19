@@ -36,7 +36,10 @@ impl ExtensionId {
             return None;
         }
         // Ids are lowercase: `id%3D<id>%26` splits around them.
-        let named = |text: &str| text.split(|c: char| !c.is_ascii_lowercase()).find_map(Self::parse);
+        let named = |text: &str| {
+            text.split(|c: char| !c.is_ascii_lowercase())
+                .find_map(Self::parse)
+        };
         named(file_name).or_else(|| named(url))
     }
 
@@ -189,7 +192,9 @@ mod tests {
             format!("https://chromewebstore.google.com/detail/ublock-origin-lite/{UBO_LITE}?hl=fr"),
             format!("https://chrome.google.com/webstore/detail/x/{UBO_LITE}/"),
             format!("https://microsoftedge.microsoft.com/addons/detail/x/{UBO_LITE}"),
-            format!("https://chromewebstore.google.com/detail/heylogin-%E2%80%93-password-manag/{UBO_LITE}"),
+            format!(
+                "https://chromewebstore.google.com/detail/heylogin-%E2%80%93-password-manag/{UBO_LITE}"
+            ),
             format!("  {UBO_LITE} "),
         ] {
             assert_eq!(
@@ -208,7 +213,10 @@ mod tests {
         let blob = "https://clients2.googleusercontent.com/crx/blobs/AV8Xwo6/x.crx";
         let id = |url: &str, file: &str| ExtensionId::of_store_package(url, file).map(|i| i.0);
         // Named by the file, or by the address.
-        assert_eq!(id(blob, &format!("{UBO_LITE}_2025_1_0.crx")).as_deref(), Some(UBO_LITE));
+        assert_eq!(
+            id(blob, &format!("{UBO_LITE}_2025_1_0.crx")).as_deref(),
+            Some(UBO_LITE)
+        );
         assert_eq!(id(store, "extension.crx").as_deref(), Some(UBO_LITE));
         // Not a package, or no id: an ordinary download.
         assert_eq!(id(store, "notes.txt"), None);
