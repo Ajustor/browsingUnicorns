@@ -11,15 +11,47 @@ use webview2_com::{
 use windows_core::{HSTRING, PWSTR};
 use wry::{WebView, WebViewExtWindows};
 
-use crate::blocker::BlockerHandle;
+use crate::blocker::{BlockerChanges, BlockerHandle};
 use crate::site_scripts::SiteScripts;
 
-/// A tab's sites, with the ids WebView2 gave their scripts.
-pub type Sites = Rc<RefCell<SiteScripts<String>>>;
+/// A tab's sites, with the ids WebView2 gave their scripts, and how many
+/// times the blocker's changes cleared them (an id arriving after a clear
+/// belongs to a script that must go).
+#[derive(Default)]
+struct Sites {
+    scripts: SiteScripts<String>,
+    changes: BlockerChanges,
+    epoch: u64,
+}
 
-/// Adds the scriptlets of each site `view` navigates to, once per site.
-pub fn attach(view: &WebView, blocker: BlockerHandle, sites: Sites) -> windows_core::Result<()> {
+impl Sites {
+    /// When `blocker` changed since the last navigation: forgets the sites,
+    /// the ids of their scripts to remove.
+    fn stale(&mut self, blocker: &BlockerHandle) -> Vec<String> {
+        if !self.changes.changed(blocker) {
+            return Vec::new();
+        }
+        self.epoch += 1;
+        self.scripts.clear()
+    }
+
+    /// Keeps `id`, added at `epoch`; hands it back to remove when a clear
+    /// came in between.
+    fn added(&mut self, id: String, epoch: u64) -> Option<String> {
+        if epoch != self.epoch {
+            return Some(id);
+        }
+        self.scripts.keep(id);
+        None
+    }
+}
+
+/// Adds the scriptlets of each site `view` navigates to, once per site. A
+/// document is always created after `NavigationStarting` (reloads and
+/// history included), so new lists or settings are noticed there.
+pub fn attach(view: &WebView, blocker: BlockerHandle) -> windows_core::Result<()> {
     let webview = view.webview();
+    let sites = Rc::new(RefCell::new(Sites::default()));
     let handler = NavigationStartingEventHandler::create(Box::new(move |sender, args| {
         let (Some(sender), Some(args)) = (sender, args) else {
             return Ok(());
@@ -28,19 +60,28 @@ pub fn attach(view: &WebView, blocker: BlockerHandle, sites: Sites) -> windows_c
         let mut uri = PWSTR::null();
         unsafe { args.Uri(&mut uri)? };
         let uri = take_pwstr(uri);
-        let Some(script) = sites
-            .borrow_mut()
-            .script_for(&uri, |url| blocker.scriptlets(url))
-        else {
+        let (stale, script, epoch) = {
+            let mut sites = sites.borrow_mut();
+            let stale = sites.stale(&blocker);
+            let script = sites.scripts.script_for(&uri, |url| blocker.scriptlets(url));
+            (stale, script, sites.epoch)
+        };
+        for id in stale {
+            remove(&sender, id);
+        }
+        let Some(script) = script else {
             return Ok(());
         };
-        let ids = sites.clone();
-        // An id arriving after a `clear` is kept past it: its script stays
-        // until the next clear (it only runs on its own host).
+        let (ids, webview) = (sites.clone(), sender.clone());
         let done = AddScriptToExecuteOnDocumentCreatedCompletedHandler::create(Box::new(
             move |result, id| {
                 match result {
-                    Ok(()) => ids.borrow_mut().keep(id),
+                    Ok(()) => {
+                        let late = ids.borrow_mut().added(id, epoch);
+                        if let Some(id) = late {
+                            remove(&webview, id);
+                        }
+                    }
                     Err(e) => log::warn!("scriptlets: adding: {e}"),
                 }
                 Ok(())
@@ -57,13 +98,49 @@ pub fn attach(view: &WebView, blocker: BlockerHandle, sites: Sites) -> windows_c
     unsafe { webview.add_NavigationStarting(&handler, &mut token) }
 }
 
-/// Removes `sites`' scripts from `view` and forgets its sites (the ad
-/// blocker's lists or settings changed).
-pub fn clear(view: &WebView, sites: &Sites) {
-    let webview = view.webview();
-    for id in sites.borrow_mut().clear() {
-        if let Err(e) = unsafe { webview.RemoveScriptToExecuteOnDocumentCreated(&HSTRING::from(id)) } {
-            log::warn!("scriptlets: removing: {e}");
-        }
+fn remove(webview: &webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2, id: String) {
+    if let Err(e) = unsafe { webview.RemoveScriptToExecuteOnDocumentCreated(&HSTRING::from(id)) } {
+        log::warn!("scriptlets: removing: {e}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::blocker::BlockerPolicy;
+
+    const SCRIPT: fn(&str) -> String = |_| "x();".into();
+
+    #[test]
+    fn a_change_hands_the_scripts_back_and_forgets_the_sites() {
+        let blocker = BlockerHandle::default();
+        let mut sites = Sites::default();
+        assert!(sites.stale(&blocker).is_empty());
+        assert!(sites.scripts.script_for("https://site.test/", SCRIPT).is_some());
+        assert_eq!(sites.added("a".into(), sites.epoch), None);
+        assert!(sites.stale(&blocker).is_empty());
+        assert_eq!(sites.scripts.script_for("https://site.test/", SCRIPT), None);
+
+        blocker.set_policy(BlockerPolicy {
+            enabled: false,
+            allowlist: Vec::new(),
+        });
+        assert_eq!(sites.stale(&blocker), vec!["a".to_string()]);
+        assert!(sites.scripts.script_for("https://site.test/", SCRIPT).is_some());
+    }
+
+    #[test]
+    fn an_id_from_before_a_change_is_handed_back() {
+        let blocker = BlockerHandle::default();
+        let mut sites = Sites::default();
+        sites.stale(&blocker);
+        let epoch = sites.epoch;
+        blocker.set_policy(BlockerPolicy {
+            enabled: false,
+            allowlist: Vec::new(),
+        });
+        sites.stale(&blocker);
+        assert_eq!(sites.added("late".into(), epoch), Some("late".into()));
+        assert!(sites.stale(&blocker).is_empty());
     }
 }

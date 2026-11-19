@@ -137,11 +137,6 @@ pub struct WryEngine {
     /// Windows: what the ad blocker stopped on each tab's page.
     #[cfg(windows)]
     blocked: HashMap<TabId, Rc<std::cell::Cell<u32>>>,
-    /// Windows: the sites each tab has the ad blocker's scriptlets for.
-    #[cfg(windows)]
-    scriptlet_sites: HashMap<TabId, crate::webview2_scriptlets::Sites>,
-    /// When the scriptlets added so far must go (new lists, new settings).
-    scriptlet_changes: crate::blocker::BlockerChanges,
     /// Windows: the browser's shortcuts, taken from the pages' keys, and
     /// those pressed since the last look.
     #[cfg(windows)]
@@ -378,9 +373,6 @@ impl WryEngine {
             #[cfg(windows)]
             blocked: HashMap::new(),
             #[cfg(windows)]
-            scriptlet_sites: HashMap::new(),
-            scriptlet_changes: Default::default(),
-            #[cfg(windows)]
             shortcuts: Default::default(),
             #[cfg(windows)]
             pressed: Default::default(),
@@ -413,21 +405,7 @@ impl WryEngine {
                 }
             }
         }
-        // New lists or settings: the scriptlets added so far go; each site
-        // gets the right ones on its next load.
-        if self.scriptlet_changes.changed(&self.blocker) {
-            self.clear_scriptlets();
-        }
         self.measure_panel();
-    }
-
-    fn clear_scriptlets(&mut self) {
-        #[cfg(windows)]
-        for (tab, sites) in &self.scriptlet_sites {
-            if let Some(view) = self.views.get(tab) {
-                crate::webview2_scriptlets::clear(view, sites);
-            }
-        }
     }
 
     /// Measures the popup's content now and then (popups change size).
@@ -873,14 +851,8 @@ impl WebEngine for WryEngine {
             log::warn!("address of tab {tab}: {e}");
         }
         #[cfg(windows)]
-        {
-            let sites = crate::webview2_scriptlets::Sites::default();
-            if let Err(e) =
-                crate::webview2_scriptlets::attach(&view, self.blocker.clone(), sites.clone())
-            {
-                log::warn!("scriptlets of tab {tab}: {e}");
-            }
-            self.scriptlet_sites.insert(tab, sites);
+        if let Err(e) = crate::webview2_scriptlets::attach(&view, self.blocker.clone()) {
+            log::warn!("scriptlets of tab {tab}: {e}");
         }
         #[cfg(windows)]
         {
@@ -928,8 +900,6 @@ impl WebEngine for WryEngine {
         self.tab_pages.remove(&tab);
         #[cfg(windows)]
         self.blocked.remove(&tab);
-        #[cfg(windows)]
-        self.scriptlet_sites.remove(&tab);
         #[cfg(windows)]
         self.security.remove(&tab);
         #[cfg(windows)]
