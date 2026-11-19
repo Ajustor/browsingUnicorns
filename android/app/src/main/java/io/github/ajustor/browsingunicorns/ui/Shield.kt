@@ -90,7 +90,7 @@ fun ShieldDialog(
                 SwitchRow("Ad blocker", info.enabled, enabled = true, onBlockerChange)
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    "Lists: EasyList, EasyPrivacy · " + (
+                    "Lists: EasyList, EasyPrivacy, uBlock filters · " + (
                         info.listsUpdated?.let {
                             "updated " + DateUtils.getRelativeTimeSpanString(
                                 it * 1000,
