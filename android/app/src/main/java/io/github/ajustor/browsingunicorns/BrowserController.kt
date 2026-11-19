@@ -176,6 +176,8 @@ class BrowserController(
     fun updateBlockerLists() {
         scope.launch {
             withContext(Dispatchers.IO) { browser.updateBlockerLists() }
+            // Maybe new lists: the scriptlets are asked again from the next page.
+            views.clearScriptlets()
             refresh()
         }
     }
@@ -184,6 +186,7 @@ class BrowserController(
     fun setBlocker(enabled: Boolean) {
         act {
             setBlocker(enabled)
+            views.clearScriptlets()
             reload()
         }
     }
@@ -192,6 +195,7 @@ class BrowserController(
     fun setBlockerForSite(host: String, enabled: Boolean) {
         act {
             setBlockerForSite(host, enabled)
+            views.clearScriptlets()
             reload()
         }
     }
