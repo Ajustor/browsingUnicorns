@@ -95,14 +95,14 @@ fn status(view: &ShieldView) -> String {
 /// Which lists, and how fresh they are.
 fn lists_line(updated: Option<SystemTime>, now: SystemTime) -> String {
     match updated {
-        None => "Lists: EasyList, EasyPrivacy · not downloaded yet".into(),
+        None => "Lists: EasyList, EasyPrivacy, uBlock filters · not downloaded yet".into(),
         Some(at) => {
             let age = now.duration_since(at).map_or(0, |d| d.as_secs());
             let age = match super::library::ago_secs(age) {
                 now if now == "now" => "just now".to_owned(),
                 age => format!("{age} ago"),
             };
-            format!("Lists: EasyList, EasyPrivacy · updated {age}")
+            format!("Lists: EasyList, EasyPrivacy, uBlock filters · updated {age}")
         }
     }
 }

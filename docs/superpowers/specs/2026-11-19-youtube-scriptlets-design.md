@@ -32,12 +32,29 @@ déjà enregistré dans l'onglet), les filtres personnels.
 - Un fichier attendu absent du cache (liste ajoutée par une mise à jour de
   l'app) rend les listes « à vérifier » tout de suite, sans attendre le
   délai d'un jour.
-- Les ressources des scriptlets : `resources.json` de Brave
-  (`https://raw.githubusercontent.com/brave/adblock-resources/master/dist/resources.json`),
-  au format `Vec<adblock::resources::Resource>`, téléchargé et mis en cache
-  au même rythme (`blocker/resources.json`), chargé par
-  `Engine::use_resources`. Rien d'embarqué dans le programme (licences
-  GPL), comme pour les listes.
+- Les ressources des scriptlets : ceux d'**uBlock Origin**. Le
+  `resources.json` public de Brave n'a que les ressources propres à Brave
+  (aucun `set-constant`, `json-prune`… que les règles YouTube appellent),
+  et uBlock publie ses scriptlets en modules JavaScript qu'adblock-rust ne
+  lit plus : il faut du JavaScript pour les convertir.
+  - `scripts/ublock-resources.mjs` (Node) importe
+    `src/js/resources/scriptlets.js` d'uBlock et écrit chaque scriptlet au
+    format `Vec<adblock::resources::Resource>` (fonction en
+    `application/javascript`, aides `*.fn` en `fn/javascript`,
+    dépendances, permission pour les `requiresTrust`).
+  - `.github/workflows/ublock-resources.yml` le lance chaque jour (et à
+    chaque changement du script) et publie `ublock-resources.json` comme
+    pièce de la pré-version `ublock-resources` du dépôt (le site et le
+    programme de mise à jour ne regardent que les versions stables).
+  - L'app le télécharge
+    (`https://github.com/Ajustor/browsingUnicorns/releases/download/ublock-resources/ublock-resources.json`)
+    et le met en cache au même rythme que les listes
+    (`blocker/ublock-resources.json`), chargé par `Engine::use_resources`.
+    Rien d'embarqué dans le programme (licence GPL d'uBlock), comme pour
+    les listes.
+  - Vérifié : avec les listes uBlock, le script d'une page YouTube fait
+    ~80 Ko (`set-constant`, `json-prune`, `trusted-replace`…) ; dans l'app,
+    `playerResponse` est piégé et `adPlacements` a disparu.
 - `engine.dat` ne contient pas les ressources : elles sont rechargées depuis
   le cache à chaque construction ou lecture du moteur. Sans fichier de
   ressources, les règles `+js` ne donnent rien ; le reste du bloqueur

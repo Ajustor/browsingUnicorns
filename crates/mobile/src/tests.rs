@@ -515,6 +515,51 @@ fn user_scripts_run_in_pages_with_their_storage() {
 const LIST: &str = "[Adblock Plus 2.0]\n||ads.test^\nnews.test##.ad\n";
 
 #[test]
+fn updating_the_lists_says_when_the_ad_blocker_changed() {
+    let dir = tempfile::tempdir().unwrap();
+    let http = Arc::new(FakeHttp::default());
+    let (b, _host) = browser(&dir, "phone", &http);
+    // Offline, nothing cached: no engine.
+    assert!(!b.update_blocker_lists());
+    http.0.lock().unwrap().insert(
+        infrastructure::blocker::LISTS[0].1.to_owned(),
+        LIST.as_bytes().to_vec(),
+    );
+    assert!(b.update_blocker_lists());
+    // Checked a moment ago: the same engine.
+    assert!(!b.update_blocker_lists());
+}
+
+#[test]
+fn the_ad_blocker_gives_a_sites_scriptlets() {
+    let dir = tempfile::tempdir().unwrap();
+    let http = Arc::new(FakeHttp::default());
+    let (b, _host) = browser(&dir, "phone", &http);
+    assert_eq!(b.scriptlets("https://news.test/".into()), "");
+    {
+        let mut answers = http.0.lock().unwrap();
+        answers.insert(
+            infrastructure::blocker::LISTS[2].1.to_owned(),
+            b"news.test##+js(say, hello)\n".to_vec(),
+        );
+        answers.insert(
+            infrastructure::blocker::RESOURCES.1.to_owned(),
+            br#"[{"name":"say.js","aliases":[],"kind":{"mime":"application/javascript"},"content":"d2luZG93LnNhaWQgPSAie3sxfX0iOw=="}]"#.to_vec(),
+        );
+    }
+    b.update_blocker_lists();
+    let script = b.scriptlets("https://news.test/a".into());
+    assert!(
+        script.contains(r#"location.hostname === "news.test""#),
+        "{script}"
+    );
+    assert!(script.contains("window.said"), "{script}");
+    assert_eq!(b.scriptlets("https://other.test/".into()), "");
+    b.set_blocker(false).unwrap();
+    assert_eq!(b.scriptlets("https://news.test/".into()), "");
+}
+
+#[test]
 fn the_ad_blocker_blocks_and_counts() {
     let dir = tempfile::tempdir().unwrap();
     let http = Arc::new(FakeHttp::default());

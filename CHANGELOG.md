@@ -4,6 +4,28 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [Non publié]
+
+### Ajouté
+
+- Les publicités YouTube sont bloquées : le bloqueur reprend les listes
+  *uBlock filters* et *Quick fixes* d'uBlock Origin, avec leurs scriptlets
+  (de petits scripts lancés avant ceux de la page pour retirer les
+  publicités). Cela vaut pour tous les sites que ces listes couvrent, sur
+  ordinateur comme sur Android. *Bloquer sur ce site* les désactive comme le
+  reste.
+
+### Corrigé
+
+- Certaines extensions du Chrome Web Store ne s'installaient pas (par
+  exemple heylogin, qui demande un navigateur récent) : la boutique
+  répondait « aucune extension avec cet identifiant ».
+- Les extensions de Microsoft Edge Add-ons s'installent désormais, avec leur
+  lien ou leur identifiant.
+- Le bouton « Ajouter à Chrome » de la boutique installe maintenant
+  l'extension (son téléchargement échouait). La boutique affiche encore son
+  message « téléchargement annulé », mais l'extension est bien installée.
+
 ## [0.15.1] - 2026-11-19
 
 ### Corrigé

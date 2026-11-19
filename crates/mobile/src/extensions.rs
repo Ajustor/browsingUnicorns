@@ -314,6 +314,20 @@ impl MobileBrowser {
             }
         }
     }
+
+    /// The ad blocker's scriptlets for a page about to load at `url`, run
+    /// on its host only; empty when there are none (blocker off, site
+    /// allowlisted, no list yet). Registered by the app at document start.
+    pub fn scriptlets(&self, url: String) -> String {
+        let Some(host) = infrastructure::site_scripts::web_host(&url) else {
+            return String::new();
+        };
+        let script = self.blocker.scriptlets(&url);
+        if script.is_empty() {
+            return String::new();
+        }
+        infrastructure::site_scripts::guarded(&host, &script)
+    }
 }
 
 #[cfg(test)]
