@@ -1,7 +1,8 @@
 //! The built-in ad blocker: EasyList, EasyPrivacy and uBlock Origin's own
 //! lists through adblock-rust (Brave's engine), with uBlock Origin's
-//! scriptlets for the lists' `+js(...)` rules. The lists are downloaded and
-//! cached under the app's data folder with the compiled engine; the request
+//! scriptlets for the lists' `+js(...)` rules and TwitchAdSolutions' vaft on
+//! Twitch. The lists are downloaded and cached under the app's data folder
+//! with the compiled engine; the request
 //! hooks (WebView2, Android), the cosmetic page script and the scriptlet
 //! injection consult it through a [`BlockerHandle`].
 
@@ -59,6 +60,13 @@ pub const RESOURCES: (&str, &str) = (
     "https://github.com/Ajustor/browsingUnicorns/releases/download/ublock-resources/ublock-resources.json",
 );
 
+/// vaft (TwitchAdSolutions, ryanbr's fork): swaps Twitch's ad breaks for an
+/// ad-free stream; run on Twitch's pages: file name in the cache, address.
+pub const TWITCH: (&str, &str) = (
+    "twitch-vaft.user.js",
+    "https://raw.githubusercontent.com/ryanbr/TwitchAdSolutions/master/vaft/vaft.user.js",
+);
+
 const ENGINE_FILE: &str = "engine.dat";
 const STATE_FILE: &str = "state.json";
 /// How often the lists are checked.
@@ -76,12 +84,32 @@ pub struct Blocker {
     generic: HashSet<String>,
     /// When the lists were downloaded.
     updated: SystemTime,
+    /// vaft's code ([`TWITCH`]), run on Twitch.
+    twitch: Option<String>,
 }
 
 /// `list` has at least one rule adblock understands.
 fn has_rules(list: &str) -> bool {
     list.lines()
         .any(|line| parse_filter(line, false, ParseOptions::default()).is_ok())
+}
+
+/// `script` is vaft: a userscript header naming it.
+fn is_vaft(script: &str) -> bool {
+    let mut lines = script.trim_start_matches('\u{feff}').lines().map(str::trim);
+    lines.next() == Some("// ==UserScript==")
+        && lines
+            .take_while(|l| *l != "// ==/UserScript==")
+            .filter_map(|l| l.strip_prefix("// @name"))
+            .any(|name| name.contains("vaft"))
+}
+
+/// `url` is on Twitch: `twitch.tv` or a subdomain.
+fn on_twitch(url: &str) -> bool {
+    WebAddress::parse(url)
+        .ok()
+        .and_then(|a| a.host().map(str::to_ascii_lowercase))
+        .is_some_and(|h| h == "twitch.tv" || h.ends_with(".twitch.tv"))
 }
 
 /// adblock's name for a request type; `None` for the page itself, never
@@ -153,12 +181,24 @@ impl Blocker {
         }
     }
 
+    /// Runs vaft ([`TWITCH`]) on Twitch; false when `script` is not vaft.
+    pub fn use_twitch(&mut self, script: &str) -> bool {
+        let vaft = is_vaft(script);
+        if vaft {
+            self.twitch = Some(script.to_owned());
+        } else {
+            log::warn!("blocker: the Twitch script is not vaft");
+        }
+        vaft
+    }
+
     fn new(engine: Engine, updated: SystemTime) -> Self {
         let generic = engine.url_cosmetic_resources(NO_SITE).hide_selectors;
         Self {
             engine,
             generic,
             updated,
+            twitch: None,
         }
     }
 
@@ -178,15 +218,18 @@ impl Blocker {
     }
 
     /// The script the lists' `+js(...)` rules inject into `url`'s pages
-    /// (their exceptions included), empty when none.
+    /// (their exceptions included), then vaft on Twitch; empty when none.
     pub fn scriptlets(&self, url: &str) -> String {
-        let script = self.engine.url_cosmetic_resources(url).injected_script;
-        if script.is_empty() {
-            return script;
+        let mut script = self.engine.url_cosmetic_resources(url).injected_script;
+        if !script.is_empty() {
+            // uBlock's scriptlets read the globals its own injection declares
+            // (`safe-self.fn`, `prevent-xhr.fn`); adblock-rust's does not.
+            script = format!("const scriptletGlobals = {{}};\n{script}\n");
         }
-        // uBlock's scriptlets read the globals its own injection declares
-        // (`safe-self.fn`, `prevent-xhr.fn`); adblock-rust's does not.
-        format!("const scriptletGlobals = {{}};\n{script}")
+        if let Some(vaft) = self.twitch.as_deref().filter(|_| on_twitch(url)) {
+            script.push_str(vaft);
+        }
+        script
     }
 
     /// The style sheet hiding the ad slots the lists name for `url`'s site,
@@ -415,12 +458,12 @@ fn cached_lists(dir: &Path) -> Vec<(bool, String)> {
         .collect()
 }
 
-/// The cache files the app expects: the lists and the resources.
+/// The cache files the app expects: the lists, the resources and vaft.
 fn known_files() -> Vec<String> {
     LISTS
         .iter()
         .map(|(name, ..)| *name)
-        .chain([RESOURCES.0])
+        .chain([RESOURCES.0, TWITCH.0])
         .map(str::to_owned)
         .collect()
 }
@@ -480,7 +523,7 @@ impl BlockerLists {
         }
     }
 
-    /// The engine from the cached lists, with the cached resources.
+    /// The engine from the cached lists, with the cached resources and vaft.
     fn build(&self) -> Option<Blocker> {
         let lists = cached_lists(&self.dir);
         let mut blocker = Blocker::compile(
@@ -493,11 +536,14 @@ impl BlockerLists {
         Some(blocker)
     }
 
-    /// Hands `blocker` the cached scriptlets' code, when there is some
-    /// (`engine.dat` does not keep it).
+    /// Hands `blocker` the cached scriptlets' code and vaft, when there are
+    /// some (`engine.dat` keeps neither).
     fn load_resources(&self, blocker: &mut Blocker) {
         if let Ok(json) = fs::read_to_string(self.dir.join(RESOURCES.0)) {
             blocker.use_resources(&json);
+        }
+        if let Ok(vaft) = fs::read_to_string(self.dir.join(TWITCH.0)) {
+            blocker.use_twitch(&vaft);
         }
     }
 
@@ -568,6 +614,18 @@ impl BlockerLists {
                 }
             }
             Ok(_) => log::warn!("blocker: {url} is unreadable, the cached copy is kept"),
+            Err(e) => log::warn!("blocker: {url}: {e}"),
+        }
+        let (name, url) = TWITCH;
+        match (self.download)(url)
+            .and_then(|bytes| String::from_utf8(bytes).map_err(|e| e.to_string()))
+        {
+            Ok(script) if is_vaft(&script) => {
+                if let Err(e) = files::write(&self.dir.join(name), &script) {
+                    log::warn!("blocker: {e}");
+                }
+            }
+            Ok(_) => log::warn!("blocker: {url} is not vaft, the cached copy is kept"),
             Err(e) => log::warn!("blocker: {url}: {e}"),
         }
         // Brave's resources, cached under this name before uBlock's.
@@ -1002,6 +1060,140 @@ sub.site.test#@#+js(say, hello)
         lists.refresh().unwrap();
         assert!(!dir.path().join("ublock-filters.txt").exists());
         assert!(!lists.due_at(SystemTime::now() + Duration::from_secs(60)));
+    }
+
+    /// A stand-in for vaft: its header, then code.
+    const VAFT: &str = "// ==UserScript==
+// @name         TwitchAdSolutions (vaft)
+// @match        *://*.twitch.tv/*
+// ==/UserScript==
+(function() { window.vaft = true; })();
+";
+
+    fn with_vaft() -> Blocker {
+        let mut b = blocker();
+        assert!(b.use_twitch(VAFT));
+        b
+    }
+
+    #[test]
+    fn vaft_comes_on_twitch_only() {
+        let b = with_vaft();
+        for url in [
+            "https://www.twitch.tv/x",
+            "https://player.twitch.tv/?channel=x",
+            "https://twitch.tv/",
+        ] {
+            assert!(b.scriptlets(url).contains("window.vaft"), "{url}");
+        }
+        for url in [
+            "https://nottwitch.tv/",
+            "https://twitch.tv.evil.test/",
+            "https://site.test/",
+        ] {
+            assert_eq!(b.scriptlets(url), "", "{url}");
+        }
+        // The prelude is uBlock's scriptlets' only.
+        assert!(
+            !b.scriptlets("https://www.twitch.tv/x")
+                .contains("scriptletGlobals")
+        );
+    }
+
+    #[test]
+    fn vaft_follows_ublocks_scriptlets() {
+        let mut b = Blocker::from_lists(&["twitch.tv##+js(say, hello)\n"]).unwrap();
+        assert!(b.use_resources(RESOURCES_JSON));
+        assert!(b.use_twitch(VAFT));
+        let script = b.scriptlets("https://www.twitch.tv/x");
+        let prelude = script.find("const scriptletGlobals").expect(&script);
+        let ublock = script.find("window.said").expect(&script);
+        let vaft = script.find("window.vaft").expect(&script);
+        assert!(prelude < ublock && ublock < vaft, "{script}");
+    }
+
+    #[test]
+    fn only_vaft_is_used() {
+        let mut b = blocker();
+        assert!(!b.use_twitch("<html>404</html>"));
+        assert!(!b.use_twitch("// ==UserScript==\n// @name Other\n// ==/UserScript==\n"));
+        assert!(!b.use_twitch("(function() {})();\n// @name vaft\n"));
+        assert_eq!(b.scriptlets("https://www.twitch.tv/x"), "");
+    }
+
+    #[test]
+    fn the_handle_gives_vaft_under_the_policy() {
+        let handle = BlockerHandle::default();
+        handle.set(with_vaft());
+        assert!(!handle.scriptlets("https://www.twitch.tv/x").is_empty());
+        handle.set_policy(BlockerPolicy {
+            enabled: true,
+            allowlist: vec!["twitch.tv".into()],
+        });
+        assert_eq!(handle.scriptlets("https://www.twitch.tv/x"), "");
+        handle.set_policy(BlockerPolicy {
+            enabled: false,
+            allowlist: Vec::new(),
+        });
+        assert_eq!(handle.scriptlets("https://www.twitch.tv/x"), "");
+    }
+
+    #[test]
+    fn vaft_is_cached_and_survives_the_engine() {
+        let dir = tempfile::tempdir().unwrap();
+        let lists = BlockerLists::new(dir.path(), fake(&[(EASYLIST, LIST), (TWITCH.1, VAFT)]));
+        let b = lists.refresh().unwrap();
+        assert!(
+            b.scriptlets("https://www.twitch.tv/x")
+                .contains("window.vaft")
+        );
+        assert_eq!(fs::read_to_string(dir.path().join(TWITCH.0)).unwrap(), VAFT);
+        // From engine.dat, then from the lists.
+        let b = lists.load_cached().unwrap();
+        assert!(
+            b.scriptlets("https://www.twitch.tv/x")
+                .contains("window.vaft")
+        );
+        fs::write(dir.path().join(ENGINE_FILE), b"garbage").unwrap();
+        let b = lists.read_cached().unwrap();
+        assert!(
+            b.scriptlets("https://www.twitch.tv/x")
+                .contains("window.vaft")
+        );
+    }
+
+    #[test]
+    fn without_vaft_twitch_gets_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let lists = BlockerLists::new(dir.path(), fake(&[(EASYLIST, LIST)]));
+        let b = lists.refresh().unwrap();
+        assert!(!dir.path().join(TWITCH.0).exists());
+        assert_eq!(b.scriptlets("https://www.twitch.tv/x"), "");
+    }
+
+    #[test]
+    fn a_download_that_is_not_vaft_is_not_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        BlockerLists::new(dir.path(), fake(&[(EASYLIST, LIST), (TWITCH.1, "<html>")]))
+            .refresh()
+            .unwrap();
+        assert!(!dir.path().join(TWITCH.0).exists());
+        // The cached copy stays.
+        BlockerLists::new(dir.path(), fake(&[(EASYLIST, LIST), (TWITCH.1, VAFT)]))
+            .refresh()
+            .unwrap();
+        let lists = BlockerLists::new(dir.path(), fake(&[(EASYLIST, LIST), (TWITCH.1, "<html>")]));
+        let b = lists.refresh().unwrap();
+        assert_eq!(fs::read_to_string(dir.path().join(TWITCH.0)).unwrap(), VAFT);
+        assert!(
+            b.scriptlets("https://www.twitch.tv/x")
+                .contains("window.vaft")
+        );
+    }
+
+    #[test]
+    fn vaft_is_a_known_file() {
+        assert!(known_files().contains(&TWITCH.0.to_string()));
     }
 
     #[test]
