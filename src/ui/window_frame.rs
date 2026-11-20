@@ -20,6 +20,27 @@ pub fn resizable(ctx: &egui::Context) -> bool {
         })
 }
 
+/// What the window is sent to go in (`enter`) or out of full screen.
+///
+/// A maximized window leaves its maximized state first, and gets it back
+/// after: winit keeps the client area of a maximized frameless window to
+/// the monitor's work area, full screen included, so the page would stop
+/// short of the screen's edges and the system would paint its frame (a
+/// caption with the title) in the rest.
+pub fn fullscreen_commands(enter: bool, maximized: bool) -> Vec<ViewportCommand> {
+    match (enter, maximized) {
+        (true, true) => vec![
+            ViewportCommand::Maximized(false),
+            ViewportCommand::Fullscreen(true),
+        ],
+        (false, true) => vec![
+            ViewportCommand::Fullscreen(false),
+            ViewportCommand::Maximized(true),
+        ],
+        (enter, false) => vec![ViewportCommand::Fullscreen(enter)],
+    }
+}
+
 /// Over an edge, the resize cursor; pressed there, the system resizes the
 /// window.
 pub fn resize_edges(ctx: &egui::Context) {
@@ -89,5 +110,20 @@ mod tests {
         assert_eq!(at(5.0, 595.0), Some(ResizeDirection::SouthWest));
         assert_eq!(at(795.0, 8.0), Some(ResizeDirection::NorthEast));
         assert_eq!(at(400.0, 6.0), None, "corners only grab more");
+    }
+
+    #[test]
+    fn a_maximized_window_is_restored_around_full_screen() {
+        use ViewportCommand::{Fullscreen, Maximized};
+        assert_eq!(
+            fullscreen_commands(true, true),
+            [Maximized(false), Fullscreen(true)]
+        );
+        assert_eq!(
+            fullscreen_commands(false, true),
+            [Fullscreen(false), Maximized(true)]
+        );
+        assert_eq!(fullscreen_commands(true, false), [Fullscreen(true)]);
+        assert_eq!(fullscreen_commands(false, false), [Fullscreen(false)]);
     }
 }

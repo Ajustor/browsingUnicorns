@@ -36,8 +36,9 @@ pub struct BrowserApp {
     page_fullscreen: Option<TabId>,
     /// The tabs' page icons.
     favicons: super::favicons::Favicons,
-    /// The window was put in full screen for it.
-    window_fullscreen: bool,
+    /// The window was put in full screen for it: whether it was maximized
+    /// before, to be again after.
+    window_fullscreen: Option<bool>,
     events: Receiver<EngineEvent>,
     updates: Updates,
     sync: SyncRunner,
@@ -122,7 +123,7 @@ impl BrowserApp {
             omnibox: Omnibox::default(),
             page_fullscreen: None,
             favicons: Default::default(),
-            window_fullscreen: false,
+            window_fullscreen: None,
             library: Library::default(),
             notice: None,
             downloads: Default::default(),
@@ -953,9 +954,15 @@ impl eframe::App for BrowserApp {
             && self.page_fullscreen == self.browser.session().active_id();
         // The window follows: full screen with the page, back after (only
         // when the page asks: the user's own full screen stays).
-        if fullscreen != self.window_fullscreen {
-            self.window_fullscreen = fullscreen;
-            ctx.send_viewport_cmd(ViewportCommand::Fullscreen(fullscreen));
+        if fullscreen != self.window_fullscreen.is_some() {
+            let maximized = match self.window_fullscreen {
+                Some(maximized) => maximized,
+                None => ctx.input(|i| i.viewport().maximized == Some(true)),
+            };
+            self.window_fullscreen = fullscreen.then_some(maximized);
+            for command in super::window_frame::fullscreen_commands(fullscreen, maximized) {
+                ctx.send_viewport_cmd(command);
+            }
         }
         if !fullscreen {
             self.show_chrome(ctx, &mut commands);
