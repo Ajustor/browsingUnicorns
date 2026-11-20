@@ -4,6 +4,16 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.17.1] - 2026-11-20
+
+### Modifié
+
+- Android : les mises à jour de l'app s'installent comme le font les
+  boutiques d'applications (session d'installation d'Android) au lieu
+  d'ouvrir le fichier téléchargé. Après une première mise à jour faite
+  ainsi, les suivantes peuvent s'installer sans confirmation (Android 12 et
+  plus). Un échec d'installation est expliqué.
+
 ## [0.17.0] - 2026-11-20
 
 ### Ajouté
