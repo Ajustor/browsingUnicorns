@@ -225,7 +225,6 @@ pub mod about;
 pub mod bookmarks;
 pub mod common;
 pub mod default_browser;
-pub mod dialogs;
 pub mod downloads;
 pub mod extensions;
 pub mod history;

@@ -725,7 +725,7 @@ impl BrowserApp {
             APP_NAME.to_owned()
         };
         let mut title = match self.browser.session().active() {
-            Some(tab) => format!("{} — {app}", tab_strip::title_of(tab)),
+            Some(tab) => format!("{} — {app}", tab.display_title()),
             None => app,
         };
         if self.is_private() {

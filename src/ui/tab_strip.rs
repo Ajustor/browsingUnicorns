@@ -190,14 +190,14 @@ pub fn show(
                                     ));
                                 }
                             }
-                            let title = truncate(title_of(tab), TITLE_CHARS);
+                            let title = truncate(tab.display_title(), TITLE_CHARS);
                             let label = ui
                                 .add(
                                     egui::Label::new(RichText::new(title).color(text))
                                         .selectable(false)
                                         .sense(Sense::click()),
                                 )
-                                .on_hover_text(title_of(tab));
+                                .on_hover_text(tab.display_title());
                             if label.clicked() {
                                 commands.push(Command::Activate(tab.id()));
                             }
@@ -444,12 +444,6 @@ fn private_pill(ui: &mut egui::Ui, chrome: &super::theme::Chrome) {
     ui.add_space(4.0);
 }
 
-/// What a tab is called: its title, else its host, else "New tab" in the
-/// current language (the core's placeholder follows it).
-pub fn title_of(tab: &domain::Tab) -> &str {
-    tab.display_title()
-}
-
 pub fn truncate(title: &str, max: usize) -> String {
     if title.chars().count() <= max {
         return title.to_owned();
@@ -494,8 +488,9 @@ mod tests {
     #[test]
     fn a_tab_without_title_nor_address_is_a_new_tab() {
         let tab = domain::Tab::new(domain::TabId::new(1));
-        assert_eq!(title_of(&tab), "New tab");
-        let fr = i18n::with_lang(i18n::Lang::Fr, || title_of(&tab).to_owned());
+        let en = i18n::with_lang(i18n::Lang::En, || tab.display_title().to_owned());
+        assert_eq!(en, "New tab");
+        let fr = i18n::with_lang(i18n::Lang::Fr, || tab.display_title().to_owned());
         assert_eq!(fr, "Nouvel onglet");
     }
 
