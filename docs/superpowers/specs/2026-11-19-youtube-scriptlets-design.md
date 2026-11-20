@@ -98,29 +98,41 @@ document :
   réessaie. L'ajout est asynchrone et WebView2 ne l'attend pas (mesuré sur
   Twitch : document créé ~70 ms après `NavigationStarting`, ajout terminé
   ~450 ms après). Si la page de la navigation qui attend le script de son
-  site est engagée (`ContentLoading`, même identifiant de navigation)
-  avant la fin de l'ajout, elle est rechargée (`Reload`) une fois le script
-  là ; si une autre navigation vers ce site est venue entre-temps, c'est
-  elle qui est suivie ; si l'onglet est parti ailleurs, rien. Le
-  rechargement garde l'historique tel que la page l'a fait (le
-  `location.replace` d'une redirection, la nouvelle entrée d'un lien), le
-  référent et l'initiateur. Il coûte un second chargement de la page (la
-  première, sans scriptlets, a pu commencer à charger ses scripts) et une
-  seconde visite dans l'historique du navigateur. Écartés après essai :
-  annuler la navigation puis la refaire (ce qui l'a lancée ne se distingue
-  pas : `IsUserInitiated` vaut vrai pour un `location.replace` sur minuterie,
-  et `navigator.userActivation.hasBeenActive` est vrai sur une page que
-  personne n'a touchée ; refaite, une redirection laissait sa page dans
-  l'historique, et Retour y renvoyait) ; différer la requête du document
-  (`WebResourceRequested`, `GetDeferral`) : l'ajout ne se termine plus et
-  l'onglet reste vide. Pas rechargée : une navigation qui porte un corps
-  (`Content-Type`, vu sur un POST de formulaire vers YouTube et absent des
-  GET : le recharger renverrait le formulaire), ni celle de l'historique ou
-  de nature inconnue (anciens runtimes) : le script vaut alors dès le
-  document suivant. Une navigation partie avant que le moteur n'existe (au
-  démarrage, le cache se charge ~100 ms après la restauration des onglets)
-  est refaite une fois quand il arrive (`Scriptlets::catch_up`, appelé par
-  `WryEngine::pump`), si son site a des scriptlets.
+  site est engagée (`ContentLoading`, même identifiant de navigation, hors
+  page d'erreur) avant la fin de l'ajout, elle est rechargée (`Reload`) une
+  fois le script là, si c'est dans les 1,5 s qui suivent (au-delà,
+  l'utilisateur s'en sert peut-être : rien). Si une autre navigation vers ce
+  site est venue entre-temps, c'est elle qui est suivie ; si l'onglet est
+  parti ailleurs, ou si une redirection du serveur (même identifiant) a mené
+  à un autre site, rien. Le rechargement garde l'historique tel que la page
+  l'a fait (le `location.replace` d'une redirection, la nouvelle entrée
+  d'un lien), le référent et l'initiateur. Il coûte un second chargement de
+  la page (la première, sans scriptlets, a pu commencer à charger ses
+  scripts), donc des événements de chargement en plus et une seconde visite
+  dans l'historique du navigateur. Il renvoie aussi la requête GET de la
+  page : un lien à usage unique (retour d'une connexion OAuth, lien
+  magique, confirmation, retour de paiement) serait consommé deux fois ;
+  ceux-là arrivent par une redirection, donc une page venue par une
+  redirection n'est pas rechargée (sur le premier passage d'un site en
+  redirection, comme `youtube.com` vers `www.youtube.com`, les
+  scriptlets valent dès le document suivant). Une navigation qui n'engage
+  jamais de page (un téléchargement, une réponse 204, une navigation
+  arrêtée) laisse simplement tomber le rechargement prévu. Écartés après
+  essai : annuler la navigation puis la refaire (ce qui l'a lancée ne se
+  distingue pas : `IsUserInitiated` vaut vrai pour un `location.replace`
+  sur minuterie, et `navigator.userActivation.hasBeenActive` est vrai sur
+  une page que personne n'a touchée ; refaite, une redirection laissait sa
+  page dans l'historique, et Retour y renvoyait) ; différer la requête du
+  document (`WebResourceRequested`, `GetDeferral`) : l'ajout ne se termine
+  plus et l'onglet reste vide. Pas rechargée non plus : une navigation qui
+  porte un corps (`Content-Type`, vu sur un POST de formulaire vers YouTube
+  et absent des GET : le recharger renverrait le formulaire), ni celle de
+  l'historique ou de nature inconnue (anciens runtimes) : le script vaut
+  alors dès le document suivant. Une navigation partie avant que le moteur
+  n'existe (au démarrage, le cache se charge parfois ~100 ms après la
+  restauration des onglets) reçoit son script quand il arrive
+  (`Scriptlets::catch_up`, appelé par `WryEngine::pump`, une fois), et sa
+  page est rechargée comme ci-dessus, si son site a des scriptlets.
 - **macOS / Linux** : `webkit_scriptlets.rs`, `Sites::navigating` appelé
   depuis le gestionnaire de navigation de wry ; `WKUserScript` / `UserScript`
   GTK en début de document, à côté des scripts de page existants
