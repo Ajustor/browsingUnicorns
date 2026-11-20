@@ -105,20 +105,39 @@ impl Library {
                             for (v, label) in [
                                 (
                                     LibraryView::History,
-                                    format!("{} History", icon::CLOCK_COUNTER_CLOCKWISE),
+                                    format!(
+                                        "{} {}",
+                                        icon::CLOCK_COUNTER_CLOCKWISE,
+                                        i18n::library::history_pill()
+                                    ),
                                 ),
-                                (LibraryView::Bookmarks, format!("{} Bookmarks", icon::STAR)),
+                                (
+                                    LibraryView::Bookmarks,
+                                    format!("{} {}", icon::STAR, i18n::library::bookmarks_pill()),
+                                ),
                                 (
                                     LibraryView::Sync,
-                                    format!("{} Sync", icon::ARROWS_CLOCKWISE),
+                                    format!(
+                                        "{} {}",
+                                        icon::ARROWS_CLOCKWISE,
+                                        i18n::library::sync_pill()
+                                    ),
                                 ),
                                 (
                                     LibraryView::Extensions,
-                                    format!("{} Extensions", icon::PUZZLE_PIECE),
+                                    format!(
+                                        "{} {}",
+                                        icon::PUZZLE_PIECE,
+                                        i18n::library::extensions_pill()
+                                    ),
                                 ),
                                 (
                                     LibraryView::Profiles,
-                                    format!("{} Profiles", icon::USER_CIRCLE),
+                                    format!(
+                                        "{} {}",
+                                        icon::USER_CIRCLE,
+                                        i18n::library::profiles_pill()
+                                    ),
                                 ),
                                 (
                                     LibraryView::Settings,
@@ -128,7 +147,10 @@ impl Library {
                                         i18n::library::settings_pill()
                                     ),
                                 ),
-                                (LibraryView::About, format!("{} About", icon::INFO)),
+                                (
+                                    LibraryView::About,
+                                    format!("{} {}", icon::INFO, i18n::library::about_pill()),
+                                ),
                             ] {
                                 if super::theme::pill(ui, view == v, label).clicked() && view != v {
                                     commands.push(Command::ToggleLibrary(v));
@@ -137,7 +159,7 @@ impl Library {
                         },
                     );
                     if super::theme::hover_fill(ui, |ui| ui.add(Button::new(icon::X).frame(false)))
-                        .on_hover_text("Close")
+                        .on_hover_text(i18n::library::close_tip())
                         .clicked()
                     {
                         commands.push(Command::ToggleLibrary(view));
@@ -189,7 +211,7 @@ impl Library {
                 }
                 ui.add(
                     TextEdit::singleline(&mut self.filter)
-                        .hint_text("Filter")
+                        .hint_text(i18n::library::filter_hint())
                         .desired_width(f32::INFINITY),
                 );
                 ui.separator();
@@ -214,7 +236,7 @@ impl Library {
     ) {
         let visits = history.search(&self.filter, MAX_ROWS);
         if visits.is_empty() {
-            ui.weak("No pages.");
+            ui.weak(i18n::history::no_pages());
         }
         ScrollArea::vertical()
             .auto_shrink([false, true])
@@ -239,7 +261,11 @@ impl Library {
         if ui
             .add_enabled(
                 !history.is_empty(),
-                Button::new(format!("{} Clear history", icon::TRASH)),
+                Button::new(format!(
+                    "{} {}",
+                    icon::TRASH,
+                    i18n::history::clear_history()
+                )),
             )
             .clicked()
         {
@@ -297,11 +323,7 @@ impl Library {
                 }
             });
         if !any {
-            ui.weak(format!(
-                "No bookmarks. {} in the address bar or Ctrl+D saves the page; \
-                 Settings imports other browsers'.",
-                icon::STAR
-            ));
+            ui.weak(i18n::bookmarks::no_bookmarks(icon::STAR));
         }
     }
 }
@@ -316,7 +338,7 @@ fn bookmark_row(
 ) {
     ui.horizontal(|ui| {
         if super::theme::hover_fill(ui, |ui| ui.add(Button::new(icon::X).frame(false).small()))
-            .on_hover_text("Remove bookmark")
+            .on_hover_text(i18n::bookmarks::remove_tip())
             .clicked()
         {
             commands.push(Command::RemoveBookmark(b.address.clone()));
@@ -324,7 +346,7 @@ fn bookmark_row(
         if super::theme::hover_fill(ui, |ui| {
             ui.add(Button::new(icon::FOLDER_SIMPLE).frame(false).small())
         })
-        .on_hover_text("Move to a folder")
+        .on_hover_text(i18n::bookmarks::move_tip())
         .clicked()
         {
             *moving = match moving {
@@ -340,7 +362,7 @@ fn bookmark_row(
     let mut chosen = None;
     egui::Frame::group(ui.style()).show(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
-            if super::theme::pill(ui, b.folder.is_empty(), "No folder").clicked() {
+            if super::theme::pill(ui, b.folder.is_empty(), i18n::bookmarks::no_folder()).clicked() {
                 chosen = Some(String::new());
             }
             for f in folders {
@@ -352,11 +374,13 @@ fn bookmark_row(
         ui.horizontal(|ui| {
             let field = ui.add(
                 TextEdit::singleline(typed)
-                    .hint_text("New folder (Work/Projects)")
+                    .hint_text(i18n::bookmarks::new_folder_hint())
                     .desired_width(ui.available_width() - 40.0),
             );
             let enter = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-            if (ui.button("OK").clicked() || enter) && !typed.trim().is_empty() {
+            if (ui.button(i18n::bookmarks::move_ok()).clicked() || enter)
+                && !typed.trim().is_empty()
+            {
                 chosen = Some(typed.clone());
             }
         });
@@ -375,16 +399,16 @@ fn about(
     commands: &mut Vec<Command>,
 ) {
     ui.heading("browsingUnicorns");
-    ui.label(format!("Version {}", updater.current_version()));
+    ui.label(i18n::about::version(&updater.current_version()));
     ui.add_space(8.0);
     let status = match &updater.state {
         UpdateState::Idle => String::new(),
-        UpdateState::Checking => "Checking for updates…".into(),
-        UpdateState::UpToDate => "Up to date.".into(),
-        UpdateState::Available(i) => format!("Version {} is available.", i.version),
-        UpdateState::Downloading(i) => format!("Downloading version {}…", i.version),
-        UpdateState::Ready(i) => format!("Version {} is ready: restart to use it.", i.version),
-        UpdateState::Failed(e) => format!("Update check failed: {e}"),
+        UpdateState::Checking => i18n::about::checking().into(),
+        UpdateState::UpToDate => i18n::about::up_to_date().into(),
+        UpdateState::Available(i) => i18n::about::available(&i.version),
+        UpdateState::Downloading(i) => i18n::about::downloading(&i.version),
+        UpdateState::Ready(i) => i18n::about::ready(&i.version),
+        UpdateState::Failed(e) => i18n::about::check_failed(e),
     };
     if !status.is_empty() {
         ui.label(status);
@@ -392,7 +416,11 @@ fn about(
     if ui
         .add_enabled(
             !updater.is_busy(),
-            Button::new(format!("{} Check for updates", icon::ARROW_CLOCKWISE)),
+            Button::new(format!(
+                "{} {}",
+                icon::ARROW_CLOCKWISE,
+                i18n::about::check_for_updates()
+            )),
         )
         .clicked()
     {
@@ -402,14 +430,15 @@ fn about(
     match default_browser {
         Some(true) => {
             ui.label(format!(
-                "{} browsingUnicorns is your default browser.",
-                icon::CHECK_CIRCLE
+                "{} {}",
+                icon::CHECK_CIRCLE,
+                i18n::about::is_default()
             ));
         }
         Some(false) => {
-            ui.label("browsingUnicorns is not your default browser.");
+            ui.label(i18n::about::is_not_default());
             if ui
-                .button(format!("{} Make it the default browser", icon::BROWSER))
+                .button(format!("{} {}", icon::BROWSER, i18n::about::make_default()))
                 .clicked()
             {
                 commands.push(Command::DefaultBrowser(
@@ -480,14 +509,10 @@ fn ago(now: Timestamp, at: Timestamp) -> String {
     ago_secs(now.saturating_sub(at))
 }
 
-/// "now", "5 min", "3 h", "2 d" for an age in seconds.
+/// "now", "5 min", "3 h", "2 d" for an age in seconds ("à l'instant",
+/// "il y a 5 min"… in French).
 pub fn ago_secs(secs: u64) -> String {
-    match secs {
-        0..60 => "now".into(),
-        60..3_600 => format!("{} min", secs / 60),
-        3_600..86_400 => format!("{} h", secs / 3_600),
-        _ => format!("{} d", secs / 86_400),
-    }
+    i18n::history::ago(secs)
 }
 
 #[cfg(test)]
@@ -501,6 +526,15 @@ mod tests {
         assert_eq!(ago(100_000, 100_000 - 7_200), "2 h");
         assert_eq!(ago(1_000_000, 1_000_000 - 3 * 86_400), "3 d");
         assert_eq!(ago(0, 50), "now");
+    }
+
+    #[test]
+    fn ages_in_french() {
+        i18n::with_lang(i18n::Lang::Fr, || {
+            assert_eq!(ago(100, 90), "à l'instant");
+            assert_eq!(ago(10_000, 10_000 - 300), "il y a 5 min");
+            assert_eq!(ago(1_000_000, 1_000_000 - 3 * 86_400), "il y a 3 j");
+        });
     }
 
     #[test]

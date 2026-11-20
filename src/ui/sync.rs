@@ -91,8 +91,7 @@ impl SyncRunner {
 
     /// Joins the group of another device from its code.
     pub fn join(&mut self, code: &str) -> Result<(), String> {
-        let key = SyncKey::from_code(code)
-            .ok_or("This code is not valid: check it on the other device.")?;
+        let key = SyncKey::from_code(code).ok_or_else(i18n::sync::invalid_code)?;
         self.activate(key)
     }
 

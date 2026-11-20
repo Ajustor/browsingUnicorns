@@ -64,10 +64,7 @@ impl UserScriptsRunner {
         self.installing = false;
         self.status = Some(match result {
             Ok(script) => {
-                let name = format!(
-                    "{} {} installed: it runs from the next page load.",
-                    script.meta.name, script.meta.version
-                );
+                let name = i18n::user_scripts::installed(&script.meta.name, &script.meta.version);
                 self.manager
                     .installed(script, engine)
                     .map(|()| name)
@@ -100,8 +97,8 @@ pub fn show(
     input: &mut String,
     commands: &mut Vec<Command>,
 ) {
-    ui.heading("User scripts");
-    ui.label("Address of a .user.js script (Greasy Fork, OpenUserJS, GitHub…):");
+    ui.heading(i18n::user_scripts::heading());
+    ui.label(i18n::user_scripts::input_label());
     let field = ui.add(
         TextEdit::singleline(input)
             .hint_text("https://greasyfork.org/scripts/…/code/….user.js")
@@ -113,7 +110,11 @@ pub fn show(
         if ui
             .add_enabled(
                 can,
-                Button::new(format!("{} Install", icon::DOWNLOAD_SIMPLE)),
+                Button::new(format!(
+                    "{} {}",
+                    icon::DOWNLOAD_SIMPLE,
+                    i18n::user_scripts::install()
+                )),
             )
             .clicked()
             || (submitted && can)
@@ -123,7 +124,7 @@ pub fn show(
         if super::theme::hover_fill(ui, |ui| {
             ui.add(Button::new(format!("{} Greasy Fork", icon::GLOBE)).frame(false))
         })
-        .on_hover_text("Find user scripts on Greasy Fork")
+        .on_hover_text(i18n::user_scripts::greasy_fork_tip())
         .clicked()
             && let Ok(site) = domain::WebAddress::parse("https://greasyfork.org/")
         {
@@ -143,7 +144,7 @@ pub fn show(
         None => {}
     }
     if runner.scripts().is_empty() {
-        ui.weak("No user scripts.");
+        ui.weak(i18n::user_scripts::none());
         return;
     }
     for s in runner.scripts().items() {
@@ -159,7 +160,7 @@ pub fn show(
             ui.add(egui::Label::new(RichText::new(&s.meta.description).small().weak()).wrap());
         }
         if ui
-            .add(Button::new(format!("{} Remove", icon::TRASH)).small())
+            .add(Button::new(format!("{} {}", icon::TRASH, i18n::user_scripts::remove())).small())
             .clicked()
         {
             commands.push(Command::RemoveUserScript(s.id.clone()));

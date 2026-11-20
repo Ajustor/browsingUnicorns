@@ -77,8 +77,8 @@ impl SettingsPanel {
                 }
             });
 
-        section(ui, icon::HOUSE, "Home page");
-        ui.weak("Opened by new tabs and the Home button.");
+        section(ui, icon::HOUSE, i18n::settings::home_page());
+        ui.weak(i18n::settings::home_page_hint());
         let text = self
             .home_page
             .get_or_insert_with(|| settings.home_page.to_string());
@@ -102,11 +102,14 @@ impl SettingsPanel {
             }
         }
         if self.home_error {
-            ui.colored_label(ui.visuals().error_fg_color, "Not a web address.");
+            ui.colored_label(
+                ui.visuals().error_fg_color,
+                i18n::settings::not_an_address(),
+            );
         }
 
-        section(ui, icon::MAGNIFYING_GLASS, "Search engine");
-        ui.weak("What the address bar searches with.");
+        section(ui, icon::MAGNIFYING_GLASS, i18n::settings::search_engine());
+        ui.weak(i18n::settings::search_engine_hint());
         egui::ComboBox::from_id_salt("search engine")
             .selected_text(settings.search_engine.name.as_str())
             .width(ui.available_width().min(240.0))
@@ -119,17 +122,17 @@ impl SettingsPanel {
                 }
             });
 
-        section(ui, icon::DOWNLOAD_SIMPLE, "Downloads");
+        section(ui, icon::DOWNLOAD_SIMPLE, i18n::settings::downloads());
         let folder = settings
             .device
             .download_dir
             .clone()
             .or(view.default_download_dir.clone());
         ui.horizontal_wrapped(|ui| {
-            ui.label("Save to");
+            ui.label(i18n::settings::save_to());
             ui.label(
                 RichText::new(folder.as_ref().map_or_else(
-                    || "the Downloads folder".to_owned(),
+                    || i18n::settings::system_downloads_folder().to_owned(),
                     |f| f.display().to_string(),
                 ))
                 .strong(),
@@ -137,10 +140,14 @@ impl SettingsPanel {
         });
         ui.horizontal(|ui| {
             if ui
-                .button(format!("{} Change…", icon::FOLDER_OPEN))
+                .button(format!(
+                    "{} {}",
+                    icon::FOLDER_OPEN,
+                    i18n::settings::change_folder()
+                ))
                 .clicked()
                 && let Some(dir) = rfd::FileDialog::new()
-                    .set_title("Where downloads go")
+                    .set_title(i18n::settings::folder_dialog_title())
                     .set_directory(folder.clone().unwrap_or_default())
                     .pick_folder()
             {
@@ -148,8 +155,8 @@ impl SettingsPanel {
             }
             if settings.device.download_dir.is_some()
                 && ui
-                    .button("Downloads folder")
-                    .on_hover_text("Back to the system's Downloads folder")
+                    .button(i18n::settings::downloads_folder())
+                    .on_hover_text(i18n::settings::downloads_folder_tip())
                     .clicked()
             {
                 change(&|s| s.device.download_dir = None);
@@ -157,21 +164,18 @@ impl SettingsPanel {
         });
         let mut ask = settings.device.ask_where_to_save;
         if ui
-            .checkbox(&mut ask, "Ask where to save each file")
+            .checkbox(&mut ask, i18n::settings::ask_where_to_save())
             .changed()
         {
             change(&|s| s.device.ask_where_to_save = ask);
         }
 
         if view.passwords {
-            section(ui, icon::KEY, "Passwords");
+            section(ui, icon::KEY, i18n::settings::passwords());
             let mut save = settings.device.save_passwords;
             if ui
-                .checkbox(&mut save, "Offer to save the passwords I type")
-                .on_hover_text(
-                    "The web view keeps them for this profile and fills them in next time. \
-                     A password manager extension (Bitwarden…) works either way.",
-                )
+                .checkbox(&mut save, i18n::settings::offer_to_save_passwords())
+                .on_hover_text(i18n::settings::offer_to_save_passwords_tip())
                 .changed()
             {
                 change(&|s| s.device.save_passwords = save);
@@ -179,14 +183,18 @@ impl SettingsPanel {
         }
 
         if !settings.device.site_zoom.is_empty() {
-            section(ui, icon::MAGNIFYING_GLASS_PLUS, "Zoom by site");
+            section(
+                ui,
+                icon::MAGNIFYING_GLASS_PLUS,
+                i18n::settings::zoom_by_site(),
+            );
             let mut reset = None;
             for (host, percent) in &settings.device.site_zoom {
                 ui.horizontal(|ui| {
                     if super::theme::hover_fill(ui, |ui| {
                         ui.add(Button::new(icon::X).frame(false).small())
                     })
-                    .on_hover_text("Back to 100%")
+                    .on_hover_text(i18n::settings::zoom_reset_tip())
                     .clicked()
                     {
                         reset = Some(host.clone());
@@ -202,14 +210,17 @@ impl SettingsPanel {
             }
         }
 
-        section(ui, icon::STAR, "Import bookmarks");
-        ui.weak("Into a folder named after the browser.");
+        section(ui, icon::STAR, i18n::settings::import_bookmarks());
+        ui.weak(i18n::settings::import_bookmarks_hint());
         let sources = self
             .sources
             .get_or_insert_with(infrastructure::bookmark_import::chromium_sources);
         ui.horizontal_wrapped(|ui| {
             for source in sources.iter() {
-                if ui.button(format!("From {}", source.name)).clicked() {
+                if ui
+                    .button(i18n::settings::import_from(source.name))
+                    .clicked()
+                {
                     commands.push(Command::ImportBookmarks(ImportFrom::Chromium(
                         source.name.to_owned(),
                         source.file.clone(),
@@ -217,29 +228,27 @@ impl SettingsPanel {
                 }
             }
             if ui
-                .button(format!("{} From an HTML file…", icon::FILE_HTML))
-                .on_hover_text(
-                    "The file other browsers export (Firefox: Bookmarks > Manage \
-                     bookmarks > Import and backup > Export bookmarks to HTML)",
-                )
+                .button(format!(
+                    "{} {}",
+                    icon::FILE_HTML,
+                    i18n::settings::import_html()
+                ))
+                .on_hover_text(i18n::settings::import_html_tip())
                 .clicked()
                 && let Some(file) = rfd::FileDialog::new()
-                    .set_title("Bookmarks exported from a browser")
-                    .add_filter("Bookmarks", &["html", "htm"])
+                    .set_title(i18n::settings::import_dialog_title())
+                    .add_filter(i18n::settings::import_filter(), &["html", "htm"])
                     .pick_file()
             {
                 commands.push(Command::ImportBookmarks(ImportFrom::Html(file)));
             }
         });
 
-        section(ui, icon::BROOM, "Clear browsing data");
-        ui.checkbox(&mut self.clear.history, "History");
+        section(ui, icon::BROOM, i18n::settings::clear_browsing_data());
+        ui.checkbox(&mut self.clear.history, i18n::settings::clear_history());
         if view.clear_site_data {
-            ui.checkbox(
-                &mut self.clear.cookies,
-                "Cookies and site data (signs you out of sites)",
-            );
-            ui.checkbox(&mut self.clear.cache, "Cached images and files");
+            ui.checkbox(&mut self.clear.cookies, i18n::settings::clear_cookies());
+            ui.checkbox(&mut self.clear.cache, i18n::settings::clear_cache());
         }
         let choice = ClearData {
             history: self.clear.history,
@@ -249,7 +258,7 @@ impl SettingsPanel {
         if ui
             .add_enabled(
                 choice.history || choice.cookies || choice.cache,
-                Button::new(format!("{} Clear now", icon::TRASH)),
+                Button::new(format!("{} {}", icon::TRASH, i18n::settings::clear_now())),
             )
             .clicked()
         {
