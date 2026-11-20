@@ -4,6 +4,16 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.17.4] - 2026-11-20
+
+### Modifié
+
+- Android : l'app s'appelle désormais `ajustor.browsingunicorns`, l'identifiant
+  enregistré auprès de la vérification des développeurs Android. C'est une
+  nouvelle app pour le système : l'ancienne ne peut pas se mettre à jour
+  vers elle. Installez cet APK à la main, récupérez vos données par la
+  synchronisation, puis désinstallez l'ancienne.
+
 ## [0.17.3] - 2026-11-20
 
 ### Ajouté
