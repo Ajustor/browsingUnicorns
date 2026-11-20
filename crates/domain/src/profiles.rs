@@ -87,11 +87,12 @@ pub enum ProfileError {
 
 impl fmt::Display for ProfileError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use i18n::errors::domain as msg;
         f.write_str(match self {
-            Self::EmptyName => "a profile needs a name",
-            Self::NameTaken => "another profile has this name",
-            Self::NotFound => "no such profile",
-            Self::DefaultProfile => "the default profile cannot be removed",
+            Self::EmptyName => msg::profile_needs_a_name(),
+            Self::NameTaken => msg::profile_name_taken(),
+            Self::NotFound => msg::no_such_profile(),
+            Self::DefaultProfile => msg::default_profile_kept(),
         })
     }
 }
@@ -273,5 +274,15 @@ mod tests {
         );
         assert_eq!(p.remove(&work).unwrap().name, "JOB");
         assert_eq!(p.remove(&work), Err(ProfileError::NotFound));
+    }
+
+    #[test]
+    fn errors_speak_the_language_they_are_shown_in() {
+        let e = ProfileError::NameTaken;
+        assert_eq!(e.to_string(), "another profile has this name");
+        assert_eq!(
+            i18n::with_lang(i18n::Lang::Fr, || e.to_string()),
+            "un autre profil porte ce nom"
+        );
     }
 }
