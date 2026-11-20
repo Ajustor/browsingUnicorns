@@ -23,16 +23,20 @@ impl SiteInfo {
                 let host = self.address.host().unwrap_or(self.address.as_str());
                 if self.address.is_secure() {
                     ui.label(RichText::new(format!("{} {host}", icon::LOCK_SIMPLE)).strong());
-                    ui.label("Connection is secure (HTTPS).");
+                    ui.label(i18n::site_info::connection_secure());
                 } else {
                     ui.label(RichText::new(format!("{} {host}", icon::LOCK_SIMPLE_OPEN)).strong());
                     ui.colored_label(
                         ui.visuals().warn_fg_color,
-                        "Connection is not secure: what you send or see can be read on the way.",
+                        i18n::site_info::connection_not_secure(),
                     );
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.small_button(icon::X).on_hover_text("Close").clicked() {
+                    if ui
+                        .small_button(icon::X)
+                        .on_hover_text(i18n::common::close())
+                        .clicked()
+                    {
                         open = false;
                     }
                 });
@@ -44,21 +48,21 @@ impl SiteInfo {
                 None => {
                     ui.horizontal(|ui| {
                         ui.spinner();
-                        ui.label("Reading the certificate…");
+                        ui.label(i18n::site_info::reading_certificate());
                     });
                 }
                 Some(Err(e)) => {
-                    ui.label(format!("Certificate not available: {e}"));
+                    ui.label(i18n::site_info::certificate_unavailable(e));
                 }
                 Some(Ok(security)) => {
                     if !security.connection.is_empty() {
-                        ui.label(format!("Connection: {}", security.connection));
+                        ui.label(i18n::site_info::connection_of(&security.connection));
                     }
                     for (i, cert) in security.chain.iter().enumerate() {
                         let title = if i == 0 {
-                            format!("Certificate: {}", cert.subject)
+                            i18n::site_info::certificate_of(&cert.subject)
                         } else {
-                            format!("Issuer certificate: {}", cert.subject)
+                            i18n::site_info::issuer_certificate_of(&cert.subject)
                         };
                         CollapsingHeader::new(title)
                             .id_salt(("certificate", i))
@@ -82,20 +86,20 @@ fn details(ui: &mut egui::Ui, cert: &CertificateInfo) {
                 ui.add(egui::Label::new(value).wrap().selectable(true));
                 ui.end_row();
             };
-            row("Issued to", &cert.subject);
-            row("Issued by", &cert.issuer);
+            row(i18n::site_info::issued_to(), &cert.subject);
+            row(i18n::site_info::issued_by(), &cert.issuer);
             if !cert.names.is_empty() {
-                row("Covers", &cert.names.join(", "));
+                row(i18n::site_info::covers(), &cert.names.join(", "));
             }
-            row("Valid from", &cert.valid_from);
-            row("Valid until", &cert.valid_until);
-            row("Serial number", &cert.serial);
+            row(i18n::site_info::valid_from(), &cert.valid_from);
+            row(i18n::site_info::valid_until(), &cert.valid_until);
+            row(i18n::site_info::serial_number(), &cert.serial);
             row("SHA-256", &cert.sha256);
         });
     if cert.expired {
         ui.colored_label(
             ui.visuals().error_fg_color,
-            "This certificate is not valid at this date.",
+            i18n::site_info::certificate_expired(),
         );
     }
 }

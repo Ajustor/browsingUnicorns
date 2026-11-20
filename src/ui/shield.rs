@@ -52,7 +52,11 @@ impl Shield {
                 ui.label(RichText::new(format!("{glyph} {host}")).strong());
                 ui.label(status(view));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.small_button(icon::X).on_hover_text("Close").clicked() {
+                    if ui
+                        .small_button(icon::X)
+                        .on_hover_text(i18n::common::close())
+                        .clicked()
+                    {
                         open = false;
                     }
                 });
@@ -61,13 +65,16 @@ impl Shield {
                 let mut on_site = view.on_site;
                 let site = ui.add_enabled(
                     view.enabled,
-                    egui::Checkbox::new(&mut on_site, "Block on this site"),
+                    egui::Checkbox::new(&mut on_site, i18n::shield::block_on_this_site()),
                 );
                 if site.changed() {
                     commands.push(Command::SetBlockerForSite(host.clone(), on_site));
                 }
                 let mut enabled = view.enabled;
-                if ui.checkbox(&mut enabled, "Ad blocker").changed() {
+                if ui
+                    .checkbox(&mut enabled, i18n::shield::ad_blocker())
+                    .changed()
+                {
                     commands.push(Command::SetBlocker(enabled));
                 }
             });
@@ -80,31 +87,22 @@ impl Shield {
 /// The bar's first line.
 fn status(view: &ShieldView) -> String {
     if !view.enabled {
-        return "The ad blocker is off.".into();
+        return i18n::shield::blocker_off().into();
     }
     if !view.on_site {
-        return "Not blocking on this site.".into();
+        return i18n::shield::not_blocking_here().into();
     }
     match view.blocked {
-        Some(1) => "1 item blocked on this page.".into(),
-        Some(n) => format!("{n} items blocked on this page."),
-        None => "Active: blocking ads and trackers.".into(),
+        Some(n) => i18n::shield::items_blocked(n),
+        None => i18n::shield::active().into(),
     }
 }
 
 /// Which lists, and how fresh they are.
 fn lists_line(updated: Option<SystemTime>, now: SystemTime) -> String {
     match updated {
-        None => "Lists: EasyList, EasyPrivacy, uBlock filters, Twitch (vaft) · not downloaded yet"
-            .into(),
-        Some(at) => {
-            let age = now.duration_since(at).map_or(0, |d| d.as_secs());
-            let age = match super::library::ago_secs(age) {
-                now if now == "now" => "just now".to_owned(),
-                age => format!("{age} ago"),
-            };
-            format!("Lists: EasyList, EasyPrivacy, uBlock filters, Twitch (vaft) · updated {age}")
-        }
+        None => i18n::shield::lists_not_downloaded().into(),
+        Some(at) => i18n::shield::lists_updated(now.duration_since(at).map_or(0, |d| d.as_secs())),
     }
 }
 
@@ -138,5 +136,23 @@ mod tests {
         assert!(lists_line(Some(now), now).ends_with("updated just now"));
         let earlier = now - Duration::from_secs(3 * 3_600);
         assert!(lists_line(Some(earlier), now).ends_with("updated 3 h ago"));
+    }
+
+    #[test]
+    fn the_bar_speaks_french() {
+        let view = ShieldView {
+            enabled: true,
+            on_site: true,
+            blocked: Some(1),
+            updated: None,
+        };
+        let (status, lists) = i18n::with_lang(i18n::Lang::Fr, || {
+            (
+                status(&view),
+                lists_line(Some(SystemTime::now()), SystemTime::now()),
+            )
+        });
+        assert_eq!(status, "1 élément bloqué sur cette page.");
+        assert!(lists.ends_with("mises à jour à l'instant"), "{lists}");
     }
 }

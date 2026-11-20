@@ -56,7 +56,7 @@ impl Omnibox {
         let response = ui.add(
             TextEdit::singleline(&mut self.text)
                 .id(id)
-                .hint_text("Search or enter an address")
+                .hint_text(i18n::omnibox::placeholder())
                 .desired_width(f32::INFINITY)
                 .margin(egui::Margin::symmetric(12, 6))
                 .frame(true),
@@ -204,7 +204,7 @@ fn row_text(s: &Suggestion) -> LayoutJob {
         Suggestion::Search { terms, .. } => {
             job.append(icon::MAGNIFYING_GLASS, 0.0, weak.clone());
             job.append(terms, 8.0, strong);
-            job.append("— search", 10.0, weak);
+            job.append(i18n::omnibox::search_suffix(), 10.0, weak);
         }
         Suggestion::Page { title, address } => {
             job.append(icon::CLOCK_COUNTER_CLOCKWISE, 0.0, weak.clone());

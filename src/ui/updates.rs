@@ -65,8 +65,8 @@ impl Updates {
             }
         }
         let (error, text) = match event? {
-            UpdateEvent::UpToDate => (false, "browsingUnicorns is up to date.".to_owned()),
-            UpdateEvent::Error(e) => (true, format!("Update: {e}")),
+            UpdateEvent::UpToDate => (false, i18n::updates::up_to_date().to_owned()),
+            UpdateEvent::Error(e) => (true, i18n::updates::failed(&e)),
             // The banner shows these.
             UpdateEvent::Available(_) | UpdateEvent::Ready => return None,
         };
@@ -87,35 +87,35 @@ impl Updates {
             ui.horizontal(|ui| match state {
                 UpdateState::Available(info) => {
                     ui.label(format!(
-                        "{} browsingUnicorns {} is available.",
+                        "{} {}",
                         icon::ARROW_CIRCLE_UP,
-                        info.version
+                        i18n::updates::available(&info.version)
                     ));
-                    if ui.button("Install").clicked() {
+                    if ui.button(i18n::updates::install()).clicked() {
                         commands.push(Command::InstallUpdate);
                     }
-                    if ui.button("Later").clicked() {
+                    if ui.button(i18n::updates::later()).clicked() {
                         commands.push(Command::UpdateLater);
                     }
-                    if ui.button("Skip this version").clicked() {
+                    if ui.button(i18n::updates::skip_version()).clicked() {
                         commands.push(Command::SkipUpdate);
                     }
-                    ui.hyperlink_to("What's new", &info.page_url);
+                    ui.hyperlink_to(i18n::updates::whats_new(), &info.page_url);
                 }
                 UpdateState::Downloading(info) => {
                     ui.add(Spinner::new());
-                    ui.label(format!("Downloading browsingUnicorns {}…", info.version));
+                    ui.label(i18n::updates::downloading(&info.version));
                 }
                 UpdateState::Ready(info) => {
                     ui.label(format!(
-                        "{} browsingUnicorns {} is ready.",
+                        "{} {}",
                         icon::CHECK_CIRCLE,
-                        info.version
+                        i18n::updates::ready(&info.version)
                     ));
-                    if ui.button("Restart now").clicked() {
+                    if ui.button(i18n::updates::restart_now()).clicked() {
                         commands.push(Command::RestartToUpdate);
                     }
-                    if ui.button("Later").clicked() {
+                    if ui.button(i18n::updates::later()).clicked() {
                         commands.push(Command::UpdateLater);
                     }
                 }

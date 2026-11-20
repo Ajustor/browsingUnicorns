@@ -112,17 +112,27 @@ impl DefaultBrowser {
         TopBottomPanel::bottom("default_browser").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label(format!(
-                    "{} Make browsingUnicorns your default browser? Links you open in other apps will open here.",
-                    icon::BROWSER
+                    "{} {}",
+                    icon::BROWSER,
+                    i18n::default_browser::offer()
                 ));
                 let mut answer = |label: &str, command| {
                     if ui.button(label).clicked() {
                         commands.push(Command::DefaultBrowser(command));
                     }
                 };
-                answer("Set as default", DefaultBrowserCommand::Make);
-                answer("Not now", DefaultBrowserCommand::NotNow);
-                answer("Don't ask again", DefaultBrowserCommand::NeverAsk);
+                answer(
+                    i18n::default_browser::set_as_default(),
+                    DefaultBrowserCommand::Make,
+                );
+                answer(
+                    i18n::default_browser::not_now(),
+                    DefaultBrowserCommand::NotNow,
+                );
+                answer(
+                    i18n::default_browser::never_ask(),
+                    DefaultBrowserCommand::NeverAsk,
+                );
             });
         });
     }

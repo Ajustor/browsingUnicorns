@@ -272,14 +272,15 @@ impl BrowserApp {
                 return self.report_err(r);
             }
             Command::DefaultBrowser(command) => {
-                let r = self.default_browser.run(command).map_err(|e| {
-                    format!("Could not make browsingUnicorns the default browser: {e}")
-                });
+                let r = self
+                    .default_browser
+                    .run(command)
+                    .map_err(|e| i18n::notices::default_browser_failed(&e));
                 return self.report_err(r);
             }
             Command::OpenPrivateWindow => {
                 let r = infrastructure::profiles::open_private_window(&self.profiles.current().id)
-                    .map_err(|e| format!("Could not open a private window: {e}"));
+                    .map_err(|e| i18n::notices::private_window_failed(&e));
                 return self.report_err(r);
             }
             other => {
@@ -302,8 +303,11 @@ impl BrowserApp {
             }
             super::command::ImportFrom::Html(file) => {
                 let text = std::fs::read_to_string(&file)
-                    .map_err(|e| format!("Could not read {}: {e}", file.display()))?;
-                ("HTML file".to_owned(), bookmark_import::parse_html(&text))
+                    .map_err(|e| i18n::notices::read_failed(&file.display(), &e))?;
+                (
+                    i18n::notices::html_file().to_owned(),
+                    bookmark_import::parse_html(&text),
+                )
             }
         };
         let items = found.into_iter().filter_map(|b| {
@@ -312,11 +316,11 @@ impl BrowserApp {
         });
         let added = self
             .browser
-            .import_bookmarks(&format!("Imported from {name}"), items)
+            .import_bookmarks(&i18n::notices::imported_folder(&name), items)
             .map_err(|e| e.to_string())?;
         self.notice = Some(Notice {
             error: false,
-            text: format!("{added} bookmarks imported from {name}."),
+            text: i18n::notices::bookmarks_imported(added, &name),
         });
         Ok(())
     }
@@ -329,20 +333,20 @@ impl BrowserApp {
         let mut done = Vec::new();
         if what.history {
             self.browser.clear_history()?;
-            done.push("history");
+            done.push(i18n::notices::cleared_history());
         }
         if what.cookies || what.cache {
             self.browser
                 .engine_mut()
                 .clear_site_data(what.cookies, what.cache);
             if what.cookies {
-                done.push("cookies and site data");
+                done.push(i18n::notices::cleared_cookies());
             }
             if what.cache {
-                done.push("cache");
+                done.push(i18n::notices::cleared_cache());
             }
         }
-        self.library.settings.cleared = Some(format!("Cleared: {}.", done.join(", ")));
+        self.library.settings.cleared = Some(i18n::notices::cleared(&done.join(", ")));
         Ok(())
     }
 
@@ -362,7 +366,7 @@ impl BrowserApp {
             address.as_str(),
             geometry,
         )
-        .map_err(|e| format!("Could not open a new window: {e}"))?;
+        .map_err(|e| i18n::notices::new_window_failed(&e))?;
         self.browser.close_tab(id);
         Ok(())
     }
@@ -721,11 +725,11 @@ impl BrowserApp {
             APP_NAME.to_owned()
         };
         let mut title = match self.browser.session().active() {
-            Some(tab) => format!("{} — {app}", tab.display_title()),
+            Some(tab) => format!("{} — {app}", tab_strip::title_of(tab)),
             None => app,
         };
         if self.is_private() {
-            title.push_str(" (private)");
+            title.push_str(i18n::window::private_suffix());
         }
         if title != self.window_title {
             ctx.send_viewport_cmd(ViewportCommand::Title(title.clone()));
@@ -745,7 +749,7 @@ impl BrowserApp {
                 } else {
                     ui.label(&notice.text);
                 }
-                dismissed |= ui.small_button("OK").clicked();
+                dismissed |= ui.small_button(i18n::common::ok()).clicked();
             });
         });
         if dismissed {

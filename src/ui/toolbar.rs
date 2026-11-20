@@ -36,20 +36,25 @@ pub fn show(
 
     ui.horizontal(|ui| {
         let nav = [
-            (icon::ARROW_LEFT, "Back (Alt+←)", can_back, Command::Back),
+            (
+                icon::ARROW_LEFT,
+                i18n::toolbar::back(),
+                can_back,
+                Command::Back,
+            ),
             (
                 icon::ARROW_RIGHT,
-                "Forward (Alt+→)",
+                i18n::toolbar::forward(),
                 can_forward,
                 Command::Forward,
             ),
             (
                 icon::ARROW_CLOCKWISE,
-                "Reload (F5)\nShift+click or Ctrl+Shift+R: reload without the cache",
+                i18n::toolbar::reload(),
                 active.is_some(),
                 Command::Reload,
             ),
-            (icon::HOUSE, "Home (Alt+Home)", true, Command::Home),
+            (icon::HOUSE, i18n::toolbar::home(), true, Command::Home),
         ];
         for (glyph, tip, enabled, command) in nav {
             if button(ui, RichText::new(glyph).size(16.0), tip, enabled) {
@@ -67,12 +72,12 @@ pub fn show(
                 let (glyph, tip) = if a.is_secure() {
                     (
                         RichText::new(icon::LOCK_SIMPLE).color(super::theme::CYAN),
-                        "Connection is secure: certificate",
+                        i18n::toolbar::connection_secure(),
                     )
                 } else {
                     (
                         RichText::new(icon::GLOBE_SIMPLE),
-                        "Connection is not secure",
+                        i18n::toolbar::connection_not_secure(),
                     )
                 };
                 let glyph = glyph.size(16.0);
@@ -91,7 +96,7 @@ pub fn show(
         // Right to left so the address bar takes the room left in between.
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if super::theme::hover_fill(ui, |ui| avatar(ui, profile, 20.0))
-                .on_hover_text(format!("Profile: {} (profiles)", profile.name))
+                .on_hover_text(i18n::toolbar::profile_of(&profile.name))
                 .clicked()
             {
                 commands.push(Command::ToggleLibrary(LibraryView::Profiles));
@@ -99,7 +104,7 @@ pub fn show(
             if button(
                 ui,
                 RichText::new(icon::MASK_HAPPY).size(16.0),
-                "New private window (Ctrl+Shift+N)",
+                i18n::toolbar::new_private_window(),
                 true,
             ) {
                 commands.push(Command::OpenPrivateWindow);
@@ -107,7 +112,7 @@ pub fn show(
             if button(
                 ui,
                 RichText::new(icon::BOOKS).size(16.0),
-                "History and bookmarks (Ctrl+H)",
+                i18n::toolbar::history_and_bookmarks(),
                 true,
             ) {
                 commands.push(Command::ToggleLibrary(LibraryView::History));
@@ -115,7 +120,7 @@ pub fn show(
             if button(
                 ui,
                 RichText::new(icon::CODE).size(16.0),
-                "Developer tools (F12)",
+                i18n::toolbar::developer_tools(),
                 active.is_some(),
             ) {
                 commands.push(Command::OpenDevTools);
@@ -135,8 +140,8 @@ pub fn show(
             if let Some(percent) = zoom
                 && button(
                     ui,
-                    RichText::new(format!("{percent}%")).size(13.0),
-                    "Zoom of this site (Ctrl+wheel, Ctrl +/-): click for 100%",
+                    RichText::new(i18n::toolbar::zoom_percent(percent)).size(13.0),
+                    i18n::toolbar::zoom_of_site(),
                     true,
                 )
             {
@@ -166,12 +171,12 @@ fn shield_button(ui: &mut egui::Ui, shield: &ShieldButton) -> bool {
     let (glyph, tip) = if shield.on {
         (
             RichText::new(icon::SHIELD_CHECK).color(super::theme::CYAN),
-            "Ad blocker: on for this site",
+            i18n::shield::on_for_site(),
         )
     } else {
         (
             RichText::new(icon::SHIELD_SLASH),
-            "Ad blocker: off for this site",
+            i18n::shield::off_for_site(),
         )
     };
     let response =

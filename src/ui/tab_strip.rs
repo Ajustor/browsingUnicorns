@@ -105,10 +105,7 @@ pub fn show(
                     .frame(false),
             )
         })
-        .on_hover_text(
-            "New tab (Ctrl+T)
-Right-click: reopen the last tab closed (Ctrl+Shift+T)",
-        );
+        .on_hover_text(i18n::tabs::new_tab());
         if plus.clicked() {
             commands.push(Command::NewTab);
         }
@@ -172,10 +169,10 @@ Right-click: reopen the last tab closed (Ctrl+Shift+T)",
                             if let Some(sound) = favicons.sound(tab.id()) {
                                 let (glyph, tip) = match sound {
                                     super::favicons::Sound::Playing => {
-                                        (icon::SPEAKER_HIGH, "Mute this tab")
+                                        (icon::SPEAKER_HIGH, i18n::tabs::mute_tab())
                                     }
                                     super::favicons::Sound::Muted => {
-                                        (icon::SPEAKER_SLASH, "Unmute this tab")
+                                        (icon::SPEAKER_SLASH, i18n::tabs::unmute_tab())
                                     }
                                 };
                                 if super::theme::hover_fill(ui, |ui| {
@@ -193,14 +190,14 @@ Right-click: reopen the last tab closed (Ctrl+Shift+T)",
                                     ));
                                 }
                             }
-                            let title = truncate(tab.display_title(), TITLE_CHARS);
+                            let title = truncate(title_of(tab), TITLE_CHARS);
                             let label = ui
                                 .add(
                                     egui::Label::new(RichText::new(title).color(text))
                                         .selectable(false)
                                         .sense(Sense::click()),
                                 )
-                                .on_hover_text(tab.display_title());
+                                .on_hover_text(title_of(tab));
                             if label.clicked() {
                                 commands.push(Command::Activate(tab.id()));
                             }
@@ -220,7 +217,7 @@ Right-click: reopen the last tab closed (Ctrl+Shift+T)",
                                             .frame(false),
                                         )
                                     })
-                                    .on_hover_text("Close tab (Ctrl+W)");
+                                    .on_hover_text(i18n::tabs::close_tab());
                                     if close.clicked() {
                                         commands.push(Command::CloseTab(tab.id()));
                                     }
@@ -338,18 +335,18 @@ fn window_buttons(ui: &mut egui::Ui) {
         );
         response.on_hover_text(tip).clicked()
     };
-    if button(icon::X, "Close", true) {
+    if button(icon::X, i18n::window::close(), true) {
         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
     }
     let (glyph, tip) = if maximized {
-        (icon::COPY_SIMPLE, "Restore")
+        (icon::COPY_SIMPLE, i18n::window::restore())
     } else {
-        (icon::SQUARE, "Maximize")
+        (icon::SQUARE, i18n::window::maximize())
     };
     if button(glyph, tip, false) {
         ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
     }
-    if button(icon::MINUS, "Minimize", false) {
+    if button(icon::MINUS, i18n::window::minimize(), false) {
         ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
     }
 }
@@ -433,14 +430,27 @@ fn private_pill(ui: &mut egui::Ui, chrome: &super::theme::Chrome) {
         .show(ui, |ui| {
             ui.add(
                 egui::Label::new(
-                    RichText::new(format!("{} Private", icon::MASK_HAPPY))
-                        .color(super::theme::CHROME_TEXT),
+                    RichText::new(format!(
+                        "{} {}",
+                        icon::MASK_HAPPY,
+                        i18n::tabs::private_pill()
+                    ))
+                    .color(super::theme::CHROME_TEXT),
                 )
                 .selectable(false),
             )
-            .on_hover_text("Private window: no history, cookies deleted at closing");
+            .on_hover_text(i18n::tabs::private_window());
         });
     ui.add_space(4.0);
+}
+
+/// What a tab is called: its title, else its host, else "New tab" in the
+/// current language.
+pub fn title_of(tab: &domain::Tab) -> &str {
+    match tab.display_title() {
+        domain::Tab::UNTITLED => i18n::tabs::untitled(),
+        title => title,
+    }
 }
 
 pub fn truncate(title: &str, max: usize) -> String {
@@ -482,6 +492,14 @@ mod tests {
         assert!(detaches(window, tab, egui::pos2(300.0, 200.0)));
         assert!(detaches(window, tab, egui::pos2(900.0, 20.0)));
         assert!(detaches(window, tab, egui::pos2(300.0, -5.0)));
+    }
+
+    #[test]
+    fn a_tab_without_title_nor_address_is_a_new_tab() {
+        let tab = domain::Tab::new(domain::TabId::new(1));
+        assert_eq!(title_of(&tab), "New tab");
+        let fr = i18n::with_lang(i18n::Lang::Fr, || title_of(&tab).to_owned());
+        assert_eq!(fr, "Nouvel onglet");
     }
 
     #[test]
