@@ -721,11 +721,11 @@ impl BrowserApp {
             APP_NAME.to_owned()
         };
         let mut title = match self.browser.session().active() {
-            Some(tab) => format!("{} — {app}", tab.display_title()),
+            Some(tab) => format!("{} — {app}", tab_strip::title_of(tab)),
             None => app,
         };
         if self.is_private() {
-            title.push_str(" (private)");
+            title.push_str(i18n::window::private_suffix());
         }
         if title != self.window_title {
             ctx.send_viewport_cmd(ViewportCommand::Title(title.clone()));
