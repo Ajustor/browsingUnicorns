@@ -422,7 +422,8 @@ impl WryEngine {
         {
             crate::webview2_region::cut(view.hwnd(), *viewport, holes);
         }
-        self.page_cut = wanted;
+        // Only what was cut: a view that appears later is cut then.
+        self.page_cut = wanted.filter(|(tab, ..)| self.views.contains_key(tab));
     }
 
     /// Advances the platform's own event loop where the web view needs it

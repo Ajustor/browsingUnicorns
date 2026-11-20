@@ -493,6 +493,9 @@ impl BrowserApp {
                 if let Some(id) = m.focused() {
                     m.surrender_focus(id);
                 }
+                // A click on the page closes an open list (shown over the
+                // page, egui never sees that click).
+                m.close_popup();
             });
         }
         if ctx.input(|i| i.pointer.any_pressed()) {
