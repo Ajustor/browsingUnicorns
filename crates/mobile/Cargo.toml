@@ -21,6 +21,7 @@ cli = ["uniffi/cli"]
 [dependencies]
 domain.workspace = true
 application.workspace = true
+i18n.workspace = true
 # Without the desktop web view and HTTP client: the app brings its own.
 infrastructure.workspace = true
 uniffi = "0.32"

@@ -2948,6 +2948,7 @@ dependencies = [
  "application",
  "data-encoding",
  "domain",
+ "i18n",
  "infrastructure",
  "sha2",
  "tempfile",
