@@ -155,18 +155,15 @@ impl ProfilesPanel {
         commands: &mut Vec<Command>,
     ) {
         let current = runner.current();
-        ui.heading("Profiles");
-        ui.weak(
-            "Each profile has its own history, bookmarks, tabs, extensions, \
-             cookies and sync, and opens in its own window.",
-        );
+        ui.heading(i18n::profiles::heading());
+        ui.weak(i18n::profiles::intro());
         ui.add_space(6.0);
 
         ui.horizontal(|ui| {
             avatar(ui, current, 28.0);
             ui.vertical(|ui| {
                 ui.label(RichText::new(&current.name).strong());
-                ui.weak("This window");
+                ui.weak(i18n::profiles::this_window());
             });
         });
         let name = self.name.get_or_insert_with(|| current.name.clone());
@@ -174,7 +171,12 @@ impl ProfilesPanel {
             let field = ui.add(TextEdit::singleline(name).desired_width(160.0));
             let submitted = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
             let changed = name.trim() != current.name && !name.trim().is_empty();
-            if (ui.add_enabled(changed, Button::new("Rename")).clicked() || submitted) && changed {
+            if (ui
+                .add_enabled(changed, Button::new(i18n::profiles::rename()))
+                .clicked()
+                || submitted)
+                && changed
+            {
                 commands.push(Command::Profile(ProfileCommand::Rename(
                     current.id.clone(),
                     name.trim().to_owned(),
@@ -193,7 +195,11 @@ impl ProfilesPanel {
                         egui::Stroke::new(2.0_f32, ui.visuals().strong_text_color()),
                     );
                 }
-                if response.on_hover_text("Color").clicked() && index != current.color {
+                if response
+                    .on_hover_text(i18n::profiles::color_tip())
+                    .clicked()
+                    && index != current.color
+                {
                     commands.push(Command::Profile(ProfileCommand::SetColor(
                         current.id.clone(),
                         index,
@@ -211,13 +217,13 @@ impl ProfilesPanel {
             .filter(|p| p.id != current.id)
             .collect();
         if others.is_empty() {
-            ui.weak("No other profile.");
+            ui.weak(i18n::profiles::no_other());
         }
         for p in others {
             let open = runner.open.contains(&p.id);
             ui.horizontal(|ui| {
                 if avatar(ui, p, 22.0)
-                    .on_hover_text("Open in a new window")
+                    .on_hover_text(i18n::profiles::open_in_new_window_tip())
                     .clicked()
                     && !open
                 {
@@ -226,19 +232,19 @@ impl ProfilesPanel {
                 ui.add(egui::Label::new(RichText::new(&p.name).strong()).truncate());
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if open {
-                        ui.weak("open");
+                        ui.weak(i18n::profiles::is_open());
                         return;
                     }
                     if !p.id.is_default()
                         && super::theme::hover_fill(ui, |ui| {
                             ui.add(Button::new(icon::TRASH).frame(false))
                         })
-                        .on_hover_text("Remove")
+                        .on_hover_text(i18n::profiles::remove())
                         .clicked()
                     {
                         self.confirm_remove = Some(p.id.clone());
                     }
-                    if ui.button("Open").clicked() {
+                    if ui.button(i18n::profiles::open()).clicked() {
                         commands.push(Command::Profile(ProfileCommand::Open(p.id.clone())));
                     }
                 });
@@ -246,20 +252,20 @@ impl ProfilesPanel {
             if self.confirm_remove.as_ref() == Some(&p.id) {
                 ui.colored_label(
                     ui.visuals().warn_fg_color,
-                    format!(
-                        "Remove {} and delete its history, bookmarks, tabs, extensions and cookies?",
-                        p.name
-                    ),
+                    i18n::profiles::confirm_remove(&p.name),
                 );
                 ui.horizontal(|ui| {
                     if ui
-                        .button(RichText::new("Remove").color(ui.visuals().error_fg_color))
+                        .button(
+                            RichText::new(i18n::profiles::remove())
+                                .color(ui.visuals().error_fg_color),
+                        )
                         .clicked()
                     {
                         commands.push(Command::Profile(ProfileCommand::Remove(p.id.clone())));
                         self.confirm_remove = None;
                     }
-                    if ui.button("Cancel").clicked() {
+                    if ui.button(i18n::profiles::cancel()).clicked() {
                         self.confirm_remove = None;
                     }
                 });
@@ -267,17 +273,20 @@ impl ProfilesPanel {
         }
 
         ui.separator();
-        ui.label("New profile:");
+        ui.label(i18n::profiles::new_profile());
         ui.horizontal(|ui| {
             let field = ui.add(
                 TextEdit::singleline(&mut self.new_name)
-                    .hint_text("Name (Work, Personal…)")
+                    .hint_text(i18n::profiles::name_hint())
                     .desired_width(160.0),
             );
             let submitted = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
             let can = !self.new_name.trim().is_empty();
             if (ui
-                .add_enabled(can, Button::new(format!("{} Add", icon::PLUS)))
+                .add_enabled(
+                    can,
+                    Button::new(format!("{} {}", icon::PLUS, i18n::profiles::add())),
+                )
                 .clicked()
                 || submitted)
                 && can
@@ -287,7 +296,7 @@ impl ProfilesPanel {
                 )));
             }
         });
-        ui.weak("A new profile opens in a new window.");
+        ui.weak(i18n::profiles::opens_in_new_window());
     }
 
     /// The current profile was renamed (or the rename failed): show the
