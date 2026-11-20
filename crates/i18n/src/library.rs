@@ -1,6 +1,7 @@
-//! The side panel: its views and their names.
+//! The side panel itself: its pills and frame (src/ui/library.rs); each view
+//! has its own module.
 
 messages! {
     /// The Settings view's pill.
-    fn settings() { en: "Settings", fr: "Réglages" }
+    fn settings_pill() { en: "Settings", fr: "Réglages" }
 }

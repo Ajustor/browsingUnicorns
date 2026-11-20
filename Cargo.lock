@@ -276,6 +276,7 @@ name = "application"
 version = "0.1.0"
 dependencies = [
  "domain",
+ "i18n",
 ]
 
 [[package]]
@@ -1394,6 +1395,7 @@ dependencies = [
 name = "domain"
 version = "0.1.0"
 dependencies = [
+ "i18n",
  "percent-encoding",
  "url",
 ]
@@ -2560,6 +2562,7 @@ dependencies = [
  "glib-sys",
  "gobject-sys",
  "gtk",
+ "i18n",
  "libc",
  "log",
  "objc2 0.6.5",

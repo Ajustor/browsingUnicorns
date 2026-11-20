@@ -1,7 +1,10 @@
 //! Domain layer: the browser's business rules.
 //!
 //! Pure Rust, no I/O, no UI, no web engine. Every other layer depends on this
-//! one; this one depends on nothing of ours.
+//! one; this one depends only on `i18n`, for the messages it makes.
+
+// Its errors' messages (i18n::errors::domain), coming.
+use i18n as _;
 
 mod address;
 mod bookmarks;

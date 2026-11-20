@@ -7,4 +7,5 @@ license.workspace = true
 description = "Browser use cases and the ports the infrastructure implements."
 
 [dependencies]
+i18n.workspace = true
 domain.workspace = true

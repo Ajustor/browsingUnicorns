@@ -122,7 +122,11 @@ impl Library {
                                 ),
                                 (
                                     LibraryView::Settings,
-                                    format!("{} {}", icon::GEAR_SIX, i18n::library::settings()),
+                                    format!(
+                                        "{} {}",
+                                        icon::GEAR_SIX,
+                                        i18n::library::settings_pill()
+                                    ),
                                 ),
                                 (LibraryView::About, format!("{} About", icon::INFO)),
                             ] {

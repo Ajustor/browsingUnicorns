@@ -7,5 +7,6 @@ license.workspace = true
 description = "Browser business rules: addresses, tabs, history, session. No I/O, no UI."
 
 [dependencies]
+i18n.workspace = true
 percent-encoding = "2"
 url = "2"

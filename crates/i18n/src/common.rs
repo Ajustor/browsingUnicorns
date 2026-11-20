@@ -1,0 +1,3 @@
+//! Words shared by several areas: OK, Cancel, Close, Remove…
+
+messages! {}

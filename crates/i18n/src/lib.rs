@@ -13,13 +13,29 @@
 //! ```
 //!
 //! Every message also exists in `<module>::in_lang`, taking the language
-//! first: tests use those, so they never depend on the global language
-//! (tests run in parallel).
+//! first:
 //!
 //! ```
 //! use i18n::{Lang, shield::in_lang::items_blocked};
 //! assert_eq!(items_blocked(Lang::En, 1), "1 item blocked on this page.");
 //! assert_eq!(items_blocked(Lang::Fr, 3), "3 éléments bloqués sur cette page.");
+//! ```
+//!
+//! A language change applies to the current process only: the other
+//! windows already open (other processes) follow it when they restart.
+//!
+//! # Tests
+//!
+//! Tests run in parallel and the language is global, so no test outside
+//! this crate calls [`set`] (nor the apps' `apply_language` or
+//! `set_language`, which call it). A test either calls `in_lang::` messages,
+//! or runs code that builds messages inside [`with_lang`], which sets the
+//! language for the current thread only:
+//!
+//! ```
+//! use i18n::{Lang, with_lang};
+//! let tip = with_lang(Lang::Fr, i18n::toolbar::bookmark_this_page);
+//! assert_eq!(tip, "Ajouter aux favoris (Ctrl+D)");
 //! ```
 //!
 //! # Adding a message
@@ -46,11 +62,30 @@
 //! }
 //! ```
 //!
-//! A new domain is a new module file declared at the end of `lib.rs`
-//! (after the macros, which it then sees). Logs stay in English: only what
-//! the user reads goes through here. French uses a non-breaking space (`\u{a0}`) before
-//! `:` `;` `!` `?` and `%` where it reads better, like the rest of the app.
+//! Each text is a single token: a string literal, or a `{ block }` with
+//! `-> Type`. Names are the message's role (`settings_pill`, not
+//! `settings`), never `in_lang` nor a Rust keyword. Every module is already
+//! declared below, `messages! {}` waiting in it; a new one would be a new
+//! file declared at the end of this file (after the macros, which it then
+//! sees). French uses a non-breaking space (`\u{a0}`) before `:` `;` `!` `?`
+//! and `%`.
+//!
+//! # Errors
+//!
+//! - An error enum translates in its `Display` impl: its text is made when
+//!   it is shown, in the language of that moment.
+//! - An error already flattened to a `String` translates where the string
+//!   is built (in the current language).
+//! - A message wrapping another error takes it as
+//!   `e: &dyn std::fmt::Display` and prints it with `{e}`.
+//!
+//! # Logs
+//!
+//! Log literals stay in English (`log::warn!("could not read {path}: {e}")`):
+//! only what the user reads goes through here. The `{e}` in a log may come
+//! out translated; that is accepted.
 
+use std::cell::Cell;
 use std::sync::atomic::{AtomicU8, Ordering};
 
 /// A language of the interface.
@@ -106,14 +141,37 @@ impl Lang {
 
 static CURRENT: AtomicU8 = AtomicU8::new(Lang::En as u8);
 
-/// Makes `lang` the language of every message from now on.
+thread_local! {
+    /// [`with_lang`]'s language, over the global one on this thread.
+    static OVERRIDE: Cell<Option<Lang>> = const { Cell::new(None) };
+}
+
+/// Makes `lang` the language of every message from now on. Apps only: see
+/// the crate's documentation for tests.
 pub fn set(lang: Lang) {
     CURRENT.store(lang as u8, Ordering::Relaxed);
 }
 
-/// The language messages are in (English until [`set`]).
+/// The language messages are in: [`with_lang`]'s on this thread, else the
+/// one [`set`] (English until then).
 pub fn current() -> Lang {
-    Lang::from_u8(CURRENT.load(Ordering::Relaxed))
+    OVERRIDE
+        .get()
+        .unwrap_or_else(|| Lang::from_u8(CURRENT.load(Ordering::Relaxed)))
+}
+
+/// Runs `f` with the messages in `lang`, on this thread only (other threads
+/// keep the global language). The previous language comes back after, even
+/// if `f` panics.
+pub fn with_lang<R>(lang: Lang, f: impl FnOnce() -> R) -> R {
+    struct Restore(Option<Lang>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            OVERRIDE.set(self.0);
+        }
+    }
+    let _restore = Restore(OVERRIDE.replace(Some(lang)));
+    f()
 }
 
 /// Declares messages: see the crate's documentation. For each one, a
@@ -161,10 +219,33 @@ macro_rules! message {
     (@text ($($arg:ident)+) ; $text:tt) => { format!($text) };
 }
 
+// Desktop interface (src/ui), one module per area.
+pub mod about;
+pub mod bookmarks;
+pub mod common;
+pub mod default_browser;
+pub mod dialogs;
+pub mod downloads;
+pub mod extensions;
+pub mod history;
 pub mod library;
+pub mod notices;
+pub mod omnibox;
+pub mod profiles;
 pub mod settings;
 pub mod shield;
+pub mod site_info;
+pub mod sync;
+pub mod tabs;
 pub mod toolbar;
+pub mod updates;
+pub mod user_scripts;
+pub mod window;
+
+// The core's messages the user reads, by crate.
+pub mod errors;
+// Built in Rust for the Android app.
+pub mod mobile;
 
 #[cfg(test)]
 mod tests {
@@ -184,7 +265,8 @@ mod tests {
         }
     }
 
-    // The only test touching the global language.
+    // The only test touching the global language: the others hold their
+    // own with `with_lang` or `in_lang`.
     #[test]
     fn the_current_language_is_the_one_set() {
         set(Lang::Fr);
@@ -196,6 +278,31 @@ mod tests {
         set(Lang::En);
         assert_eq!(current(), Lang::En);
         assert_eq!(toolbar::bookmark_this_page(), "Bookmark this page (Ctrl+D)");
+    }
+
+    #[test]
+    fn with_lang_holds_on_this_thread_only() {
+        with_lang(Lang::Fr, || {
+            assert_eq!(current(), Lang::Fr);
+            assert_eq!(library::settings_pill(), "Réglages");
+            with_lang(Lang::En, || assert_eq!(current(), Lang::En));
+            assert_eq!(current(), Lang::Fr);
+            let other = std::thread::spawn(|| OVERRIDE.get()).join().unwrap();
+            assert_eq!(other, None);
+        });
+        assert_eq!(OVERRIDE.get(), None);
+    }
+
+    #[test]
+    fn with_lang_restores_after_a_panic() {
+        let r = std::panic::catch_unwind(|| with_lang(Lang::Fr, || panic!("boom")));
+        assert!(r.is_err());
+        assert_eq!(OVERRIDE.get(), None);
+        with_lang(Lang::En, || {
+            let r = std::panic::catch_unwind(|| with_lang(Lang::Fr, || panic!("boom")));
+            assert!(r.is_err());
+            assert_eq!(current(), Lang::En);
+        });
     }
 
     #[test]
