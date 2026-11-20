@@ -1,8 +1,29 @@
-//! The interface's language: the one chosen in the settings, or the
-//! system's.
+//! The interface's language: the one chosen on this computer (in
+//! `device.toml`, whatever the profile), or the system's.
 
 use domain::LanguageChoice;
 use i18n::Lang;
+use infrastructure::DeviceFile;
+
+/// The language chosen on this computer (`Auto` when unknown).
+pub fn device_language() -> LanguageChoice {
+    let Some(file) = DeviceFile::default_location() else {
+        return LanguageChoice::Auto;
+    };
+    file.language().unwrap_or_else(|e| {
+        log::warn!("language setting ignored: {e}");
+        LanguageChoice::Auto
+    })
+}
+
+/// Keeps `choice` for this computer and speaks it at once.
+pub fn choose_language(choice: LanguageChoice) -> Result<(), application::ports::RepositoryError> {
+    apply_language(choice);
+    match DeviceFile::default_location() {
+        Some(file) => file.set_language(choice),
+        None => Ok(()),
+    }
+}
 
 /// Makes the interface speak `choice` (the system's language for `Auto`).
 pub fn apply_language(choice: LanguageChoice) {

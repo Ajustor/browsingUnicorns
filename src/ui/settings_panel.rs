@@ -40,6 +40,8 @@ impl Default for ClearChoice {
 /// What the view needs to know besides the settings.
 pub struct SettingsView<'a> {
     pub settings: &'a Settings,
+    /// The language chosen on this computer.
+    pub language: LanguageChoice,
     /// The engine can save passwords and clear site data (WebView2).
     pub passwords: bool,
     pub clear_site_data: bool,
@@ -60,17 +62,17 @@ impl SettingsPanel {
         section(ui, icon::TRANSLATE, i18n::settings::language());
         ui.weak(i18n::settings::language_hint());
         egui::ComboBox::from_id_salt("language")
-            .selected_text(language_name(settings.device.language))
+            .selected_text(language_name(view.language))
             .width(ui.available_width().min(240.0))
             .show_ui(ui, |ui| {
                 for choice in [LanguageChoice::Auto, LanguageChoice::En, LanguageChoice::Fr] {
-                    let selected = choice == settings.device.language;
+                    let selected = choice == view.language;
                     if ui
                         .selectable_label(selected, language_name(choice))
                         .clicked()
                         && !selected
                     {
-                        change(&|s| s.device.language = choice);
+                        commands.push(Command::SetLanguage(choice));
                     }
                 }
             });

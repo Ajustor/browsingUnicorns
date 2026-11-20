@@ -58,6 +58,8 @@ pub struct BrowserApp {
     /// The ad blocker's bar, when open.
     shield: Option<Shield>,
     window_title: String,
+    /// The language chosen on this computer (the Settings view's).
+    language: domain::LanguageChoice,
     last_persist: Instant,
     close_requested: bool,
     /// A private window's web view data. Last: dropped (deleted) after the
@@ -128,6 +130,7 @@ impl BrowserApp {
             site_info: None,
             shield: None,
             window_title: String::new(),
+            language: super::device_language(),
             last_persist: Instant::now(),
             close_requested: false,
             private_data,
@@ -172,7 +175,6 @@ impl BrowserApp {
                 };
                 let device = self.browser.settings().device.clone();
                 self.browser.engine_mut().apply_device_settings(&device);
-                super::apply_language(device.language);
                 r
             }
             Command::ClearBrowsingData(what) => self.clear_browsing_data(what),
@@ -446,6 +448,12 @@ impl BrowserApp {
                         self.report(e);
                     }
                     self.browser.engine_mut().apply_device_settings(&device);
+                }
+            }
+            Command::SetLanguage(choice) => {
+                self.language = choice;
+                if let Err(e) = super::language::choose_language(choice) {
+                    self.report(e);
                 }
             }
             Command::ApplyZoom => {
@@ -895,6 +903,7 @@ impl BrowserApp {
                 },
                 settings: super::settings_panel::SettingsView {
                     settings: self.browser.settings(),
+                    language: self.language,
                     passwords: self.browser.engine().can_save_passwords(),
                     clear_site_data: self.browser.engine().can_clear_site_data(),
                     default_download_dir: infrastructure::downloads_dir(),

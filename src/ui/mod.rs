@@ -33,7 +33,7 @@ pub use blocker::BlockerRunner;
 pub use default_browser::DefaultBrowser;
 pub use extension_bar::ExtensionBar;
 pub use extensions::ExtensionsRunner;
-pub use language::apply_language;
+pub use language::{apply_language, device_language};
 pub use profiles::ProfilesRunner;
 pub use sync::SyncRunner;
 pub use updates::Updates;

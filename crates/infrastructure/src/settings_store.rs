@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use application::ports::{Repository, RepositoryError};
-use domain::{DeviceSettings, LanguageChoice, SearchEngine, Settings, WebAddress};
+use domain::{DeviceSettings, SearchEngine, Settings, WebAddress};
 use serde::{Deserialize, Serialize};
 
 use crate::files;
@@ -31,18 +31,6 @@ struct SettingsFile {
     save_passwords: bool,
     /// Zoom of the sites zoomed in or out.
     site_zoom: Vec<SiteZoomFile>,
-    /// The interface's language.
-    language: LanguageFile,
-}
-
-/// `auto`, `en` or `fr`; anything else follows the system.
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum LanguageFile {
-    En,
-    Fr,
-    #[serde(other)]
-    Auto,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -91,11 +79,6 @@ impl From<&Settings> for SettingsFile {
                     percent: *percent,
                 })
                 .collect(),
-            language: match s.device.language {
-                LanguageChoice::Auto => LanguageFile::Auto,
-                LanguageChoice::En => LanguageFile::En,
-                LanguageChoice::Fr => LanguageFile::Fr,
-            },
         }
     }
 }
@@ -120,11 +103,6 @@ impl SettingsFile {
                     .into_iter()
                     .map(|z| (z.host, z.percent))
                     .collect(),
-                language: match self.language {
-                    LanguageFile::Auto => LanguageChoice::Auto,
-                    LanguageFile::En => LanguageChoice::En,
-                    LanguageFile::Fr => LanguageChoice::Fr,
-                },
             },
         })
     }
@@ -194,7 +172,6 @@ mod tests {
                 ask_where_to_save: true,
                 save_passwords: true,
                 site_zoom: vec![("example.com".into(), 125), ("b.org".into(), 80)],
-                language: LanguageChoice::Fr,
             },
         };
         repo(&dir).save(&settings).unwrap();
@@ -211,20 +188,6 @@ mod tests {
         assert_eq!(loaded.search_engine, SearchEngine::default());
         assert!(loaded.blocker);
         assert!(loaded.blocker_allowlist.is_empty());
-        assert_eq!(loaded.device.language, LanguageChoice::Auto);
-    }
-
-    #[test]
-    fn languages_are_saved_by_code() {
-        let dir = tempfile::tempdir().unwrap();
-        let repo = repo(&dir);
-        let mut settings = Settings::default();
-        settings.device.language = LanguageChoice::En;
-        repo.save(&settings).unwrap();
-        let text = std::fs::read_to_string(repo.path()).unwrap();
-        assert!(text.contains("language = \"en\""), "{text}");
-        files::write(repo.path(), "language = \"klingon\"\n").unwrap();
-        assert_eq!(repo.load().unwrap().device.language, LanguageChoice::Auto);
     }
 
     #[test]

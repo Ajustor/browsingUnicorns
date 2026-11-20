@@ -10,6 +10,7 @@ pub mod certificates;
 mod clock;
 #[cfg(feature = "desktop")]
 pub mod default_browser;
+mod device_file;
 mod dto;
 pub mod extension_fetch;
 pub mod extension_hub;
@@ -64,6 +65,7 @@ use application::ports::Profile;
 use domain::{BrowsingHistory, SessionSnapshot, Settings};
 
 pub use clock::SystemClock;
+pub use device_file::DeviceFile;
 pub use json_store::JsonRepository;
 pub use memory_store::{MemoryRepository, NOT_IN_PRIVATE, NoPackages, ReadOnlyRepository};
 #[cfg(feature = "desktop")]

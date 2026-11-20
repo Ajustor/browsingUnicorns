@@ -28,6 +28,8 @@ pub enum Command {
     NewTab,
     /// Saves new settings (the Settings view).
     UpdateSettings(Box<domain::Settings>),
+    /// Speaks another language, on this computer.
+    SetLanguage(domain::LanguageChoice),
     /// Removes the history, the sites' data or the cache.
     ClearBrowsingData(ClearData),
     /// Applies the zoom by site to the open tabs.

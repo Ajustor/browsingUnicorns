@@ -148,7 +148,6 @@ pub fn build(
         log::warn!("settings ignored: {e}");
         Settings::default()
     });
-    crate::ui::apply_language(settings.device.language);
 
     // Safety: the web views live in the app, which eframe drops before the
     // window.

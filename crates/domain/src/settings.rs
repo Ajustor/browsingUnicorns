@@ -29,11 +29,10 @@ pub struct DeviceSettings {
     pub save_passwords: bool,
     /// Zoom of the sites zoomed in or out, in percent, by host.
     pub site_zoom: Vec<(String, u32)>,
-    /// The interface's language.
-    pub language: LanguageChoice,
 }
 
-/// The interface's language: the system's, or one chosen.
+/// The interface's language: the system's, or one chosen. The computer's,
+/// whatever the profile (not part of [`Settings`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LanguageChoice {
     #[default]
@@ -158,19 +157,7 @@ mod tests {
 
     #[test]
     fn the_language_follows_the_system_by_default() {
-        assert_eq!(DeviceSettings::default().language, LanguageChoice::Auto);
-    }
-
-    #[test]
-    fn the_language_stays_when_others_win() {
-        let mut mine = Settings::default();
-        mine.device.language = LanguageChoice::Fr;
-        let theirs = Settings {
-            updated_at: 5,
-            ..Settings::default()
-        };
-        assert!(mine.merge(&theirs));
-        assert_eq!(mine.device.language, LanguageChoice::Fr);
+        assert_eq!(LanguageChoice::default(), LanguageChoice::Auto);
     }
 
     #[test]

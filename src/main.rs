@@ -30,6 +30,8 @@ fn main() -> eframe::Result<()> {
     if bootstrap::hand_over(&args) {
         return Ok(());
     }
+    // Before the window: every message follows it.
+    ui::apply_language(ui::device_language());
     let mut viewport = egui::ViewportBuilder::default()
         .with_title(ui::APP_NAME)
         .with_app_id("browsingUnicorns")
