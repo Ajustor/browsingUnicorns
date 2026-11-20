@@ -24,12 +24,14 @@ domain = { path = "crates/domain" }
 application = { path = "crates/application" }
 infrastructure = { path = "crates/infrastructure", default-features = false }
 updater = { path = "crates/updater" }
+i18n = { path = "crates/i18n" }
 
 [dependencies]
 domain.workspace = true
 application.workspace = true
 infrastructure = { workspace = true, features = ["desktop"] }
 updater.workspace = true
+i18n.workspace = true
 eframe = { version = "0.31", features = ["default"] }
 egui = "0.31"
 egui-phosphor = "0.9"
@@ -41,6 +43,8 @@ env_logger = "0.11"
 image = { version = "0.25", default-features = false, features = ["png"] }
 # The system's file and folder pickers (extensions installed by hand).
 rfd = "0.18"
+# The system's language, for the interface's when it follows it.
+sys-locale = "0.3"
 
 [dev-dependencies]
 tempfile = "3"

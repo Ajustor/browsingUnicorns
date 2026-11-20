@@ -1,7 +1,7 @@
-//! The Settings view of the side panel: home page, search engine,
+//! The Settings view of the side panel: language, home page, search engine,
 //! downloads, passwords, zoom by site, and clearing what pages left.
 
-use domain::{SearchEngine, Settings, WebAddress};
+use domain::{LanguageChoice, SearchEngine, Settings, WebAddress};
 use egui::{Button, RichText, TextEdit};
 use egui_phosphor::regular as icon;
 
@@ -56,6 +56,24 @@ impl SettingsPanel {
             f(&mut s);
             changed = Some(s);
         };
+
+        section(ui, icon::TRANSLATE, i18n::settings::language());
+        ui.weak(i18n::settings::language_hint());
+        egui::ComboBox::from_id_salt("language")
+            .selected_text(language_name(settings.device.language))
+            .width(ui.available_width().min(240.0))
+            .show_ui(ui, |ui| {
+                for choice in [LanguageChoice::Auto, LanguageChoice::En, LanguageChoice::Fr] {
+                    let selected = choice == settings.device.language;
+                    if ui
+                        .selectable_label(selected, language_name(choice))
+                        .clicked()
+                        && !selected
+                    {
+                        change(&|s| s.device.language = choice);
+                    }
+                }
+            });
 
         section(ui, icon::HOUSE, "Home page");
         ui.weak("Opened by new tabs and the Home button.");
@@ -171,7 +189,7 @@ impl SettingsPanel {
                     {
                         reset = Some(host.clone());
                     }
-                    ui.label(format!("{host}: {percent}%"));
+                    ui.label(i18n::settings::zoom_of(host, *percent));
                 });
             }
             if let Some(host) = reset {
@@ -249,6 +267,16 @@ impl SettingsPanel {
 fn section(ui: &mut egui::Ui, glyph: &str, title: &str) {
     ui.add_space(10.0);
     ui.label(RichText::new(format!("{glyph} {title}")).strong());
+}
+
+/// A language as the menu offers it: each in itself, Automatic in the
+/// current one.
+fn language_name(choice: LanguageChoice) -> &'static str {
+    match choice {
+        LanguageChoice::Auto => i18n::settings::language_auto(),
+        LanguageChoice::En => i18n::Lang::En.native_name(),
+        LanguageChoice::Fr => i18n::Lang::Fr.native_name(),
+    }
 }
 
 fn parse_home(text: &str) -> Option<WebAddress> {

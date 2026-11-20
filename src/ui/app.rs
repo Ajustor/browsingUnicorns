@@ -172,6 +172,7 @@ impl BrowserApp {
                 };
                 let device = self.browser.settings().device.clone();
                 self.browser.engine_mut().apply_device_settings(&device);
+                super::apply_language(device.language);
                 r
             }
             Command::ClearBrowsingData(what) => self.clear_browsing_data(what),

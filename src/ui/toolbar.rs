@@ -145,10 +145,13 @@ pub fn show(
             let (star, tip) = if bookmarked {
                 (
                     RichText::new(icon::STAR).strong().color(super::theme::CYAN),
-                    "Remove bookmark (Ctrl+D)",
+                    i18n::toolbar::remove_bookmark(),
                 )
             } else {
-                (RichText::new(icon::STAR), "Bookmark this page (Ctrl+D)")
+                (
+                    RichText::new(icon::STAR),
+                    i18n::toolbar::bookmark_this_page(),
+                )
             };
             if button(ui, star.size(16.0), tip, address.is_some()) {
                 commands.push(Command::ToggleBookmark);
