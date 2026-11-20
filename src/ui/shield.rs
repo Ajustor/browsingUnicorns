@@ -102,10 +102,7 @@ fn status(view: &ShieldView) -> String {
 fn lists_line(updated: Option<SystemTime>, now: SystemTime) -> String {
     match updated {
         None => i18n::shield::lists_not_downloaded().into(),
-        Some(at) => match now.duration_since(at).map_or(0, |d| d.as_secs()) {
-            0..60 => i18n::shield::lists_updated_just_now().into(),
-            age => i18n::shield::lists_updated_ago(&super::library::ago_secs(age)),
-        },
+        Some(at) => i18n::shield::lists_updated(now.duration_since(at).map_or(0, |d| d.as_secs())),
     }
 }
 

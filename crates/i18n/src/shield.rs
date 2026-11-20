@@ -25,14 +25,41 @@ messages! {
         en: "Lists: EasyList, EasyPrivacy, uBlock filters, Twitch (vaft) · not downloaded yet",
         fr: "Listes\u{a0}: EasyList, EasyPrivacy, filtres uBlock, Twitch (vaft) · pas encore téléchargées",
     }
-    /// The lists' line, downloaded less than a minute ago.
-    fn lists_updated_just_now() {
-        en: "Lists: EasyList, EasyPrivacy, uBlock filters, Twitch (vaft) · updated just now",
-        fr: "Listes\u{a0}: EasyList, EasyPrivacy, filtres uBlock, Twitch (vaft) · mises à jour à l'instant",
+    /// The lists' line, downloaded `secs` seconds ago.
+    fn lists_updated(secs: u64) -> String {
+        en: {
+            let age = match secs {
+                0..60 => "just now".to_owned(),
+                60..3_600 => format!("{} min ago", secs / 60),
+                3_600..86_400 => format!("{} h ago", secs / 3_600),
+                _ => format!("{} d ago", secs / 86_400),
+            };
+            format!("Lists: EasyList, EasyPrivacy, uBlock filters, Twitch (vaft) · updated {age}")
+        },
+        fr: {
+            let age = match secs {
+                0..60 => "à l'instant".to_owned(),
+                60..3_600 => format!("il y a {}\u{a0}min", secs / 60),
+                3_600..86_400 => format!("il y a {}\u{a0}h", secs / 3_600),
+                _ => format!("il y a {}\u{a0}j", secs / 86_400),
+            };
+            format!("Listes\u{a0}: EasyList, EasyPrivacy, filtres uBlock, Twitch (vaft) · mises à jour {age}")
+        },
     }
-    /// The lists' line, downloaded `age` ago ("5 min", "3 h"…).
-    fn lists_updated_ago(age: &str) {
-        en: "Lists: EasyList, EasyPrivacy, uBlock filters, Twitch (vaft) · updated {age} ago",
-        fr: "Listes\u{a0}: EasyList, EasyPrivacy, filtres uBlock, Twitch (vaft) · mises à jour il y a {age}",
+}
+
+#[cfg(test)]
+mod tests {
+    use super::in_lang::*;
+    use crate::Lang;
+
+    #[test]
+    fn the_lists_tell_their_age() {
+        assert!(lists_updated(Lang::En, 10).ends_with("updated just now"));
+        assert!(lists_updated(Lang::En, 300).ends_with("updated 5 min ago"));
+        assert!(lists_updated(Lang::En, 2 * 86_400).ends_with("updated 2 d ago"));
+        assert!(lists_updated(Lang::Fr, 10).ends_with("mises à jour à l'instant"));
+        assert!(lists_updated(Lang::Fr, 3 * 3_600).ends_with("mises à jour il y a 3\u{a0}h"));
+        assert!(lists_updated(Lang::Fr, 2 * 86_400).ends_with("il y a 2\u{a0}j"));
     }
 }
