@@ -112,10 +112,14 @@ document :
   dans l'historique du navigateur. Il renvoie aussi la requête GET de la
   page : un lien à usage unique (retour d'une connexion OAuth, lien
   magique, confirmation, retour de paiement) serait consommé deux fois ;
-  ceux-là arrivent par une redirection, donc une page venue par une
-  redirection n'est pas rechargée (sur le premier passage d'un site en
-  redirection, comme `youtube.com` vers `www.youtube.com`, les
-  scriptlets valent dès le document suivant). Une navigation qui n'engage
+  ceux-là arrivent par une redirection vers une adresse à paramètres,
+  donc une page venue par une redirection dont la cible a une chaîne de
+  requête n'est pas rechargée (ses scriptlets valent dès le document
+  suivant). Les jetons de l'adresse qui redirige ont servi à la première
+  étape : `twitch.tv` vers `www.twitch.tv`, `youtube.com` vers
+  `www.youtube.com`, http vers https sont rechargés (sans quoi une
+  application d'une seule page resterait sans scriptlets toute la
+  visite). Une navigation qui n'engage
   jamais de page (un téléchargement, une réponse 204, une navigation
   arrêtée) laisse simplement tomber le rechargement prévu. Écartés après
   essai : annuler la navigation puis la refaire (ce qui l'a lancée ne se

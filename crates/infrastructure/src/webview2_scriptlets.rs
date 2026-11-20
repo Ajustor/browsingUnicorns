@@ -17,9 +17,10 @@
 //! nobody touched). Neither can WebView2 wait for it: a deferred document
 //! request stops the add from completing. Not reloaded, its script running
 //! from the next document: a navigation with a body (a form's POST would be
-//! sent again), through the history (it may be a POST's result), or that
-//! came through a redirect (a one-time link, a sign-in's return, would be
-//! used twice).
+//! sent again), through the history (it may be a POST's result), or a
+//! redirect's target with a query (a one-time link, a sign-in's return,
+//! would be used twice; tokens on the redirecting address were used by the
+//! first step, so `twitch.tv` to `www.twitch.tv` is reloaded).
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -120,7 +121,10 @@ impl Sites {
     ) -> Option<(String, u64)> {
         let redirected = self.current == Some(navigation);
         self.current = Some(navigation);
-        let reloadable = reloadable && !redirected;
+        // A redirect's target with a query may be a one-time link (a
+        // sign-in's return): its GET is not sent again. Tokens on the
+        // redirecting address were used by the first step.
+        let reloadable = reloadable && !(redirected && has_query(uri));
         self.missed = (!engine && reloadable).then(|| Missed {
             uri: uri.to_owned(),
             navigation,
@@ -262,6 +266,14 @@ impl Sites {
     }
 }
 
+/// Whether `uri` has a query string.
+fn has_query(uri: &str) -> bool {
+    uri.split('#')
+        .next()
+        .and_then(|u| u.split_once('?'))
+        .is_some_and(|(_, query)| !query.is_empty())
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Kind {
     NewDocument,
@@ -393,7 +405,10 @@ fn add_script(
                 remove(&done_webview, id);
             }
             if after.late {
-                log::debug!("scriptlets: {done_host}'s page came too long before its script");
+                // Rare (a page loaded long before the engine came): seen.
+                log::info!(
+                    "scriptlets: {done_host}'s page came too long before its script, not reloaded"
+                );
             }
             if after.reload
                 && let Err(e) = unsafe { done_webview.Reload() }
@@ -588,7 +603,7 @@ mod tests {
     }
 
     #[test]
-    fn a_page_that_came_through_a_redirect_is_not_reloaded() {
+    fn a_redirect_target_with_a_query_is_not_reloaded() {
         let t0 = Instant::now();
         let mut sites = Sites::default();
         // A sign-in's return: another site, then this one, same navigation.
@@ -596,9 +611,29 @@ mod tests {
             sites.start("https://login.test/", 1, true, true, NONE),
             None
         );
-        let add = add_of(sites.start("https://a.test/back?code=1", 1, true, true, SCRIPT));
+        let add = add_of(sites.start("https://app.test/callback?code=x", 1, true, true, SCRIPT));
         sites.committed(1, false, t0);
-        assert!(!done(&mut sites, "a.test", add, t0, 100).reload);
+        assert!(!done(&mut sites, "app.test", add, t0, 100).reload);
+    }
+
+    #[test]
+    fn a_redirect_target_without_a_query_is_reloaded() {
+        let t0 = Instant::now();
+        let mut sites = Sites::default();
+        // twitch.tv, redirected to www.twitch.tv (same navigation), whose
+        // script is added on the second step.
+        assert_eq!(sites.start("https://twitch.tv/", 1, true, true, NONE), None);
+        let add = add_of(sites.start("https://www.twitch.tv/", 1, true, true, SCRIPT));
+        sites.committed(1, false, t0);
+        assert!(done(&mut sites, "www.twitch.tv", add, t0, 100).reload);
+    }
+
+    #[test]
+    fn a_query_is_told() {
+        assert!(has_query("https://a.test/cb?code=x"));
+        assert!(!has_query("https://a.test/"));
+        assert!(!has_query("https://a.test/?"));
+        assert!(!has_query("https://a.test/#a?b"));
     }
 
     #[test]
