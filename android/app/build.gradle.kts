@@ -13,7 +13,9 @@ android {
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "io.github.ajustor.browsingunicorns"
+        // The id registered with Android developer verification. The Kotlin
+        // namespace above is only the code's package and stays as it is.
+        applicationId = "ajustor.browsingunicorns"
         minSdk = 26
         targetSdk = 36
         versionName = appVersion
