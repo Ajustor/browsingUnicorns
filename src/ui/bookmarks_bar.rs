@@ -53,7 +53,7 @@ pub fn show(ui: &mut egui::Ui, bookmarks: &Bookmarks, commands: &mut Vec<Command
                             .small(),
                         )
                     })
-                    .on_hover_text("Show this folder's bookmarks")
+                    .on_hover_text(i18n::bookmarks::show_folder_tip())
                     .clicked()
                     {
                         commands.push(Command::ShowBookmarkFolder(folder.to_owned()));
