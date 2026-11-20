@@ -4,6 +4,16 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.17.2] - 2026-11-20
+
+### Corrigé
+
+- Une vidéo mise en plein écran depuis une fenêtre maximisée laissait une
+  bande en haut ou sur les côtés de l'écran (par exemple une barre de
+  titre sur Disney+, un liseré sur Crunchyroll) : la fenêtre quitte
+  maintenant l'état maximisé le temps du plein écran et le retrouve
+  après (Windows).
+
 ## [0.17.1] - 2026-11-20
 
 ### Modifié
