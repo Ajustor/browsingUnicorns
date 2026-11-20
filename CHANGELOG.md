@@ -4,6 +4,15 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.17.3] - 2026-11-20
+
+### Ajouté
+
+- Android : l'app apparaît dans le menu *Partager* (« Ouvrir dans
+  browsingUnicorns »). Un lien partagé depuis une autre app s'ouvre dans un
+  nouvel onglet ; d'un texte « titre + lien », c'est le lien qui est
+  ouvert, et un texte sans lien est cherché.
+
 ## [0.17.2] - 2026-11-20
 
 ### Corrigé
