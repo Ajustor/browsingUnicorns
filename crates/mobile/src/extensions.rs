@@ -87,11 +87,11 @@ fn served_file(dir: &Path, id: &ExtensionId, path: &str) -> Option<PathBuf> {
 }
 
 fn script_id(id: &str) -> Result<UserScriptId, MobileError> {
-    UserScriptId::parse(id).ok_or_else(|| MobileError::new("not a user script id"))
+    UserScriptId::parse(id).ok_or_else(|| MobileError::new(i18n::mobile::not_a_user_script_id()))
 }
 
 fn id(id: &str) -> Result<ExtensionId, MobileError> {
-    ExtensionId::parse(id).ok_or_else(|| MobileError::new("not an extension id"))
+    ExtensionId::parse(id).ok_or_else(|| MobileError::new(i18n::mobile::not_an_extension_id()))
 }
 
 #[uniffi::export]
@@ -117,7 +117,7 @@ impl MobileBrowser {
     /// id. Blocking: call it off the main thread. Returns its name.
     pub fn install_extension(&self, input: String) -> Result<String, MobileError> {
         let id = ExtensionId::from_store_input(&input)
-            .ok_or_else(|| MobileError::new("Paste a Chrome Web Store link or an extension id."))?;
+            .ok_or_else(|| MobileError::new(i18n::mobile::paste_store_link_or_id()))?;
         let packages = self.extensions_lock().packages();
         let extension = packages
             .install(&ExtensionSource::Store(id))
