@@ -38,6 +38,15 @@ use host::{HostEngine, HostTransport};
 
 uniffi::setup_scaffolding!();
 
+/// The language of the messages made here (errors…): the app's resolved
+/// locale, as a tag (`fr`, `fr-FR`…). French for French, English
+/// otherwise. Callable before any browser exists; Kotlin calls it at start
+/// and on every locale change. Never from tests (see the `i18n` crate).
+#[uniffi::export]
+pub fn set_language(tag: String) {
+    i18n::set(i18n::Lang::from_locale(&tag));
+}
+
 /// The relay deployed from `relay/sync` (same as the desktop's).
 pub const DEFAULT_RELAY: &str = "https://browsing-unicorns-sync.minecities.workers.dev";
 
@@ -876,12 +885,6 @@ impl MobileBrowser {
     /// the page to apply it).
     pub fn set_blocker_for_site(&self, host: String, enabled: bool) -> Result<(), MobileError> {
         self.change_settings(|s| s.set_blocks_on(&host, enabled))
-    }
-
-    /// The language of the messages made here (errors…): the app's, as a
-    /// locale tag (`fr`, `fr-FR`…). French for French, English otherwise.
-    pub fn set_language(&self, tag: String) {
-        i18n::set(i18n::Lang::from_locale(&tag));
     }
 }
 
