@@ -4,6 +4,17 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.17.0] - 2026-11-20
+
+### Ajouté
+
+- L'interface existe en français et en anglais, avec les messages d'erreur.
+  Sur ordinateur, *Réglages > Langue* : *Automatique* (la langue du
+  système), *English* ou *Français* ; le choix vaut pour tout l'appareil
+  et s'applique tout de suite. Sur Android, l'app suit la langue du
+  système, ou celle choisie pour elle dans les réglages d'Android (13 et
+  plus).
+
 ## [0.16.0] - 2026-11-20
 
 ### Ajouté
