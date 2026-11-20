@@ -171,12 +171,12 @@ fn shield_button(ui: &mut egui::Ui, shield: &ShieldButton) -> bool {
     let (glyph, tip) = if shield.on {
         (
             RichText::new(icon::SHIELD_CHECK).color(super::theme::CYAN),
-            "Ad blocker: on for this site",
+            i18n::shield::on_for_site(),
         )
     } else {
         (
             RichText::new(icon::SHIELD_SLASH),
-            "Ad blocker: off for this site",
+            i18n::shield::off_for_site(),
         )
     };
     let response =
