@@ -62,11 +62,7 @@ impl ExtensionsRunner {
     /// Downloads and unpacks in the background; [`Self::poll`] finishes.
     pub fn install(&mut self, input: &str) {
         let Some(source) = source_of(input) else {
-            self.status = Some(Err(
-                "Paste a Chrome Web Store or Edge Add-ons link, an extension id, or the path of a .crx file \
-                 or of an unpacked extension's folder."
-                    .into(),
-            ));
+            self.status = Some(Err(i18n::extensions::invalid_input().into()));
             return;
         };
         self.installing = Some(input.trim().to_owned());
@@ -90,7 +86,7 @@ impl ExtensionsRunner {
         self.installing = None;
         self.status = Some(match result {
             Ok(extension) => {
-                let name = format!("{} {} installed.", extension.name, extension.version);
+                let name = i18n::extensions::installed(&extension.name, &extension.version);
                 match self.manager.installed(extension, engine) {
                     Ok(()) => Ok(name),
                     Err(e) => Err(e.to_string()),
@@ -156,27 +152,19 @@ impl ExtensionsPanel {
         view: &ExtensionsView<'_>,
         commands: &mut Vec<Command>,
     ) {
-        ui.heading("Extensions");
+        ui.heading(i18n::extensions::heading());
         match view.support {
             ExtensionSupport::None => {
-                ui.label(
-                    "Extensions need the Windows web view (WebView2): the web view \
-                     of this system cannot run them.",
-                );
+                ui.label(i18n::extensions::unsupported());
                 return;
             }
             ExtensionSupport::Partial => {
-                ui.weak(
-                    "On this system the browser runs the extensions' blocking rules \
-                     and page scripts; their background pages and popups do not run.",
-                );
+                ui.weak(i18n::extensions::partly_supported());
             }
             ExtensionSupport::Full => {}
         }
         let runner = view.runner;
-        ui.label(
-            "Chrome Web Store or Edge Add-ons link, extension id, .crx file or unpacked folder:",
-        );
+        ui.label(i18n::extensions::input_label());
         let field = ui.add(
             TextEdit::singleline(&mut self.input)
                 .hint_text("https://chromewebstore.google.com/detail/…")
@@ -188,7 +176,11 @@ impl ExtensionsPanel {
             if ui
                 .add_enabled(
                     can,
-                    Button::new(format!("{} Install", icon::DOWNLOAD_SIMPLE)),
+                    Button::new(format!(
+                        "{} {}",
+                        icon::DOWNLOAD_SIMPLE,
+                        i18n::extensions::install()
+                    )),
                 )
                 .clicked()
                 || (submitted && can)
@@ -198,7 +190,7 @@ impl ExtensionsPanel {
             if super::theme::hover_fill(ui, |ui| {
                 ui.add(Button::new(format!("{} Web Store", icon::STOREFRONT)).frame(false))
             })
-            .on_hover_text("Find extensions in the Chrome Web Store")
+            .on_hover_text(i18n::extensions::web_store_tip())
             .clicked()
                 && let Ok(store) = domain::WebAddress::parse("https://chromewebstore.google.com/")
             {
@@ -212,13 +204,17 @@ impl ExtensionsPanel {
             if ui
                 .add_enabled(
                     idle,
-                    Button::new(format!("{} Choose .crx…", icon::FILE_ARCHIVE)),
+                    Button::new(format!(
+                        "{} {}",
+                        icon::FILE_ARCHIVE,
+                        i18n::extensions::choose_crx()
+                    )),
                 )
-                .on_hover_text("Install a packaged extension from this computer")
+                .on_hover_text(i18n::extensions::choose_crx_tip())
                 .clicked()
                 && let Some(file) = rfd::FileDialog::new()
-                    .set_title("Install an extension")
-                    .add_filter("Chrome extension", &["crx"])
+                    .set_title(i18n::extensions::crx_dialog_title())
+                    .add_filter(i18n::extensions::crx_filter(), &["crx"])
                     .pick_file()
             {
                 commands.push(Command::InstallExtension(file.display().to_string()));
@@ -226,15 +222,16 @@ impl ExtensionsPanel {
             if ui
                 .add_enabled(
                     idle,
-                    Button::new(format!("{} Load unpacked…", icon::FOLDER_OPEN)),
+                    Button::new(format!(
+                        "{} {}",
+                        icon::FOLDER_OPEN,
+                        i18n::extensions::load_unpacked()
+                    )),
                 )
-                .on_hover_text(
-                    "Install an extension from its folder (the one with manifest.json); \
-                     load it again to take its changes",
-                )
+                .on_hover_text(i18n::extensions::load_unpacked_tip())
                 .clicked()
                 && let Some(folder) = rfd::FileDialog::new()
-                    .set_title("Extension folder (with manifest.json)")
+                    .set_title(i18n::extensions::folder_dialog_title())
                     .pick_folder()
             {
                 commands.push(Command::InstallExtension(folder.display().to_string()));
@@ -243,7 +240,7 @@ impl ExtensionsPanel {
         if let Some(what) = &runner.installing {
             ui.horizontal(|ui| {
                 ui.spinner();
-                ui.add(egui::Label::new(format!("Installing {what}…")).truncate());
+                ui.add(egui::Label::new(i18n::extensions::installing(what)).truncate());
             });
         }
         match &runner.status {
@@ -258,7 +255,7 @@ impl ExtensionsPanel {
         ui.separator();
         let extensions = runner.extensions();
         if extensions.is_empty() {
-            ui.weak("No extensions.");
+            ui.weak(i18n::extensions::none());
             return;
         }
         for e in extensions.items() {
@@ -267,12 +264,9 @@ impl ExtensionsPanel {
             ui.add_space(6.0);
         }
         ui.weak(if view.origins.is_some() {
-            "Pages already open see a change after a reload. Extensions with a \
-             popup have a button next to the bookmark star; Options opens their \
-             settings in a tab."
+            i18n::extensions::note_with_popups()
         } else {
-            "Pages already open see a change after a reload. Toolbar buttons do \
-             not exist here: Popup and Options open the extension's pages in a tab."
+            i18n::extensions::note_in_tabs()
         });
     }
 }
@@ -288,7 +282,11 @@ fn extension_row(
         let mut enabled = e.enabled;
         if ui
             .checkbox(&mut enabled, "")
-            .on_hover_text(if e.enabled { "Disable" } else { "Enable" })
+            .on_hover_text(if e.enabled {
+                i18n::extensions::disable_tip()
+            } else {
+                i18n::extensions::enable_tip()
+            })
             .changed()
         {
             commands.push(Command::SetExtensionEnabled(e.id.clone(), enabled));
@@ -304,7 +302,8 @@ fn extension_row(
             // The browser serves the pages: the popup goes in this panel.
             Some(origins) => {
                 if e.popup.is_some() {
-                    let response = ui.add_enabled(e.enabled, Button::new("Popup").small());
+                    let response =
+                        ui.add_enabled(e.enabled, Button::new(i18n::extensions::popup()).small());
                     if response.clicked() {
                         commands.push(Command::ToggleExtensionPopup {
                             id: e.id.clone(),
@@ -315,15 +314,18 @@ fn extension_row(
                 if let Some(options) = &e.options
                     && let Ok(page) = WebAddress::parse(&origins.url(&e.id, options))
                     && ui
-                        .add_enabled(e.enabled, Button::new("Options").small())
+                        .add_enabled(e.enabled, Button::new(i18n::extensions::options()).small())
                         .clicked()
                 {
                     commands.push(Command::Open(page, Target::NewTab));
                 }
                 if inspect
                     && ui
-                        .add(Button::new(format!("{} Inspect", icon::CODE)).small())
-                        .on_hover_text("Developer tools of its background page")
+                        .add(
+                            Button::new(format!("{} {}", icon::CODE, i18n::extensions::inspect()))
+                                .small(),
+                        )
+                        .on_hover_text(i18n::extensions::inspect_tip())
                         .clicked()
                 {
                     commands.push(Command::InspectExtension(e.id.clone()));
@@ -331,7 +333,10 @@ fn extension_row(
             }
             // WebView2's own: its pages in a tab.
             None => {
-                for (label, page) in [("Popup", e.popup_page()), ("Options", e.options_page())] {
+                for (label, page) in [
+                    (i18n::extensions::popup(), e.popup_page()),
+                    (i18n::extensions::options(), e.options_page()),
+                ] {
                     if let Some(page) = page
                         && ui
                             .add_enabled(e.enabled, Button::new(label).small())
@@ -343,7 +348,7 @@ fn extension_row(
             }
         }
         if ui
-            .add(Button::new(format!("{} Remove", icon::TRASH)).small())
+            .add(Button::new(format!("{} {}", icon::TRASH, i18n::extensions::remove())).small())
             .clicked()
         {
             commands.push(Command::RemoveExtension(e.id.clone()));
