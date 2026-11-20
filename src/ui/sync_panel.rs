@@ -41,26 +41,30 @@ impl SyncPanel {
 
     fn off(&mut self, ui: &mut egui::Ui, commands: &mut Vec<Command>) {
         self.show_code = false;
-        ui.label(
-            "Sync bookmarks, history, open tabs and settings with your other \
-             devices. Everything is encrypted on the device: the relay cannot read it.",
-        );
+        ui.label(i18n::sync::intro());
         ui.add_space(8.0);
         if ui
-            .button(format!("{} Turn on sync", icon::ARROWS_CLOCKWISE))
+            .button(format!(
+                "{} {}",
+                icon::ARROWS_CLOCKWISE,
+                i18n::sync::turn_on()
+            ))
             .clicked()
         {
             commands.push(Command::SyncTurnOn);
         }
         ui.add_space(12.0);
-        ui.label("Already on another device? Enter its sync code:");
+        ui.label(i18n::sync::join_prompt());
         ui.add(
             TextEdit::singleline(&mut self.join_code)
                 .hint_text("ABCD-EFGH-…")
                 .desired_width(f32::INFINITY),
         );
         if ui
-            .add_enabled(!self.join_code.trim().is_empty(), Button::new("Join"))
+            .add_enabled(
+                !self.join_code.trim().is_empty(),
+                Button::new(i18n::sync::join()),
+            )
             .clicked()
         {
             commands.push(Command::SyncJoin(std::mem::take(&mut self.join_code)));
@@ -75,18 +79,17 @@ impl SyncPanel {
         now: Timestamp,
         commands: &mut Vec<Command>,
     ) {
-        ui.label(format!("This device: {}", config.device_name));
+        ui.label(i18n::sync::this_device(&config.device_name));
         ui.horizontal(|ui| {
             match view.state {
-                RoundState::Never => ui.weak("Not synced yet."),
+                RoundState::Never => ui.weak(i18n::sync::not_synced()),
                 RoundState::Running => {
                     ui.spinner();
-                    ui.label("Syncing…")
+                    ui.label(i18n::sync::syncing())
                 }
-                RoundState::Done(at) => ui.weak(format!(
-                    "Synced {}.",
-                    super::library::ago_secs(at.elapsed().as_secs())
-                )),
+                RoundState::Done(at) => ui.weak(i18n::sync::synced(&super::library::ago_secs(
+                    at.elapsed().as_secs(),
+                ))),
                 RoundState::Failed(e) => ui.colored_label(ui.visuals().error_fg_color, e),
             };
         });
@@ -95,15 +98,19 @@ impl SyncPanel {
             if ui
                 .add_enabled(
                     !running,
-                    Button::new(format!("{} Sync now", icon::ARROWS_CLOCKWISE)),
+                    Button::new(format!(
+                        "{} {}",
+                        icon::ARROWS_CLOCKWISE,
+                        i18n::sync::sync_now()
+                    )),
                 )
                 .clicked()
             {
                 commands.push(Command::SyncNow);
             }
             if ui
-                .button("Turn off")
-                .on_hover_text("Leave the sync group on this device")
+                .button(i18n::sync::turn_off())
+                .on_hover_text(i18n::sync::turn_off_tip())
                 .clicked()
             {
                 commands.push(Command::SyncTurnOff);
@@ -111,13 +118,13 @@ impl SyncPanel {
         });
 
         ui.add_space(8.0);
-        ui.collapsing("Add a device", |ui| {
-            ui.label(
-                "On the other device, choose \"Join\" and scan this QR code or type \
-                 the code. Keep it secret: it gives access to your data.",
-            );
+        ui.collapsing(i18n::sync::add_device(), |ui| {
+            ui.label(i18n::sync::add_device_how());
             if !self.show_code {
-                if ui.button(format!("{} Show the code", icon::EYE)).clicked() {
+                if ui
+                    .button(format!("{} {}", icon::EYE, i18n::sync::show_code()))
+                    .clicked()
+                {
                     self.show_code = true;
                 }
                 return;
@@ -125,19 +132,22 @@ impl SyncPanel {
             qr(ui, &config.key.qr_text());
             ui.add(egui::Label::new(RichText::new(config.key.code()).monospace()).wrap());
             ui.horizontal(|ui| {
-                if ui.button(format!("{} Copy", icon::COPY)).clicked() {
+                if ui
+                    .button(format!("{} {}", icon::COPY, i18n::sync::copy()))
+                    .clicked()
+                {
                     ui.ctx().copy_text(config.key.code());
                 }
-                if ui.button("Hide").clicked() {
+                if ui.button(i18n::sync::hide()).clicked() {
                     self.show_code = false;
                 }
             });
         });
 
         ui.add_space(8.0);
-        ui.strong("Other devices");
+        ui.strong(i18n::sync::other_devices());
         if view.devices.is_empty() {
-            ui.weak("None yet.");
+            ui.weak(i18n::sync::no_other_devices());
         }
         ScrollArea::vertical()
             .auto_shrink([false, true])
@@ -145,11 +155,13 @@ impl SyncPanel {
                 for device in view.devices {
                     ui.collapsing(
                         format!(
-                            "{} {} · {} tabs · {}",
+                            "{} {}",
                             icon::DEVICES,
-                            device.name,
-                            device.tabs.len(),
-                            super::library::ago_secs(now.saturating_sub(device.updated_at))
+                            i18n::sync::device_summary(
+                                &device.name,
+                                device.tabs.len(),
+                                &super::library::ago_secs(now.saturating_sub(device.updated_at)),
+                            )
                         ),
                         |ui| {
                             for tab in &device.tabs {
