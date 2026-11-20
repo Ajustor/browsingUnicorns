@@ -1,5 +1,6 @@
 package io.github.ajustor.browsingunicorns
 
+import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -22,9 +23,11 @@ enum class Screen { Browser, Tabs, History, Bookmarks, Sync, Extensions, Setting
 
 /**
  * The screen's state, refreshed from the Rust core after every action, and
- * the actions themselves. Sync rounds run on the IO dispatcher.
+ * the actions themselves. Sync rounds run on the IO dispatcher. [context]
+ * gives the messages' texts, in the app's language.
  */
 class BrowserController(
+    private val context: Context,
     val browser: MobileBrowser,
     val views: WebViews,
     val updates: AppUpdates,
@@ -85,7 +88,7 @@ class BrowserController(
             android.webkit.WebStorage.getInstance().deleteAllData()
         }
         if (cache) views.clearCache()
-        message = "Cleared"
+        message = context.getString(R.string.browsing_data_cleared)
     }
 
     /** The extension popup shown, and its title. */
@@ -107,7 +110,7 @@ class BrowserController(
             fullscreen = view
             leaveFullscreen = leave
         }
-        views.onLinkTab = { message = "Opened in a new tab" }
+        views.onLinkTab = { message = context.getString(R.string.opened_in_new_tab) }
         updates.onMessage = { message = it }
         refreshExtensions()
     }
@@ -203,11 +206,7 @@ class BrowserController(
     fun toggleWebDebugging() {
         views.webDebugging = !views.webDebugging
         webDebugging = views.webDebugging
-        message = if (webDebugging) {
-            "Web debugging on: inspect the pages from chrome://inspect on a computer (USB debugging)"
-        } else {
-            "Web debugging off"
-        }
+        message = context.getString(if (webDebugging) R.string.web_debugging_on else R.string.web_debugging_off)
     }
 
     // --- Extensions ---------------------------------------------------------
@@ -224,7 +223,7 @@ class BrowserController(
         scope.launch {
             val result = withContext(Dispatchers.IO) {
                 try {
-                    "${browser.installUserScript(url)} installed: it runs from the next page load."
+                    context.getString(R.string.user_script_installed, browser.installUserScript(url))
                 } catch (e: MobileException) {
                     reason(e)
                 }
@@ -252,7 +251,7 @@ class BrowserController(
         scope.launch {
             val result = withContext(Dispatchers.IO) {
                 try {
-                    "${browser.installExtension(input)} installed."
+                    context.getString(R.string.extension_installed, browser.installExtension(input))
                 } catch (e: MobileException) {
                     reason(e)
                 }
@@ -273,7 +272,7 @@ class BrowserController(
             if (extensions.any { it.id == id }) return null
             val title = state.tabs.firstOrNull { it.id == state.active }?.title.orEmpty()
             val name = title.substringBeforeLast(" - Chrome Web Store").trim()
-            return StoreOffer(id, name.ifEmpty { "this extension" })
+            return StoreOffer(id, name)
         }
 
     fun setExtensionEnabled(id: String, enabled: Boolean) {
@@ -352,6 +351,7 @@ class BrowserController(
     }
 }
 
+/** [name] is empty when the page title gives none. */
 data class StoreOffer(val id: String, val name: String)
 
 /**

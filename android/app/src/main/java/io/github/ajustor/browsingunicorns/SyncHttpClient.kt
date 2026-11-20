@@ -1,5 +1,6 @@
 package io.github.ajustor.browsingunicorns
 
+import android.content.Context
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
@@ -7,8 +8,11 @@ import org.json.JSONObject
 import uniffi.mobile.MobileException
 import uniffi.mobile.SyncHttp
 
-/** HTTP for the Rust core: the sync relay, extension downloads. Blocking: called off the main thread. */
-class SyncHttpClient : SyncHttp {
+/**
+ * HTTP for the Rust core: the sync relay, extension downloads. Blocking: called off the main thread.
+ * Its errors reach the user inside the core's messages: [context] gives their texts.
+ */
+class SyncHttpClient(private val context: Context) : SyncHttp {
     override fun download(url: String): ByteArray {
         var address = URL(url)
         // HttpURLConnection does not follow redirects across hosts by itself.
@@ -16,7 +20,7 @@ class SyncHttpClient : SyncHttp {
             val connection = try {
                 address.openConnection() as HttpURLConnection
             } catch (e: IOException) {
-                throw MobileException.Failed("unreachable: ${e.message}")
+                throw MobileException.Failed(context.getString(R.string.http_unreachable, e.message))
             }
             try {
                 connection.instanceFollowRedirects = false
@@ -26,11 +30,11 @@ class SyncHttpClient : SyncHttp {
                 val code = connection.responseCode
                 if (code in 300..399) {
                     val location = connection.getHeaderField("Location")
-                        ?: throw MobileException.Failed("redirect without a location")
+                        ?: throw MobileException.Failed(context.getString(R.string.http_redirect_without_location))
                     address = URL(address, location)
                     return@repeat
                 }
-                if (code !in 200..299) throw MobileException.Failed("HTTP $code")
+                if (code !in 200..299) throw MobileException.Failed(context.getString(R.string.http_status, code))
                 return connection.inputStream.use { input ->
                     val out = java.io.ByteArrayOutputStream()
                     val buffer = ByteArray(64 * 1024)
@@ -38,17 +42,17 @@ class SyncHttpClient : SyncHttp {
                         val n = input.read(buffer)
                         if (n < 0) break
                         out.write(buffer, 0, n)
-                        if (out.size() > MAX_DOWNLOAD) throw MobileException.Failed("package too big")
+                        if (out.size() > MAX_DOWNLOAD) throw MobileException.Failed(context.getString(R.string.http_package_too_big))
                     }
                     out.toByteArray()
                 }
             } catch (e: IOException) {
-                throw MobileException.Failed("download failed: ${e.message}")
+                throw MobileException.Failed(context.getString(R.string.http_download_failed, e.message))
             } finally {
                 connection.disconnect()
             }
         }
-        throw MobileException.Failed("too many redirects")
+        throw MobileException.Failed(context.getString(R.string.http_too_many_redirects))
     }
 
     override fun put(url: String, token: String, body: ByteArray) {
@@ -69,7 +73,7 @@ class SyncHttpClient : SyncHttp {
         val connection = try {
             URL(url).openConnection() as HttpURLConnection
         } catch (e: IOException) {
-            throw MobileException.Failed("relay unreachable: ${e.message}")
+            throw MobileException.Failed(context.getString(R.string.relay_unreachable, e.message))
         }
         try {
             connection.requestMethod = method
@@ -88,11 +92,11 @@ class SyncHttpClient : SyncHttp {
             val text = stream?.bufferedReader()?.use { it.readText() } ?: ""
             if (code !in 200..299) {
                 val message = runCatching { JSONObject(text).getString("error") }.getOrDefault(text)
-                throw MobileException.Failed("relay: $code $message")
+                throw MobileException.Failed(context.getString(R.string.relay_error, code, message))
             }
             return text
         } catch (e: IOException) {
-            throw MobileException.Failed("relay unreachable: ${e.message}")
+            throw MobileException.Failed(context.getString(R.string.relay_unreachable, e.message))
         } finally {
             connection.disconnect()
         }

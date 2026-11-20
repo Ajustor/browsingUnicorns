@@ -34,6 +34,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.google.mlkit.vision.barcode.common.Barcode
@@ -42,11 +44,12 @@ import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
 import io.github.ajustor.browsingunicorns.BrowserController
+import io.github.ajustor.browsingunicorns.R
 
 @Composable
 fun SyncScreen(c: BrowserController) {
     Column(Modifier.fillMaxSize()) {
-        Header(c, "Sync")
+        Header(c, stringResource(R.string.sync))
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -60,19 +63,17 @@ fun SyncScreen(c: BrowserController) {
 private fun SyncOff(c: BrowserController) {
     val context = LocalContext.current
     var code by remember { mutableStateOf("") }
-    Text(
-        "Sync bookmarks, history, open tabs and settings with your other devices. " +
-            "Everything is encrypted on the device: the relay cannot read it.",
-    )
-    Button(onClick = { c.syncTurnOn() }) { Text("Turn on sync") }
+    val scannerUnavailable = stringResource(R.string.sync_scanner_unavailable)
+    Text(stringResource(R.string.sync_intro))
+    Button(onClick = { c.syncTurnOn() }) { Text(stringResource(R.string.sync_turn_on)) }
     HorizontalDivider()
-    Text("Already on another device? Scan its QR code (Sync › Add a device) or type its code.")
+    Text(stringResource(R.string.sync_join_intro))
     OutlinedButton(onClick = {
         val options = GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()
         GmsBarcodeScanning.getClient(context, options).startScan()
             .addOnSuccessListener { barcode -> barcode.rawValue?.let(c::syncJoin) }
-            .addOnFailureListener { c.message = "Scanner unavailable: type the code instead." }
-    }) { Text("Scan QR code") }
+            .addOnFailureListener { c.message = scannerUnavailable }
+    }) { Text(stringResource(R.string.sync_scan)) }
     OutlinedTextField(
         value = code,
         onValueChange = { code = it },
@@ -80,7 +81,7 @@ private fun SyncOff(c: BrowserController) {
         placeholder = { Text("ABCD-EFGH-…") },
         textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
     )
-    Button(onClick = { c.syncJoin(code) }, enabled = code.isNotBlank()) { Text("Join") }
+    Button(onClick = { c.syncJoin(code) }, enabled = code.isNotBlank()) { Text(stringResource(R.string.sync_join)) }
 }
 
 @Composable
@@ -90,48 +91,51 @@ private fun SyncOn(c: BrowserController) {
     var showCode by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
-    Text("This device: ${info.deviceName ?: ""}")
+    Text(stringResource(R.string.sync_this_device, info.deviceName ?: ""))
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         when {
             c.syncing -> {
                 CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                Text("Syncing…")
+                Text(stringResource(R.string.sync_syncing))
             }
             info.lastError != null -> Text(info.lastError!!, color = MaterialTheme.colorScheme.error)
-            info.lastSyncAt != null -> Text("Synced ${ago(now, info.lastSyncAt!!.toLong())}.")
-            else -> Text("Not synced yet.")
+            info.lastSyncAt != null -> Text(stringResource(R.string.sync_synced, ago(now, info.lastSyncAt!!.toLong())))
+            else -> Text(stringResource(R.string.sync_never))
         }
     }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button(onClick = { c.syncNow() }, enabled = !c.syncing) { Text("Sync now") }
-        OutlinedButton(onClick = { c.syncTurnOff() }) { Text("Turn off") }
+        Button(onClick = { c.syncNow() }, enabled = !c.syncing) { Text(stringResource(R.string.sync_now)) }
+        OutlinedButton(onClick = { c.syncTurnOff() }) { Text(stringResource(R.string.sync_turn_off)) }
     }
 
     HorizontalDivider()
-    Text("Add a device", style = MaterialTheme.typography.titleMedium)
-    Text(
-        "On the other device, choose \"Join\" and scan this QR code or type the code. " +
-            "Keep it secret: it gives access to your data.",
-    )
+    Text(stringResource(R.string.sync_add_device), style = MaterialTheme.typography.titleMedium)
+    Text(stringResource(R.string.sync_add_device_intro))
     if (!showCode) {
-        OutlinedButton(onClick = { showCode = true }) { Text("Show the code") }
+        OutlinedButton(onClick = { showCode = true }) { Text(stringResource(R.string.sync_show_code)) }
     } else {
         info.qrText?.let { QrCode(it) }
         SelectionContainer {
             Text(info.code ?: "", fontFamily = FontFamily.Monospace)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(onClick = { copy(context, info.code ?: "") }) { Text("Copy") }
-            TextButton(onClick = { showCode = false }) { Text("Hide") }
+            TextButton(onClick = { copy(context, info.code ?: "") }) { Text(stringResource(R.string.sync_copy)) }
+            TextButton(onClick = { showCode = false }) { Text(stringResource(R.string.sync_hide)) }
         }
     }
 
     HorizontalDivider()
-    Text("Other devices", style = MaterialTheme.typography.titleMedium)
-    if (info.devices.isEmpty()) Text("None yet.")
+    Text(stringResource(R.string.sync_other_devices), style = MaterialTheme.typography.titleMedium)
+    if (info.devices.isEmpty()) Text(stringResource(R.string.sync_no_devices))
     for (device in info.devices) {
         Text(
-            "${device.name} · ${device.tabs.size} tabs · ${ago(now, device.updatedAt.toLong())}",
+            pluralStringResource(
+                R.plurals.sync_device,
+                device.tabs.size,
+                device.name,
+                device.tabs.size,
+                ago(now, device.updatedAt.toLong()),
+            ),
             style = MaterialTheme.typography.titleSmall,
         )
         for (tab in device.tabs) {
@@ -153,10 +157,10 @@ private fun QrCode(text: String) {
             }
         }
     }
-    Image(bitmap.asImageBitmap(), contentDescription = "Sync QR code", modifier = Modifier.size(240.dp))
+    Image(bitmap.asImageBitmap(), contentDescription = stringResource(R.string.sync_qr_code), modifier = Modifier.size(240.dp))
 }
 
 private fun copy(context: Context, text: String) {
     context.getSystemService(ClipboardManager::class.java)
-        ?.setPrimaryClip(ClipData.newPlainText("browsingUnicorns sync code", text))
+        ?.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.sync_code_clip_label), text))
 }

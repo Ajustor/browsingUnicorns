@@ -29,10 +29,10 @@ class MainActivity : ComponentActivity() {
             deviceName = Build.MODEL ?: "Android",
             relayUrl = BuildConfig.SYNC_RELAY.ifEmpty { null },
             host = views,
-            http = SyncHttpClient(),
+            http = SyncHttpClient(this),
         )
         views.browser = browser
-        controller = BrowserController(browser, views, AppUpdates(this, lifecycleScope), lifecycleScope)
+        controller = BrowserController(this, browser, views, AppUpdates(this, lifecycleScope), lifecycleScope)
         downloads.onMessage = { controller.message = it }
         controller.act { restoreSession() }
         openFromIntent(intent)

@@ -25,11 +25,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import io.github.ajustor.browsingunicorns.BrowserController
+import io.github.ajustor.browsingunicorns.R
 
 /** Home page, search engine, and clearing what was browsed. */
 @Composable
@@ -41,9 +43,9 @@ fun SettingsScreen(c: BrowserController) {
     var cookies by remember { mutableStateOf(true) }
     var cache by remember { mutableStateOf(true) }
     Column(Modifier.fillMaxSize()) {
-        Header(c, "Settings")
+        Header(c, stringResource(R.string.settings))
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
-            Section("Home page")
+            Section(stringResource(R.string.home_page))
             OutlinedTextField(
                 value = home,
                 onValueChange = { home = it },
@@ -59,10 +61,10 @@ fun SettingsScreen(c: BrowserController) {
                 TextButton(onClick = {
                     c.act { setHomePage(home) }
                     version++
-                }) { Text("Save") }
+                }) { Text(stringResource(R.string.save)) }
             }
 
-            Section("Search engine")
+            Section(stringResource(R.string.search_engine))
             for (engine in settings.engines) {
                 Row(
                     Modifier.fillMaxWidth().clickable {
@@ -76,15 +78,15 @@ fun SettingsScreen(c: BrowserController) {
                 }
             }
 
-            Section("Clear browsing data")
-            Check("History", history) { history = it }
-            Check("Cookies and site data (signs you out of sites)", cookies) { cookies = it }
-            Check("Cached images and files", cache) { cache = it }
+            Section(stringResource(R.string.clear_browsing_data))
+            Check(stringResource(R.string.history), history) { history = it }
+            Check(stringResource(R.string.clear_cookies), cookies) { cookies = it }
+            Check(stringResource(R.string.clear_cache), cache) { cache = it }
             Button(
                 onClick = { c.clearBrowsingData(history, cookies, cache) },
                 enabled = history || cookies || cache,
                 modifier = Modifier.padding(top = 8.dp),
-            ) { Text("Clear now") }
+            ) { Text(stringResource(R.string.clear_now)) }
         }
     }
 }

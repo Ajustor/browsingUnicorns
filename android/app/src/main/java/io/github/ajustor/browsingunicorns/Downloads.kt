@@ -47,7 +47,7 @@ class Downloads(private val activity: ComponentActivity) {
     private val permission = activity.registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         val next = afterPermission
         afterPermission = null
-        if (granted) next?.invoke() else onMessage("Download cancelled: storage permission denied")
+        if (granted) next?.invoke() else onMessage(activity.getString(R.string.download_permission_denied))
     }
 
     /** The bridge a tab's page uses to hand over a blob's contents. */
@@ -56,14 +56,14 @@ class Downloads(private val activity: ComponentActivity) {
         fun save(token: String, dataUrl: String) {
             val p = pending.remove(token) ?: return
             runCatching { write(p.name, p.mimeType, decodeDataUrl(dataUrl)) }
-                .onSuccess { tell("$it saved in Downloads") }
+                .onSuccess { tell(activity.getString(R.string.download_saved, it)) }
                 .onFailure { fail(p.name, it) }
         }
 
         @JavascriptInterface
         fun failed(token: String, reason: String) {
             val p = pending.remove(token) ?: return
-            tell("Download of ${p.name} failed: $reason")
+            tell(activity.getString(R.string.download_failed, p.name, reason))
         }
     }
 
@@ -75,11 +75,11 @@ class Downloads(private val activity: ComponentActivity) {
                 "http", "https" -> enqueue(url, name, userAgent, mimeType, page)
                 "data" -> Thread {
                     runCatching { write(name, mimeType, decodeDataUrl(url)) }
-                        .onSuccess { tell("$it saved in Downloads") }
+                        .onSuccess { tell(activity.getString(R.string.download_saved, it)) }
                         .onFailure { fail(name, it) }
                 }.start()
                 "blob" -> fromBlob(view, url, name, mimeType)
-                else -> onMessage("Can't download $url")
+                else -> onMessage(activity.getString(R.string.download_unsupported, url))
             }
         }
     }
@@ -96,7 +96,7 @@ class Downloads(private val activity: ComponentActivity) {
                 setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name)
             }
             activity.getSystemService(DownloadManager::class.java).enqueue(request)
-            onMessage("Downloading $name…")
+            onMessage(activity.getString(R.string.downloading, name))
         } catch (e: Exception) {
             fail(name, e)
         }
@@ -124,7 +124,7 @@ class Downloads(private val activity: ComponentActivity) {
             """.trimIndent(),
             null,
         )
-        onMessage("Downloading $name…")
+        onMessage(activity.getString(R.string.downloading, name))
     }
 
     private fun withStorage(then: () -> Unit) {
@@ -150,7 +150,7 @@ class Downloads(private val activity: ComponentActivity) {
                 put(MediaStore.Downloads.IS_PENDING, 1)
             }
             val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-                ?: error("no room in Downloads")
+                ?: error(activity.getString(R.string.download_no_room))
             try {
                 resolver.openOutputStream(uri)!!.use { it.write(bytes) }
                 resolver.update(uri, ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }, null, null)
@@ -183,7 +183,7 @@ class Downloads(private val activity: ComponentActivity) {
 
     private fun fail(name: String, e: Throwable) {
         Log.w(TAG, "download of $name failed", e)
-        tell("Download of $name failed: ${e.message ?: e.javaClass.simpleName}")
+        tell(activity.getString(R.string.download_failed, name, e.message ?: e.javaClass.simpleName))
     }
 
     companion object {
