@@ -1,8 +1,6 @@
 //! The notices bar at the bottom of the window (src/ui/app.rs).
 
 messages! {
-    /// What a private window refuses: it would write to the profile.
-    fn not_in_private() { en: "Not available in a private window.", fr: "Indisponible dans une fenêtre privée." }
     /// The system refused to make the app the default browser.
     fn default_browser_failed(e: &dyn std::fmt::Display) {
         en: "Could not make browsingUnicorns the default browser: {e}",
