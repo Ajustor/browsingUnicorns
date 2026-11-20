@@ -97,14 +97,27 @@ document :
   vidage. Si l'ajout est refusé, l'hôte est oublié : la navigation suivante
   réessaie. L'ajout est asynchrone et WebView2 ne l'attend pas (mesuré sur
   Twitch : document créé ~70 ms après `NavigationStarting`, ajout terminé
-  ~450 ms après) : une navigation qui demande un nouveau script est donc
-  annulée puis refaite (`Navigate`) quand l'ajout est terminé, si aucune
-  autre navigation n'est venue entre-temps. Pas celle qui porte un corps
-  (`Content-Type` : un POST deviendrait un GET) ni celle de l'historique
-  (elle deviendrait une nouvelle entrée) : le script vaut alors dès le
-  document suivant. Depuis la page vierge d'un nouvel onglet (entrée de
-  l'historique dès que sa première navigation est annulée), elle est refaite
-  par `location.replace`, pour ne pas la laisser derrière. Une navigation partie avant que le moteur n'existe (au
+  ~450 ms après). Si la page de la navigation qui attend le script de son
+  site est engagée (`ContentLoading`, même identifiant de navigation)
+  avant la fin de l'ajout, elle est rechargée (`Reload`) une fois le script
+  là ; si une autre navigation vers ce site est venue entre-temps, c'est
+  elle qui est suivie ; si l'onglet est parti ailleurs, rien. Le
+  rechargement garde l'historique tel que la page l'a fait (le
+  `location.replace` d'une redirection, la nouvelle entrée d'un lien), le
+  référent et l'initiateur. Il coûte un second chargement de la page (la
+  première, sans scriptlets, a pu commencer à charger ses scripts) et une
+  seconde visite dans l'historique du navigateur. Écartés après essai :
+  annuler la navigation puis la refaire (ce qui l'a lancée ne se distingue
+  pas : `IsUserInitiated` vaut vrai pour un `location.replace` sur minuterie,
+  et `navigator.userActivation.hasBeenActive` est vrai sur une page que
+  personne n'a touchée ; refaite, une redirection laissait sa page dans
+  l'historique, et Retour y renvoyait) ; différer la requête du document
+  (`WebResourceRequested`, `GetDeferral`) : l'ajout ne se termine plus et
+  l'onglet reste vide. Pas rechargée : une navigation qui porte un corps
+  (`Content-Type`, vu sur un POST de formulaire vers YouTube et absent des
+  GET : le recharger renverrait le formulaire), ni celle de l'historique ou
+  de nature inconnue (anciens runtimes) : le script vaut alors dès le
+  document suivant. Une navigation partie avant que le moteur n'existe (au
   démarrage, le cache se charge ~100 ms après la restauration des onglets)
   est refaite une fois quand il arrive (`Scriptlets::catch_up`, appelé par
   `WryEngine::pump`), si son site a des scriptlets.
