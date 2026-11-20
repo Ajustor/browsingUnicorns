@@ -11,7 +11,7 @@ name = "browsingUnicorns"
 path = "src/main.rs"
 
 [workspace]
-members = ["crates/domain", "crates/application", "crates/infrastructure", "crates/updater", "crates/mobile"]
+members = ["crates/domain", "crates/application", "crates/infrastructure", "crates/updater", "crates/mobile", "crates/i18n"]
 
 [workspace.package]
 edition = "2024"

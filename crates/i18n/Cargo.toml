@@ -1,0 +1,9 @@
+[package]
+name = "i18n"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "The interface's messages in English and French, and the current language."
+
+[dependencies]
