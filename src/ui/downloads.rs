@@ -165,7 +165,7 @@ impl Downloads {
                         close = super::theme::hover_fill(ui, |ui| {
                             ui.add(egui::Button::new(icon::X).frame(false))
                         })
-                        .on_hover_text("Close the downloads bar")
+                        .on_hover_text(i18n::downloads::close_bar())
                         .clicked();
                         if self
                             .items
@@ -173,16 +173,20 @@ impl Downloads {
                             .any(|i| !matches!(i.state, State::Running { .. }))
                         {
                             clear = super::theme::hover_fill(ui, |ui| {
-                                ui.add(egui::Button::new("Clear").frame(false))
+                                ui.add(egui::Button::new(i18n::downloads::clear()).frame(false))
                             })
-                            .on_hover_text("Remove the finished downloads from the list")
+                            .on_hover_text(i18n::downloads::clear_tip())
                             .clicked();
                         }
                         if let Some(folder) = self.items.first().and_then(|i| i.file.parent())
                             && super::theme::hover_fill(ui, |ui| {
                                 ui.add(
-                                    egui::Button::new(format!("{} Open folder", icon::FOLDER_OPEN))
-                                        .frame(false),
+                                    egui::Button::new(format!(
+                                        "{} {}",
+                                        icon::FOLDER_OPEN,
+                                        i18n::downloads::open_folder()
+                                    ))
+                                    .frame(false),
                                 )
                             })
                             .on_hover_text(folder.display().to_string())
@@ -237,12 +241,15 @@ fn card(
         State::Done { size } => (
             visuals.text_color(),
             match size {
-                Some(s) => format!("Done · {}", bytes(s)),
-                None => "Done".to_owned(),
+                Some(s) => i18n::downloads::done_size(&bytes(s)),
+                None => i18n::downloads::done().to_owned(),
             },
         ),
-        State::Failed => (visuals.error_fg_color, "Failed".to_owned()),
-        State::Cancelled => (visuals.weak_text_color(), "Cancelled".to_owned()),
+        State::Failed => (visuals.error_fg_color, i18n::downloads::failed().to_owned()),
+        State::Cancelled => (
+            visuals.weak_text_color(),
+            i18n::downloads::cancelled().to_owned(),
+        ),
     };
     let done = matches!(item.state, State::Done { .. });
     // Whether the pointer is on one of the card's buttons: the card itself
@@ -293,20 +300,24 @@ fn card(
                     };
                     match item.state {
                         State::Running { .. } if can_cancel => {
-                            if button(ui, icon::X, "Cancel") {
+                            if button(ui, icon::X, i18n::common::cancel()) {
                                 item.state = State::Cancelled;
                                 actions.push(Action::Cancel(item.file.clone()));
                             }
                         }
                         State::Running { .. } => {}
                         State::Done { .. } => {
-                            if button(ui, icon::FOLDER_SIMPLE, "Show in folder") {
+                            if button(ui, icon::FOLDER_SIMPLE, i18n::downloads::show_in_folder()) {
                                 reveal(&item.file);
                             }
                         }
                         State::Failed | State::Cancelled => {
                             if let Ok(address) = WebAddress::parse(&item.url)
-                                && button(ui, icon::ARROW_CLOCKWISE, "Download again")
+                                && button(
+                                    ui,
+                                    icon::ARROW_CLOCKWISE,
+                                    i18n::downloads::download_again(),
+                                )
                             {
                                 commands.push(Command::Open(address, Target::NewTab));
                             }
@@ -340,7 +351,7 @@ fn card(
         ),
     );
     if done && !on_button {
-        let card = card.on_hover_text(format!("Open {}", name(&item.file)));
+        let card = card.on_hover_text(i18n::downloads::open_file(&name(&item.file)));
         if card.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             if ui.input(|i| i.pointer.primary_clicked()) {
@@ -352,31 +363,28 @@ fn card(
 
 fn running_text(received: u64, total: Option<u64>) -> String {
     match total {
-        Some(t) if t > 0 => format!(
-            "{} of {} · {}%",
-            bytes(received),
-            bytes(t),
-            (received * 100 / t).min(100)
-        ),
-        _ if received > 0 => format!("{} · downloading…", bytes(received)),
-        _ => "Starting…".to_owned(),
+        Some(t) if t > 0 => {
+            i18n::downloads::progress(&bytes(received), &bytes(t), (received * 100 / t).min(100))
+        }
+        _ if received > 0 => i18n::downloads::downloading(&bytes(received)),
+        _ => i18n::downloads::starting().to_owned(),
     }
 }
 
-/// `bytes` for people: 512 B, 3.4 KB, 12.0 MB, 1.25 GB.
+/// `bytes` for people: 512 B, 3.4 KB, 12.0 MB, 1.25 GB (in French 3,40 Ko…).
 fn bytes(bytes: u64) -> String {
-    const UNITS: [&str; 4] = ["KB", "MB", "GB", "TB"];
+    const UNITS: usize = 4;
     if bytes < 1024 {
-        return format!("{bytes} B");
+        return i18n::downloads::bytes(bytes);
     }
     let mut value = bytes as f64 / 1024.0;
     let mut unit = 0;
-    while value >= 1024.0 && unit < UNITS.len() - 1 {
+    while value >= 1024.0 && unit < UNITS - 1 {
         value /= 1024.0;
         unit += 1;
     }
     let decimals = if value < 10.0 { 2 } else { 1 };
-    format!("{value:.decimals$} {}", UNITS[unit])
+    i18n::downloads::size(value, decimals, unit)
 }
 
 fn file_icon(file: &Path) -> &'static str {
@@ -414,11 +422,7 @@ pub fn toolbar_tip(downloads: &Downloads) -> Option<String> {
     if downloads.is_empty() {
         return None;
     }
-    Some(match downloads.running() {
-        0 => "Downloads".to_owned(),
-        1 => "Downloads: 1 in progress".to_owned(),
-        n => format!("Downloads: {n} in progress"),
-    })
+    Some(i18n::downloads::toolbar_tip(downloads.running()))
 }
 
 /// Opens `file` with its application.
@@ -567,5 +571,17 @@ mod tests {
         assert_eq!(bytes(12 * 1024 * 1024), "12.0 MB");
         assert_eq!(running_text(50, Some(200)), "50 B of 200 B · 25%");
         assert_eq!(running_text(0, None), "Starting…");
+    }
+
+    #[test]
+    fn sizes_for_french_people() {
+        i18n::with_lang(i18n::Lang::Fr, || {
+            assert_eq!(bytes(3 * 1024 + 512), "3,50\u{a0}Ko");
+            assert_eq!(
+                running_text(50, Some(200)),
+                "50\u{a0}o sur 200\u{a0}o · 25\u{a0}%"
+            );
+            assert_eq!(running_text(2048, None), "2,00\u{a0}Ko · téléchargement…");
+        });
     }
 }
