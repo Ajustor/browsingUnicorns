@@ -88,6 +88,9 @@ jobs:
       - name: Lint the release build
         run: cd android && ./gradlew --no-daemon :app:lintVitalRelease
 
+      - name: Kotlin unit tests
+        run: cd android && ./gradlew --no-daemon :app:testDebugUnitTest
+
       - uses: actions/upload-artifact@v5
         with:
           name: browsingUnicorns-android-debug
