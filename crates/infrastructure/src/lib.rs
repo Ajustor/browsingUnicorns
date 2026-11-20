@@ -50,6 +50,8 @@ mod webview2_frames;
 #[cfg(all(windows, feature = "desktop"))]
 mod webview2_keys;
 #[cfg(all(windows, feature = "desktop"))]
+mod webview2_region;
+#[cfg(all(windows, feature = "desktop"))]
 mod webview2_scriptlets;
 #[cfg(all(windows, feature = "desktop"))]
 mod webview2_settings;

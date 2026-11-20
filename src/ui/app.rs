@@ -15,6 +15,7 @@ use super::extension_bar::{DEFAULT_POPUP, ExtensionBar};
 use super::extensions::{ExtensionsRunner, ExtensionsView};
 use super::library::{Library, LibraryData, LibraryView};
 use super::omnibox::Omnibox;
+use super::page_holes::{floating_layers, page_holes, page_viewport};
 use super::profiles::{ProfileCommand, ProfilesRunner};
 use super::shield::{Shield, ShieldView};
 use super::site_info::SiteInfo;
@@ -957,23 +958,26 @@ impl eframe::App for BrowserApp {
             top: 0,
             bottom: border,
         });
-        CentralPanel::default().frame(page_frame).show(ctx, |ui| {
-            // The active page's native view is laid over this area.
-            let rect = ui.max_rect();
-            let ppp = ctx.pixels_per_point();
-            self.browser.set_viewport(Viewport {
-                x: (rect.min.x * ppp).round() as i32,
-                y: (rect.min.y * ppp).round() as i32,
-                width: (rect.width() * ppp).round().max(1.0) as u32,
-                height: (rect.height() * ppp).round().max(1.0) as u32,
-            });
-        });
+        let page = CentralPanel::default()
+            .frame(page_frame)
+            .show(ctx, |ui| {
+                // The active page's native view is laid over this area.
+                let rect = ui.max_rect();
+                self.browser
+                    .set_viewport(page_viewport(rect, ctx.pixels_per_point()));
+                rect
+            })
+            .inner;
 
         for command in commands {
             self.run(command);
         }
         self.place_popup(ctx);
         super::window_frame::resize_edges(ctx);
+        // Everything is drawn: the page lets the tooltips and menus over it
+        // show through.
+        let holes = page_holes(floating_layers(ctx), page, ctx.pixels_per_point());
+        self.browser.set_page_holes(&holes);
 
         if self.close_requested || self.browser.session().is_empty() {
             ctx.send_viewport_cmd(ViewportCommand::Close);
