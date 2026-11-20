@@ -84,6 +84,10 @@ jobs:
       - name: Build the APK
         run: bash scripts/build-android.sh assembleDebug
 
+      # MissingTranslation is fatal here: a string without its French fails.
+      - name: Lint the release build
+        run: cd android && ./gradlew --no-daemon :app:lintVitalRelease
+
       - uses: actions/upload-artifact@v5
         with:
           name: browsingUnicorns-android-debug
