@@ -151,7 +151,7 @@ impl ExtensionFolder {
         ] {
             match (self.download)(&url) {
                 Ok(body) if !body.is_empty() => return Ok(body),
-                Ok(_) => failures.push(format!("{store}: no extension with this id")),
+                Ok(_) => failures.push(i18n::errors::infrastructure::no_extension_with_id(store)),
                 Err(e) => failures.push(format!("{store}: {e}")),
             }
         }
@@ -194,10 +194,12 @@ impl ExtensionFolder {
         if let Some(expected) = expected
             && &crx.id != expected
         {
-            return Err(error(format!(
-                "the package is extension {}, not {expected}",
-                crx.id
-            )));
+            return Err(error(
+                i18n::errors::infrastructure::package_is_another_extension(
+                    crx.id.as_str(),
+                    expected.as_str(),
+                ),
+            ));
         }
         let staging = self.dir.join(format!(".install-{}", crx.id));
         let result = (|| {
@@ -220,9 +222,8 @@ impl ExtensionFolder {
         let folder =
             fs::canonicalize(folder).map_err(|e| error(format!("{}: {e}", folder.display())))?;
         if !folder.join("manifest.json").is_file() {
-            return Err(error(format!(
-                "{} has no manifest.json: choose the extension's folder",
-                folder.display()
+            return Err(error(i18n::errors::infrastructure::no_manifest_in_folder(
+                &folder.display(),
             )));
         }
         let id = match manifest::key(&folder).and_then(|k| BASE64.decode(k.as_bytes()).ok()) {
@@ -248,8 +249,9 @@ impl ExtensionFolder {
         let info = manifest::read(staging).map_err(error)?;
         let target = extension_dir(&self.dir, id);
         if target.exists() {
-            fs::remove_dir_all(&target)
-                .map_err(|e| error(format!("could not replace the installed version: {e}")))?;
+            fs::remove_dir_all(&target).map_err(|e| {
+                error(i18n::errors::infrastructure::installed_version_not_replaced(&e))
+            })?;
         }
         fs::rename(staging, &target).map_err(error)?;
         Ok(Extension {

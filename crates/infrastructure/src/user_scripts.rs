@@ -77,15 +77,16 @@ impl UserScriptFolder {
 
     fn fetch_text(&self, url: &str) -> Result<String, ExtensionError> {
         let bytes = (self.download)(url).map_err(|e| error(format!("{url}: {e}")))?;
-        String::from_utf8(bytes).map_err(|_| error(format!("{url}: not UTF-8 text")))
+        String::from_utf8(bytes)
+            .map_err(|_| error(i18n::errors::infrastructure::not_utf8_text(url)))
     }
 
     /// Saves `code` (from `url`) and what it requires.
     pub fn save(&self, url: &str, code: &str) -> Result<UserScript, ExtensionError> {
         let meta = UserScriptMeta::parse(code)
-            .ok_or_else(|| error("not a user script (no ==UserScript== block with a @name)"))?;
+            .ok_or_else(|| error(i18n::errors::infrastructure::not_a_user_script()))?;
         if meta.matches.is_empty() {
-            return Err(error("the script runs on no page (no @match or @include)"));
+            return Err(error(i18n::errors::infrastructure::script_runs_on_no_page()));
         }
         let mut required = String::new();
         for lib in &meta.requires {
@@ -130,7 +131,7 @@ impl UserScriptPackages for UserScriptFolder {
         let url = url.trim();
         if !url.starts_with("https://") && !url.starts_with("http://") {
             return Err(error(
-                "Paste the address of a .user.js script (Greasy Fork, GitHub…).",
+                i18n::errors::infrastructure::paste_a_user_script_address(),
             ));
         }
         let code = self.fetch_text(url)?;

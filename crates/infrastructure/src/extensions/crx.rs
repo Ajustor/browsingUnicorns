@@ -27,18 +27,18 @@ fn u32_at(bytes: &[u8], at: usize) -> Result<usize, String> {
     bytes
         .get(at..at + 4)
         .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize)
-        .ok_or_else(|| "truncated package".to_owned())
+        .ok_or_else(|| i18n::errors::infrastructure::truncated_package().to_owned())
 }
 
 fn slice(bytes: &[u8], from: usize, len: usize) -> Result<&[u8], String> {
     from.checked_add(len)
         .and_then(|end| bytes.get(from..end))
-        .ok_or_else(|| "truncated package".to_owned())
+        .ok_or_else(|| i18n::errors::infrastructure::truncated_package().to_owned())
 }
 
 pub fn parse(bytes: &[u8]) -> Result<Crx<'_>, String> {
     if bytes.get(..4) != Some(b"Cr24") {
-        return Err("not a Chrome extension package (.crx)".into());
+        return Err(i18n::errors::infrastructure::not_a_crx().into());
     }
     match u32_at(bytes, 4)? {
         2 => {
@@ -49,7 +49,9 @@ pub fn parse(bytes: &[u8]) -> Result<Crx<'_>, String> {
             Ok(Crx {
                 id: id_of_key(key),
                 public_key: key.to_vec(),
-                zip: bytes.get(zip_at..).ok_or("truncated package")?,
+                zip: bytes
+                    .get(zip_at..)
+                    .ok_or_else(i18n::errors::infrastructure::truncated_package)?,
             })
         }
         3 => {
@@ -62,14 +64,14 @@ pub fn parse(bytes: &[u8]) -> Result<Crx<'_>, String> {
                 Some(id) => keys.into_iter().find(|k| id_of_key(k) == id),
                 None => keys.into_iter().next(),
             }
-            .ok_or("no public key matches the package's id")?;
+            .ok_or_else(i18n::errors::infrastructure::no_key_for_package_id)?;
             Ok(Crx {
                 id: id_of_key(&key),
                 public_key: key,
                 zip: &bytes[12 + header_len..],
             })
         }
-        v => Err(format!("unsupported package version {v}")),
+        v => Err(i18n::errors::infrastructure::unsupported_package_version(v)),
     }
 }
 
@@ -113,14 +115,16 @@ struct Fields<'a>(&'a [u8]);
 fn varint(bytes: &mut &[u8]) -> Result<u64, String> {
     let mut value = 0u64;
     for shift in (0..64).step_by(7) {
-        let (&b, rest) = bytes.split_first().ok_or("truncated header")?;
+        let (&b, rest) = bytes
+            .split_first()
+            .ok_or_else(i18n::errors::infrastructure::truncated_header)?;
         *bytes = rest;
         value |= u64::from(b & 0x7f) << shift;
         if b & 0x80 == 0 {
             return Ok(value);
         }
     }
-    Err("bad header".into())
+    Err(i18n::errors::infrastructure::bad_header().into())
 }
 
 impl<'a> Iterator for Fields<'a> {
@@ -139,16 +143,22 @@ impl<'a> Iterator for Fields<'a> {
                 }
                 1 | 5 => {
                     let n = if tag & 7 == 1 { 8 } else { 4 };
-                    self.0 = self.0.get(n..).ok_or("truncated header")?;
+                    self.0 = self
+                        .0
+                        .get(n..)
+                        .ok_or_else(i18n::errors::infrastructure::truncated_header)?;
                     Value::Int
                 }
                 2 => {
                     let len = usize::try_from(varint(&mut self.0)?).map_err(|e| e.to_string())?;
-                    let bytes = self.0.get(..len).ok_or("truncated header")?;
+                    let bytes = self
+                        .0
+                        .get(..len)
+                        .ok_or_else(i18n::errors::infrastructure::truncated_header)?;
                     self.0 = &self.0[len..];
                     Value::Bytes(bytes)
                 }
-                _ => return Err("bad header".into()),
+                _ => return Err(i18n::errors::infrastructure::bad_header().into()),
             };
             Ok((tag >> 3, value))
         };
@@ -224,5 +234,19 @@ pub(crate) mod tests {
         assert!(parse(b"PK\x03\x04").is_err());
         assert!(parse(b"Cr24\x03\x00\x00\x00\xff\xff\x00\x00").is_err());
         assert!(parse(b"Cr24\x09\x00\x00\x00").is_err());
+    }
+
+    #[test]
+    fn errors_speak_the_current_language() {
+        let fr = |bytes: &[u8]| i18n::with_lang(i18n::Lang::Fr, || parse(bytes).err().unwrap());
+        assert_eq!(fr(b"PK\x03\x04"), "pas un paquet d’extension Chrome (.crx)");
+        assert_eq!(
+            fr(b"Cr24\x09\x00\x00\x00"),
+            "version de paquet non prise en charge\u{a0}: 9"
+        );
+        assert_eq!(
+            parse(b"PK\x03\x04").err().unwrap(),
+            "not a Chrome extension package (.crx)"
+        );
     }
 }

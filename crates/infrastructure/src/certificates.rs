@@ -113,7 +113,7 @@ pub fn from_security_state(json: &str) -> Certificates {
     let value: serde_json::Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
     let state = value
         .pointer("/visibleSecurityState/certificateSecurityState")
-        .ok_or("no certificate")?;
+        .ok_or_else(i18n::errors::infrastructure::no_certificate)?;
     let text = |key: &str| state.get(key).and_then(|v| v.as_str()).unwrap_or("");
     let connection = [text("protocol"), text("keyExchangeGroup"), text("cipher")]
         .into_iter()
@@ -123,7 +123,7 @@ pub fn from_security_state(json: &str) -> Certificates {
     let chain = state
         .get("certificate")
         .and_then(|c| c.as_array())
-        .ok_or("no certificate")?
+        .ok_or_else(i18n::errors::infrastructure::no_certificate)?
         .iter()
         .filter_map(|c| c.as_str())
         .map(|b64| {
@@ -134,7 +134,7 @@ pub fn from_security_state(json: &str) -> Certificates {
         })
         .collect::<Result<Vec<_>, _>>()?;
     if chain.is_empty() {
-        return Err("no certificate".into());
+        return Err(i18n::errors::infrastructure::no_certificate().into());
     }
     Ok(SiteSecurity { connection, chain })
 }

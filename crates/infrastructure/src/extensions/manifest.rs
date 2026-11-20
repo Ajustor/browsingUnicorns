@@ -20,7 +20,7 @@ fn load(dir: &Path) -> Result<Map<String, Value>, String> {
         fs::read_to_string(dir.join("manifest.json")).map_err(|e| format!("manifest.json: {e}"))?;
     match serde_json::from_str(text.trim_start_matches('\u{feff}')) {
         Ok(Value::Object(map)) => Ok(map),
-        Ok(_) => Err("manifest.json is not an object".into()),
+        Ok(_) => Err(i18n::errors::infrastructure::manifest_not_an_object().into()),
         Err(e) => Err(format!("manifest.json: {e}")),
     }
 }
@@ -59,7 +59,8 @@ fn localize(dir: &Path, manifest: &Map<String, Value>, value: &str) -> String {
 
 pub fn read(dir: &Path) -> Result<ManifestInfo, String> {
     let m = load(dir)?;
-    let name = text(&m, &["name"]).ok_or("the manifest has no name")?;
+    let name =
+        text(&m, &["name"]).ok_or_else(i18n::errors::infrastructure::manifest_without_name)?;
     Ok(ManifestInfo {
         name: localize(dir, &m, name),
         version: text(&m, &["version"]).unwrap_or("").to_owned(),
