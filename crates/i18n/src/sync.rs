@@ -53,18 +53,21 @@ mod tests {
 
     #[test]
     fn tabs_are_counted() {
-        assert_eq!(device_summary(Lang::En, "PC", 1, "now"), "PC · 1 tab · now");
         assert_eq!(
-            device_summary(Lang::En, "PC", 0, "now"),
-            "PC · 0 tabs · now"
+            device_summary(Lang::En, "PC", 1, "just now"),
+            "PC · 1 tab · just now"
+        );
+        assert_eq!(
+            device_summary(Lang::En, "PC", 0, "5 min ago"),
+            "PC · 0 tabs · 5 min ago"
         );
         assert_eq!(
             device_summary(Lang::Fr, "PC", 0, "à l’instant"),
             "PC · 0 onglet · à l’instant"
         );
         assert_eq!(
-            device_summary(Lang::Fr, "PC", 3, "il y a 5 min"),
-            "PC · 3 onglets · il y a 5 min"
+            device_summary(Lang::Fr, "PC", 3, "il y a 5\u{a0}min"),
+            "PC · 3 onglets · il y a 5\u{a0}min"
         );
     }
 }

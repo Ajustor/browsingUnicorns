@@ -137,7 +137,10 @@ mod tests {
     #[test]
     fn display_title_falls_back_to_host_then_placeholder() {
         let mut tab = Tab::new(TabId::new(1));
-        assert_eq!(tab.display_title(), "New tab");
+        assert_eq!(
+            i18n::with_lang(i18n::Lang::En, || tab.display_title().to_owned()),
+            "New tab"
+        );
         assert_eq!(
             i18n::with_lang(i18n::Lang::Fr, || tab.display_title().to_owned()),
             "Nouvel onglet"

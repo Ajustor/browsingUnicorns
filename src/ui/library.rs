@@ -504,13 +504,13 @@ fn entry(
     }
 }
 
-/// "5 min", "3 h", "2 d".
+/// "5 min ago", "3 h ago", "2 d ago".
 fn ago(now: Timestamp, at: Timestamp) -> String {
     ago_secs(now.saturating_sub(at))
 }
 
-/// "now", "5 min", "3 h", "2 d" for an age in seconds ("à l’instant",
-/// "il y a 5 min"… in French).
+/// "just now", "5 min ago", "3 h ago", "2 d ago" for an age in seconds
+/// ("à l’instant", "il y a 5 min"… in French).
 pub fn ago_secs(secs: u64) -> String {
     i18n::history::ago(secs)
 }
@@ -521,19 +521,21 @@ mod tests {
 
     #[test]
     fn ages_are_short() {
-        assert_eq!(ago(100, 90), "now");
-        assert_eq!(ago(10_000, 10_000 - 300), "5 min");
-        assert_eq!(ago(100_000, 100_000 - 7_200), "2 h");
-        assert_eq!(ago(1_000_000, 1_000_000 - 3 * 86_400), "3 d");
-        assert_eq!(ago(0, 50), "now");
+        i18n::with_lang(i18n::Lang::En, || {
+            assert_eq!(ago(100, 90), "just now");
+            assert_eq!(ago(10_000, 10_000 - 300), "5 min ago");
+            assert_eq!(ago(100_000, 100_000 - 7_200), "2 h ago");
+            assert_eq!(ago(1_000_000, 1_000_000 - 3 * 86_400), "3 d ago");
+            assert_eq!(ago(0, 50), "just now");
+        });
     }
 
     #[test]
     fn ages_in_french() {
         i18n::with_lang(i18n::Lang::Fr, || {
             assert_eq!(ago(100, 90), "à l’instant");
-            assert_eq!(ago(10_000, 10_000 - 300), "il y a 5 min");
-            assert_eq!(ago(1_000_000, 1_000_000 - 3 * 86_400), "il y a 3 j");
+            assert_eq!(ago(10_000, 10_000 - 300), "il y a 5\u{a0}min");
+            assert_eq!(ago(1_000_000, 1_000_000 - 3 * 86_400), "il y a 3\u{a0}j");
         });
     }
 
