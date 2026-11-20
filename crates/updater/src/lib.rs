@@ -21,6 +21,7 @@ pub use memory::UpdateMemory;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use i18n::errors::updater as msg;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
@@ -171,7 +172,7 @@ fn http_get(
         .get(url)
         .header("User-Agent", user_agent)
         .call()
-        .map_err(|e| format!("request to {url} failed: {e}"))
+        .map_err(|e| msg::request_failed(url, &e))
 }
 
 /// Whether the user chose to skip `info`'s version. `skipped` may carry a
@@ -207,7 +208,7 @@ pub fn fetch_latest(app: &AppInfo) -> Result<Option<ReleaseInfo>, String> {
     let text = resp
         .body_mut()
         .read_to_string()
-        .map_err(|e| format!("reading release manifest: {e}"))?;
+        .map_err(|e| msg::manifest_unread(&e))?;
     release_from_manifest(app, &text, install_kind())
 }
 
@@ -216,10 +217,8 @@ fn release_from_manifest(
     text: &str,
     kind: InstallKind,
 ) -> Result<Option<ReleaseInfo>, String> {
-    let manifest: Manifest =
-        serde_json::from_str(text).map_err(|e| format!("parsing release manifest: {e}"))?;
-    let current =
-        semver::Version::parse(app.version).map_err(|e| format!("bad current version: {e}"))?;
+    let manifest: Manifest = serde_json::from_str(text).map_err(|e| msg::manifest_unparsed(&e))?;
+    let current = semver::Version::parse(app.version).map_err(|e| msg::bad_current_version(&e))?;
     select_update(app, manifest, &current, kind)
 }
 
@@ -230,25 +229,23 @@ fn select_update(
     kind: InstallKind,
 ) -> Result<Option<ReleaseInfo>, String> {
     let version = semver::Version::parse(manifest.version.trim_start_matches('v'))
-        .map_err(|e| format!("bad release version {:?}: {e}", manifest.version))?;
+        .map_err(|e| msg::bad_release_version(&manifest.version, &e))?;
     if version <= *current {
         return Ok(None);
     }
     let wanted = match kind {
         InstallKind::Msi => app.msi_asset(),
-        InstallKind::ReplaceBinary => app
-            .binary_asset()
-            .ok_or("no prebuilt binary for this platform")?,
+        InstallKind::ReplaceBinary => app.binary_asset().ok_or_else(msg::no_binary_for_platform)?,
         InstallKind::AppImage => app
             .appimage_asset()
-            .ok_or("no AppImage for this platform")?,
+            .ok_or_else(msg::no_appimage_for_platform)?,
     };
     let asset = manifest
         .assets
         .iter()
         .find(|a| a.name == wanted)
         .cloned()
-        .ok_or_else(|| format!("release v{version} has no asset {wanted}"))?;
+        .ok_or_else(|| msg::release_without_asset(&version, &wanted))?;
     Ok(Some(ReleaseInfo {
         version,
         notes: manifest.notes,
@@ -327,7 +324,7 @@ pub fn download_and_apply(app: &AppInfo, info: &ReleaseInfo) -> Result<Option<Pa
         .with_config()
         .limit(MAX_ASSET_BYTES)
         .read_to_vec()
-        .map_err(|e| format!("downloading {}: {e}", info.asset.name))?;
+        .map_err(|e| msg::download_failed(&info.asset.name, &e))?;
     stage_and_apply(info, &bytes, None)
 }
 
@@ -346,7 +343,7 @@ fn stage_and_apply(
         InstallKind::Msi => stage_msi(prefix, &info.asset.name, bytes, dir).map(Some),
         InstallKind::ReplaceBinary => replace_binary(prefix, bytes, dir).map(|_| None),
         InstallKind::AppImage => {
-            let appimage = running_appimage().ok_or("not running from an AppImage")?;
+            let appimage = running_appimage().ok_or_else(msg::not_in_an_appimage)?;
             replace_file(prefix, bytes, &appimage).map(|_| None)
         }
     }
@@ -489,7 +486,7 @@ fn replace_file(prefix: &str, bytes: &[u8], target: &Path) -> Result<(), String>
 
 fn verify_digest(bytes: &[u8], expected: &str) -> Result<(), String> {
     if expected.is_empty() {
-        return Err("release asset has no sha256; refusing to install".into());
+        return Err(msg::no_checksum().into());
     }
     let actual: String = Sha256::digest(bytes)
         .iter()
@@ -498,9 +495,7 @@ fn verify_digest(bytes: &[u8], expected: &str) -> Result<(), String> {
     if actual.eq_ignore_ascii_case(expected) {
         Ok(())
     } else {
-        Err(format!(
-            "checksum mismatch (expected {expected}, got {actual})"
-        ))
+        Err(msg::checksum_mismatch(expected, &actual))
     }
 }
 
@@ -732,7 +727,7 @@ pub(crate) mod tests {
         assert!(verify_digest(b"abc", sha_abc).is_ok());
         assert!(verify_digest(b"abc", &sha_abc.to_uppercase()).is_ok());
         assert!(
-            verify_digest(b"abd", sha_abc)
+            i18n::with_lang(i18n::Lang::En, || verify_digest(b"abd", sha_abc))
                 .unwrap_err()
                 .contains("checksum mismatch")
         );
