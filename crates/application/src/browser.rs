@@ -500,6 +500,11 @@ impl<E: WebEngine> Browser<E> {
         self.engine.set_viewport(viewport);
     }
 
+    /// See [`WebEngine::set_page_holes`].
+    pub fn set_page_holes(&mut self, holes: &[Viewport]) {
+        self.engine.set_page_holes(holes);
+    }
+
     /// Applies what the engine reported. Events about closed tabs are ignored.
     pub fn handle(&mut self, event: EngineEvent) -> Result<(), BrowserError> {
         match event {

@@ -54,6 +54,10 @@ pub trait WebEngine {
         self.reload(tab);
     }
     fn set_viewport(&mut self, viewport: Viewport);
+    /// The parts of the shown page to cut out, relative to its viewport's
+    /// top-left corner: what the browser draws there (tooltips, menus)
+    /// shows through. Empty: the whole page.
+    fn set_page_holes(&mut self, _holes: &[Viewport]) {}
 
     /// How this engine runs browser extensions.
     fn extension_support(&self) -> ExtensionSupport {

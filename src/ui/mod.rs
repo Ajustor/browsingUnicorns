@@ -12,6 +12,7 @@ mod extensions;
 mod favicons;
 mod library;
 mod omnibox;
+mod page_holes;
 mod profiles;
 mod settings_panel;
 mod shield;

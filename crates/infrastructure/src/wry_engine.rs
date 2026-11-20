@@ -152,6 +152,12 @@ pub struct WryEngine {
     /// Windows: each tab's ad blocker scriptlets.
     #[cfg(windows)]
     scriptlets: HashMap<TabId, crate::webview2_scriptlets::Scriptlets>,
+    /// Windows: where the browser's tooltips and menus fall on the page,
+    /// and the cut last made (tab, its viewport, its holes).
+    #[cfg(windows)]
+    page_holes: Vec<Viewport>,
+    #[cfg(windows)]
+    page_cut: Option<(TabId, Viewport, Vec<Viewport>)>,
 }
 
 fn engine_error(e: wry::Error) -> EngineError {
@@ -385,7 +391,38 @@ impl WryEngine {
             security: HashMap::new(),
             #[cfg(windows)]
             scriptlets: HashMap::new(),
+            #[cfg(windows)]
+            page_holes: Vec::new(),
+            #[cfg(windows)]
+            page_cut: None,
         }
+    }
+
+    /// Cuts the shown page where the browser's tooltips and menus fall
+    /// (the page left whole without them), when that changed.
+    #[cfg(windows)]
+    fn cut_page(&mut self) {
+        use wry::WebViewExtWindows as _;
+        let wanted = self
+            .shown
+            .filter(|_| !self.page_holes.is_empty())
+            .map(|tab| (tab, self.viewport, self.page_holes.clone()));
+        if wanted == self.page_cut {
+            return;
+        }
+        // Another tab, or none: the one cut before is made whole again.
+        if let Some((old, ..)) = self.page_cut
+            && wanted.as_ref().is_none_or(|(tab, ..)| *tab != old)
+            && let Some(view) = self.views.get(&old)
+        {
+            crate::webview2_region::cut(view.hwnd(), self.viewport, &[]);
+        }
+        if let Some((tab, viewport, holes)) = &wanted
+            && let Some(view) = self.views.get(tab)
+        {
+            crate::webview2_region::cut(view.hwnd(), *viewport, holes);
+        }
+        self.page_cut = wanted;
     }
 
     /// Advances the platform's own event loop where the web view needs it
@@ -956,6 +993,11 @@ impl WebEngine for WryEngine {
         if self.shown == Some(tab) {
             self.shown = None;
         }
+        #[cfg(windows)]
+        if self.page_cut.as_ref().is_some_and(|(cut, ..)| *cut == tab) {
+            // Its window is gone with it.
+            self.page_cut = None;
+        }
     }
 
     fn show(&mut self, tab: Option<TabId>) {
@@ -973,6 +1015,8 @@ impl WebEngine for WryEngine {
             });
         }
         self.shown = tab;
+        #[cfg(windows)]
+        self.cut_page();
     }
 
     fn navigate(&mut self, tab: TabId, address: &WebAddress) -> Result<(), EngineError> {
@@ -1013,6 +1057,18 @@ impl WebEngine for WryEngine {
         if let Some(tab) = self.shown {
             self.with_view(tab, "resize", |v| v.set_bounds(bounds(viewport)));
         }
+        #[cfg(windows)]
+        self.cut_page();
+    }
+
+    fn set_page_holes(&mut self, holes: &[Viewport]) {
+        #[cfg(windows)]
+        if self.page_holes != holes {
+            self.page_holes = holes.to_vec();
+            self.cut_page();
+        }
+        #[cfg(not(windows))]
+        let _ = holes;
     }
 
     fn extension_support(&self) -> ExtensionSupport {
