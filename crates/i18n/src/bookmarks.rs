@@ -4,7 +4,7 @@ messages! {
     /// The Bookmarks view when empty; `star` is the star's icon.
     fn no_bookmarks(star: &str) {
         en: "No bookmarks. {star} in the address bar or Ctrl+D saves the page; Settings imports other browsers'.",
-        fr: "Aucun favori. {star} dans la barre d'adresse ou Ctrl+D enregistre la page\u{a0}; les Réglages importent ceux des autres navigateurs.",
+        fr: "Aucun favori. {star} dans la barre d’adresse ou Ctrl+D enregistre la page\u{a0}; les Réglages importent ceux des autres navigateurs.",
     }
     /// A bookmark's remove button.
     fn remove_tip() { en: "Remove bookmark", fr: "Supprimer le favori" }

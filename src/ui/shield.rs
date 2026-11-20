@@ -153,6 +153,6 @@ mod tests {
             )
         });
         assert_eq!(status, "1 élément bloqué sur cette page.");
-        assert!(lists.ends_with("mises à jour à l'instant"), "{lists}");
+        assert!(lists.ends_with("mises à jour à l’instant"), "{lists}");
     }
 }

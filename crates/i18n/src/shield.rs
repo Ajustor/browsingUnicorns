@@ -38,7 +38,7 @@ messages! {
         },
         fr: {
             let age = match secs {
-                0..60 => "à l'instant".to_owned(),
+                0..60 => "à l’instant".to_owned(),
                 60..3_600 => format!("il y a {}\u{a0}min", secs / 60),
                 3_600..86_400 => format!("il y a {}\u{a0}h", secs / 3_600),
                 _ => format!("il y a {}\u{a0}j", secs / 86_400),
@@ -58,7 +58,7 @@ mod tests {
         assert!(lists_updated(Lang::En, 10).ends_with("updated just now"));
         assert!(lists_updated(Lang::En, 300).ends_with("updated 5 min ago"));
         assert!(lists_updated(Lang::En, 2 * 86_400).ends_with("updated 2 d ago"));
-        assert!(lists_updated(Lang::Fr, 10).ends_with("mises à jour à l'instant"));
+        assert!(lists_updated(Lang::Fr, 10).ends_with("mises à jour à l’instant"));
         assert!(lists_updated(Lang::Fr, 3 * 3_600).ends_with("mises à jour il y a 3\u{a0}h"));
         assert!(lists_updated(Lang::Fr, 2 * 86_400).ends_with("il y a 2\u{a0}j"));
     }

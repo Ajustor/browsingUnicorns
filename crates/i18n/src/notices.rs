@@ -9,12 +9,12 @@ messages! {
     /// A private window did not open.
     fn private_window_failed(e: &dyn std::fmt::Display) {
         en: "Could not open a private window: {e}",
-        fr: "Impossible d'ouvrir une fenêtre privée\u{a0}: {e}",
+        fr: "Impossible d’ouvrir une fenêtre privée\u{a0}: {e}",
     }
     /// A tab dragged out of the window did not get its own.
     fn new_window_failed(e: &dyn std::fmt::Display) {
         en: "Could not open a new window: {e}",
-        fr: "Impossible d'ouvrir une nouvelle fenêtre\u{a0}: {e}",
+        fr: "Impossible d’ouvrir une nouvelle fenêtre\u{a0}: {e}",
     }
     /// A file to import could not be read.
     fn read_failed(file: &dyn std::fmt::Display, e: &dyn std::fmt::Display) {

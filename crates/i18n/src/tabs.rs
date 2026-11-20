@@ -7,7 +7,7 @@ messages! {
         fr: "Nouvel onglet (Ctrl+T)\nClic droit\u{a0}: rouvrir le dernier onglet fermé (Ctrl+Shift+T)",
     }
     /// Tooltip of the cross of a tab.
-    fn close_tab() { en: "Close tab (Ctrl+W)", fr: "Fermer l'onglet (Ctrl+W)" }
+    fn close_tab() { en: "Close tab (Ctrl+W)", fr: "Fermer l’onglet (Ctrl+W)" }
     /// Tooltip of the speaker of a tab playing sound.
     fn mute_tab() { en: "Mute this tab", fr: "Couper le son de cet onglet" }
     /// Tooltip of the speaker of a muted tab.
@@ -17,6 +17,6 @@ messages! {
     /// Tooltip of that pill.
     fn private_window() {
         en: "Private window: no history, cookies deleted at closing",
-        fr: "Fenêtre privée\u{a0}: pas d'historique, cookies effacés à la fermeture",
+        fr: "Fenêtre privée\u{a0}: pas d’historique, cookies effacés à la fermeture",
     }
 }

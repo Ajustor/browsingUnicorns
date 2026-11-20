@@ -4,7 +4,7 @@ messages! {
     /// The bar's question.
     fn offer() {
         en: "Make browsingUnicorns your default browser? Links you open in other apps will open here.",
-        fr: "Faire de browsingUnicorns votre navigateur par défaut\u{a0}? Les liens ouverts dans d'autres applications s'ouvriront ici.",
+        fr: "Faire de browsingUnicorns votre navigateur par défaut\u{a0}? Les liens ouverts dans d’autres applications s’ouvriront ici.",
     }
     /// The bar's yes.
     fn set_as_default() { en: "Set as default", fr: "Définir par défaut" }

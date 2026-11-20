@@ -9,17 +9,17 @@ messages! {
     }
     fn partly_supported() {
         en: "On this system the browser runs the extensions' blocking rules and page scripts; their background pages and popups do not run.",
-        fr: "Sur ce système, le navigateur applique les règles de blocage et les scripts de page des extensions\u{a0}; leurs pages d'arrière-plan et leurs pop-ups ne fonctionnent pas.",
+        fr: "Sur ce système, le navigateur applique les règles de blocage et les scripts de page des extensions\u{a0}; leurs pages d’arrière-plan et leurs pop-ups ne fonctionnent pas.",
     }
     /// Over the field.
     fn input_label() {
         en: "Chrome Web Store or Edge Add-ons link, extension id, .crx file or unpacked folder:",
-        fr: "Lien Chrome Web Store ou Edge Add-ons, identifiant d'extension, fichier .crx ou dossier décompressé\u{a0}:",
+        fr: "Lien Chrome Web Store ou Edge Add-ons, identifiant d’extension, fichier .crx ou dossier décompressé\u{a0}:",
     }
     /// The input names nothing installable.
     fn invalid_input() {
         en: "Paste a Chrome Web Store or Edge Add-ons link, an extension id, or the path of a .crx file or of an unpacked extension's folder.",
-        fr: "Collez un lien Chrome Web Store ou Edge Add-ons, un identifiant d'extension, ou le chemin d'un fichier .crx ou du dossier d'une extension décompressée.",
+        fr: "Collez un lien Chrome Web Store ou Edge Add-ons, un identifiant d’extension, ou le chemin d’un fichier .crx ou du dossier d’une extension décompressée.",
     }
     fn install() { en: "Install", fr: "Installer" }
     fn web_store_tip() { en: "Find extensions in the Chrome Web Store", fr: "Trouver des extensions sur le Chrome Web Store" }
@@ -35,7 +35,7 @@ messages! {
         fr: "Installer une extension depuis son dossier (celui avec manifest.json)\u{a0}; la recharger pour prendre en compte ses modifications",
     }
     /// The folder picker's title.
-    fn folder_dialog_title() { en: "Extension folder (with manifest.json)", fr: "Dossier de l'extension (avec manifest.json)" }
+    fn folder_dialog_title() { en: "Extension folder (with manifest.json)", fr: "Dossier de l’extension (avec manifest.json)" }
     /// While an install runs.
     fn installing(what: &str) { en: "Installing {what}…", fr: "Installation de {what}…" }
     /// An install went well.
@@ -44,12 +44,12 @@ messages! {
     /// Under the list, when the browser serves the extensions' pages.
     fn note_with_popups() {
         en: "Pages already open see a change after a reload. Extensions with a popup have a button next to the bookmark star; Options opens their settings in a tab.",
-        fr: "Les pages déjà ouvertes voient un changement après un rechargement. Les extensions avec un pop-up ont un bouton à côté de l'étoile des favoris\u{a0}; Options ouvre leurs réglages dans un onglet.",
+        fr: "Les pages déjà ouvertes voient un changement après un rechargement. Les extensions avec un pop-up ont un bouton à côté de l’étoile des favoris\u{a0}; Options ouvre leurs réglages dans un onglet.",
     }
     /// Under the list, when the web view serves them.
     fn note_in_tabs() {
         en: "Pages already open see a change after a reload. Toolbar buttons do not exist here: Popup and Options open the extension's pages in a tab.",
-        fr: "Les pages déjà ouvertes voient un changement après un rechargement. Les boutons de barre d'outils n'existent pas ici\u{a0}: Pop-up et Options ouvrent les pages de l'extension dans un onglet.",
+        fr: "Les pages déjà ouvertes voient un changement après un rechargement. Les boutons de barre d’outils n’existent pas ici\u{a0}: Pop-up et Options ouvrent les pages de l’extension dans un onglet.",
     }
     /// An extension's checkbox, when enabled.
     fn disable_tip() { en: "Disable", fr: "Désactiver" }
@@ -60,6 +60,6 @@ messages! {
     /// Opens the extension's options page.
     fn options() { en: "Options", fr: "Options" }
     fn inspect() { en: "Inspect", fr: "Inspecter" }
-    fn inspect_tip() { en: "Developer tools of its background page", fr: "Outils de développement de sa page d'arrière-plan" }
+    fn inspect_tip() { en: "Developer tools of its background page", fr: "Outils de développement de sa page d’arrière-plan" }
     fn remove() { en: "Remove", fr: "Supprimer" }
 }

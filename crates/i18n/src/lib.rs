@@ -68,7 +68,8 @@
 //! declared below, `messages! {}` waiting in it; a new one would be a new
 //! file declared at the end of this file (after the macros, which it then
 //! sees). French uses a non-breaking space (`\u{a0}`) before `:` `;` `!` `?`
-//! and `%`.
+//! and `%`, and the typographic apostrophe `’` (`l’onglet`), never `'`
+//! (which stays in code and in English).
 //!
 //! # Errors
 //!

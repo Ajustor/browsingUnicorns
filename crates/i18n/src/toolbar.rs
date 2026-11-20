@@ -15,7 +15,7 @@ messages! {
         fr: "Actualiser (F5)\nShift+clic ou Ctrl+Shift+R\u{a0}: actualiser sans le cache",
     }
     /// Tooltip of the home button.
-    fn home() { en: "Home (Alt+Home)", fr: "Page d'accueil (Alt+Home)" }
+    fn home() { en: "Home (Alt+Home)", fr: "Page d’accueil (Alt+Home)" }
     /// Tooltip of the padlock of an HTTPS page.
     fn connection_secure() { en: "Connection is secure: certificate", fr: "Connexion sécurisée\u{a0}: certificat" }
     /// Tooltip of the globe of a page not encrypted.

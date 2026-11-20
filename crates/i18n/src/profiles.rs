@@ -5,7 +5,7 @@ messages! {
     fn heading() { en: "Profiles", fr: "Profils" }
     fn intro() {
         en: "Each profile has its own history, bookmarks, tabs, extensions, cookies and sync, and opens in its own window.",
-        fr: "Chaque profil a son propre historique, ses favoris, ses onglets, ses extensions, ses cookies et sa synchronisation, et s'ouvre dans sa propre fenêtre.",
+        fr: "Chaque profil a son propre historique, ses favoris, ses onglets, ses extensions, ses cookies et sa synchronisation, et s’ouvre dans sa propre fenêtre.",
     }
     /// Under the current profile's name.
     fn this_window() { en: "This window", fr: "Cette fenêtre" }
@@ -28,5 +28,5 @@ messages! {
     fn new_profile() { en: "New profile:", fr: "Nouveau profil\u{a0}:" }
     fn name_hint() { en: "Name (Work, Personal…)", fr: "Nom (Travail, Perso…)" }
     fn add() { en: "Add", fr: "Ajouter" }
-    fn opens_in_new_window() { en: "A new profile opens in a new window.", fr: "Un nouveau profil s'ouvre dans une nouvelle fenêtre." }
+    fn opens_in_new_window() { en: "A new profile opens in a new window.", fr: "Un nouveau profil s’ouvre dans une nouvelle fenêtre." }
 }

@@ -4,7 +4,7 @@ messages! {
     /// The view while sync is off.
     fn intro() {
         en: "Sync bookmarks, history, open tabs and settings with your other devices. Everything is encrypted on the device: the relay cannot read it.",
-        fr: "Synchronisez favoris, historique, onglets ouverts et réglages avec vos autres appareils. Tout est chiffré sur l'appareil\u{a0}: le relais ne peut pas le lire.",
+        fr: "Synchronisez favoris, historique, onglets ouverts et réglages avec vos autres appareils. Tout est chiffré sur l’appareil\u{a0}: le relais ne peut pas le lire.",
     }
     fn turn_on() { en: "Turn on sync", fr: "Activer la synchronisation" }
     fn join_prompt() {
@@ -16,7 +16,7 @@ messages! {
     /// The code typed is not a sync code.
     fn invalid_code() {
         en: "This code is not valid: check it on the other device.",
-        fr: "Ce code n'est pas valide\u{a0}: vérifiez-le sur l'autre appareil.",
+        fr: "Ce code n’est pas valide\u{a0}: vérifiez-le sur l’autre appareil.",
     }
     fn this_device(name: &str) { en: "This device: {name}", fr: "Cet appareil\u{a0}: {name}" }
     fn not_synced() { en: "Not synced yet.", fr: "Pas encore synchronisé." }
@@ -30,14 +30,14 @@ messages! {
     fn add_device() { en: "Add a device", fr: "Ajouter un appareil" }
     fn add_device_how() {
         en: "On the other device, choose \"Join\" and scan this QR code or type the code. Keep it secret: it gives access to your data.",
-        fr: "Sur l'autre appareil, choisissez «\u{a0}Rejoindre\u{a0}» et scannez ce code QR ou saisissez le code. Gardez-le secret\u{a0}: il donne accès à vos données.",
+        fr: "Sur l’autre appareil, choisissez «\u{a0}Rejoindre\u{a0}» et scannez ce code QR ou saisissez le code. Gardez-le secret\u{a0}: il donne accès à vos données.",
     }
     fn show_code() { en: "Show the code", fr: "Afficher le code" }
     fn copy() { en: "Copy", fr: "Copier" }
     fn hide() { en: "Hide", fr: "Masquer" }
     /// Section title.
     fn other_devices() { en: "Other devices", fr: "Autres appareils" }
-    fn no_other_devices() { en: "None yet.", fr: "Aucun pour l'instant." }
+    fn no_other_devices() { en: "None yet.", fr: "Aucun pour l’instant." }
     /// Another device: its name, its open tabs, when it last synced
     /// (`ago` is `history::ago`).
     fn device_summary(name: &str, tabs: usize, ago: &str) -> String {
@@ -59,8 +59,8 @@ mod tests {
             "PC · 0 tabs · now"
         );
         assert_eq!(
-            device_summary(Lang::Fr, "PC", 0, "à l'instant"),
-            "PC · 0 onglet · à l'instant"
+            device_summary(Lang::Fr, "PC", 0, "à l’instant"),
+            "PC · 0 onglet · à l’instant"
         );
         assert_eq!(
             device_summary(Lang::Fr, "PC", 3, "il y a 5 min"),

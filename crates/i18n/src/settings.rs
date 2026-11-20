@@ -9,14 +9,14 @@ messages! {
     fn language_auto() { en: "Automatic", fr: "Automatique" }
 
     /// Section title.
-    fn home_page() { en: "Home page", fr: "Page d'accueil" }
+    fn home_page() { en: "Home page", fr: "Page d’accueil" }
     fn home_page_hint() { en: "Opened by new tabs and the Home button.", fr: "Ouverte par les nouveaux onglets et le bouton Accueil." }
     /// The home page typed is not one.
-    fn not_an_address() { en: "Not a web address.", fr: "Ce n'est pas une adresse web." }
+    fn not_an_address() { en: "Not a web address.", fr: "Ce n’est pas une adresse web." }
 
     /// Section title.
     fn search_engine() { en: "Search engine", fr: "Moteur de recherche" }
-    fn search_engine_hint() { en: "What the address bar searches with.", fr: "Celui avec lequel la barre d'adresse cherche." }
+    fn search_engine_hint() { en: "What the address bar searches with.", fr: "Celui avec lequel la barre d’adresse cherche." }
 
     /// Section title.
     fn downloads() { en: "Downloads", fr: "Téléchargements" }
@@ -35,7 +35,7 @@ messages! {
 
     /// Section title.
     fn passwords() { en: "Passwords", fr: "Mots de passe" }
-    fn offer_to_save_passwords() { en: "Offer to save the passwords I type", fr: "Proposer d'enregistrer les mots de passe que je saisis" }
+    fn offer_to_save_passwords() { en: "Offer to save the passwords I type", fr: "Proposer d’enregistrer les mots de passe que je saisis" }
     fn offer_to_save_passwords_tip() {
         en: "The web view keeps them for this profile and fills them in next time. A password manager extension (Bitwarden…) works either way.",
         fr: "La vue web les garde pour ce profil et les remplit la fois suivante. Une extension de gestion de mots de passe (Bitwarden…) fonctionne dans tous les cas.",
@@ -56,10 +56,10 @@ messages! {
     fn import_html() { en: "From an HTML file…", fr: "Depuis un fichier HTML…" }
     fn import_html_tip() {
         en: "The file other browsers export (Firefox: Bookmarks > Manage bookmarks > Import and backup > Export bookmarks to HTML)",
-        fr: "Le fichier qu'exportent les autres navigateurs (Firefox\u{a0}: Marque-pages > Gérer les marque-pages > Importation et sauvegarde > Exporter des marque-pages au format HTML)",
+        fr: "Le fichier qu’exportent les autres navigateurs (Firefox\u{a0}: Marque-pages > Gérer les marque-pages > Importation et sauvegarde > Exporter des marque-pages au format HTML)",
     }
     /// The file picker's title.
-    fn import_dialog_title() { en: "Bookmarks exported from a browser", fr: "Favoris exportés d'un navigateur" }
+    fn import_dialog_title() { en: "Bookmarks exported from a browser", fr: "Favoris exportés d’un navigateur" }
     /// The file picker's filter.
     fn import_filter() { en: "Bookmarks", fr: "Favoris" }
 
