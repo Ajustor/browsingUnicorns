@@ -4,7 +4,7 @@ messages! {
     /// Section title.
     fn language() { en: "Language", fr: "Langue" }
     /// Under the Language title.
-    fn language_hint() { en: "Of menus and messages.", fr: "Des menus et des messages." }
+    fn language_hint() { en: "Of menus and messages.", fr: "Langue des menus et des messages." }
     /// The language choice that follows the system's.
     fn language_auto() { en: "Automatic", fr: "Automatique" }
 
@@ -16,7 +16,7 @@ messages! {
 
     /// Section title.
     fn search_engine() { en: "Search engine", fr: "Moteur de recherche" }
-    fn search_engine_hint() { en: "What the address bar searches with.", fr: "Celui avec lequel la barre d’adresse cherche." }
+    fn search_engine_hint() { en: "What the address bar searches with.", fr: "Utilisé par la barre d’adresse pour les recherches." }
 
     /// Section title.
     fn downloads() { en: "Downloads", fr: "Téléchargements" }

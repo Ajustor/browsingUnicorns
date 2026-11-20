@@ -37,7 +37,7 @@ messages! {
         },
     }
     /// What Clear browsing data removed: a list of the three below.
-    fn cleared(what: &str) { en: "Cleared: {what}.", fr: "Effacé\u{a0}: {what}." }
+    fn cleared(what: &str) { en: "Cleared: {what}.", fr: "Données effacées\u{a0}: {what}." }
     /// In [`cleared`].
     fn cleared_history() { en: "history", fr: "historique" }
     /// In [`cleared`].

@@ -44,12 +44,12 @@ messages! {
     /// Under the list, when the browser serves the extensions' pages.
     fn note_with_popups() {
         en: "Pages already open see a change after a reload. Extensions with a popup have a button next to the bookmark star; Options opens their settings in a tab.",
-        fr: "Les pages déjà ouvertes voient un changement après un rechargement. Les extensions avec un pop-up ont un bouton à côté de l’étoile des favoris\u{a0}; Options ouvre leurs réglages dans un onglet.",
+        fr: "Les pages déjà ouvertes en tiennent compte une fois rechargées. Les extensions avec un pop-up ont un bouton à côté de l’étoile des favoris\u{a0}; Options ouvre leurs réglages dans un onglet.",
     }
     /// Under the list, when the web view serves them.
     fn note_in_tabs() {
         en: "Pages already open see a change after a reload. Toolbar buttons do not exist here: Popup and Options open the extension's pages in a tab.",
-        fr: "Les pages déjà ouvertes voient un changement après un rechargement. Les boutons de barre d’outils n’existent pas ici\u{a0}: Pop-up et Options ouvrent les pages de l’extension dans un onglet.",
+        fr: "Les pages déjà ouvertes en tiennent compte une fois rechargées. Les boutons de barre d’outils n’existent pas ici\u{a0}: Pop-up et Options ouvrent les pages de l’extension dans un onglet.",
     }
     /// An extension's checkbox, when enabled.
     fn disable_tip() { en: "Disable", fr: "Désactiver" }

@@ -92,7 +92,7 @@ messages! {
     /// A secure page without a certificate to show.
     fn no_certificate() { en: "no certificate", fr: "aucun certificat" }
     /// Where the web view does not tell how pages are secured.
-    fn web_view_does_not_tell() { en: "this system's web view doesn't tell", fr: "le moteur web de ce système ne l’indique pas" }
+    fn web_view_does_not_tell() { en: "this system's web view doesn't tell", fr: "la vue web de ce système ne l’indique pas" }
 
     // Default browser.
 

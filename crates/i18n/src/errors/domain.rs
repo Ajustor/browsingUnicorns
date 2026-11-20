@@ -6,7 +6,7 @@ messages! {
     /// An address that does not parse.
     fn invalid_address(raw: &str) { en: "invalid address: {raw}", fr: "adresse invalide\u{a0}: {raw}" }
     /// An address whose scheme the browser does not load.
-    fn unsupported_scheme(scheme: &str) { en: "unsupported scheme: {scheme}", fr: "schéma non pris en charge\u{a0}: {scheme}" }
+    fn unsupported_scheme(scheme: &str) { en: "unsupported scheme: {scheme}", fr: "protocole non pris en charge\u{a0}: {scheme}" }
     /// Adding or renaming a profile to a blank name.
     fn profile_needs_a_name() { en: "a profile needs a name", fr: "un profil doit avoir un nom" }
     /// Adding or renaming a profile to another one's name.

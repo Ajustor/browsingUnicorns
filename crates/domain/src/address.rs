@@ -122,10 +122,13 @@ mod tests {
     #[test]
     fn errors_speak_the_language_they_are_shown_in() {
         let e = AddressError::UnsupportedScheme("javascript".into());
-        assert_eq!(e.to_string(), "unsupported scheme: javascript");
+        assert_eq!(
+            i18n::with_lang(i18n::Lang::En, || e.to_string()),
+            "unsupported scheme: javascript"
+        );
         assert_eq!(
             i18n::with_lang(i18n::Lang::Fr, || e.to_string()),
-            "schéma non pris en charge\u{a0}: javascript"
+            "protocole non pris en charge\u{a0}: javascript"
         );
     }
 }

@@ -7,7 +7,7 @@ messages! {
         fr: "Aucun favori. {star} dans la barre d’adresse ou Ctrl+D enregistre la page\u{a0}; les Réglages importent ceux des autres navigateurs.",
     }
     /// A bookmark's remove button.
-    fn remove_tip() { en: "Remove bookmark", fr: "Supprimer le favori" }
+    fn remove_tip() { en: "Remove bookmark", fr: "Retirer des favoris" }
     /// A bookmark's folder button.
     fn move_tip() { en: "Move to a folder", fr: "Déplacer dans un dossier" }
     /// The choice of no folder, among the folders.
