@@ -32,10 +32,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.ajustor.browsingunicorns.BrowserController
+import io.github.ajustor.browsingunicorns.R
 import io.github.ajustor.browsingunicorns.Screen
 
 /** Title row with a back arrow, and optional actions on the right. */
@@ -47,7 +49,7 @@ fun Header(c: BrowserController, title: String, actions: @Composable () -> Unit 
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = { c.screen = Screen.Browser }) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to the page")
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back_to_the_page))
             }
             Text(title, style = MaterialTheme.typography.titleLarge, color = Color.White, modifier = Modifier.weight(1f))
             actions()
@@ -100,12 +102,12 @@ fun HistoryScreen(c: BrowserController) {
     val visits = remember(query, version) { c.browser.history(query, 300u) }
     val now = System.currentTimeMillis() / 1000
     Column(Modifier.fillMaxSize()) {
-        Header(c, "History") {
+        Header(c, stringResource(R.string.history)) {
             TextButton(onClick = {
                 c.act { clearHistory() }
                 version++
             }, enabled = visits.isNotEmpty(), colors = ButtonDefaults.textButtonColors(contentColor = Color.White)) {
-                Text("Clear")
+                Text(stringResource(R.string.clear))
             }
         }
         OutlinedTextField(
@@ -113,9 +115,9 @@ fun HistoryScreen(c: BrowserController) {
             onValueChange = { query = it },
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
             singleLine = true,
-            placeholder = { Text("Search history") },
+            placeholder = { Text(stringResource(R.string.search_history)) },
         )
-        if (visits.isEmpty()) Text("No pages.", modifier = Modifier.padding(16.dp))
+        if (visits.isEmpty()) Text(stringResource(R.string.no_pages), modifier = Modifier.padding(16.dp))
         LazyColumn {
             items(visits) { v ->
                 PageRow(v.title, v.url, ago(now, v.at.toLong()), onClick = { c.open(v.url) })
@@ -129,9 +131,9 @@ fun BookmarksScreen(c: BrowserController) {
     var version by remember { mutableStateOf(0) }
     val bookmarks = remember(version) { c.browser.bookmarks() }
     Column(Modifier.fillMaxSize()) {
-        Header(c, "Bookmarks")
+        Header(c, stringResource(R.string.bookmarks))
         if (bookmarks.isEmpty()) {
-            Text("No bookmarks. The star at the bottom saves the page.", modifier = Modifier.padding(16.dp))
+            Text(stringResource(R.string.no_bookmarks), modifier = Modifier.padding(16.dp))
         }
         LazyColumn {
             items(bookmarks, key = { it.url }) { b ->
@@ -139,20 +141,21 @@ fun BookmarksScreen(c: BrowserController) {
                     IconButton(onClick = {
                         c.act { removeBookmark(b.url) }
                         version++
-                    }) { Icon(Icons.Filled.Delete, contentDescription = "Remove bookmark") }
+                    }) { Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.remove_bookmark)) }
                 }
             }
         }
     }
 }
 
-/** "now", "5 min", "3 h", "2 d". */
+/** How long ago, short: "now", "5 min", "3 h", "2 d". */
+@Composable
 fun ago(now: Long, at: Long): String {
     val secs = (now - at).coerceAtLeast(0)
     return when {
-        secs < 60 -> "now"
-        secs < 3_600 -> "${secs / 60} min"
-        secs < 86_400 -> "${secs / 3_600} h"
-        else -> "${secs / 86_400} d"
+        secs < 60 -> stringResource(R.string.ago_now)
+        secs < 3_600 -> stringResource(R.string.ago_minutes, secs / 60)
+        secs < 86_400 -> stringResource(R.string.ago_hours, secs / 3_600)
+        else -> stringResource(R.string.ago_days, secs / 86_400)
     }
 }

@@ -23,7 +23,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.addPathNodes
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import io.github.ajustor.browsingunicorns.R
 import uniffi.mobile.BlockerInfo
 
 /** A shield (Material's), the core icons have none. */
@@ -54,7 +57,7 @@ fun ShieldButton(info: BlockerInfo, onClick: () -> Unit) {
         }) {
             Icon(
                 ShieldIcon,
-                contentDescription = if (info.active) "Ad blocker: on for this site" else "Ad blocker: off for this site",
+                contentDescription = stringResource(if (info.active) R.string.shield_on else R.string.shield_off),
                 tint = if (info.active) Unicorn.Cyan else Unicorn.OnNight.copy(alpha = 0.5f),
                 modifier = Modifier.size(20.dp),
             )
@@ -73,32 +76,35 @@ fun ShieldDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) } },
         title = { Text(host) },
         text = {
             Column {
                 Text(
                     when {
-                        !info.enabled -> "The ad blocker is off."
-                        info.siteAllowed -> "Not blocking on this site."
-                        info.blocked == 1u -> "1 item blocked on this page."
-                        else -> "${info.blocked} items blocked on this page."
+                        !info.enabled -> stringResource(R.string.blocker_off)
+                        info.siteAllowed -> stringResource(R.string.blocker_site_allowed)
+                        else -> info.blocked.toInt().let { pluralStringResource(R.plurals.items_blocked, it, it) }
                     },
                 )
                 Spacer(Modifier.height(12.dp))
-                SwitchRow("Block on this site", !info.siteAllowed, enabled = info.enabled, onSiteChange)
-                SwitchRow("Ad blocker", info.enabled, enabled = true, onBlockerChange)
+                SwitchRow(stringResource(R.string.block_on_this_site), !info.siteAllowed, enabled = info.enabled, onSiteChange)
+                SwitchRow(stringResource(R.string.ad_blocker), info.enabled, enabled = true, onBlockerChange)
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    "Lists: EasyList, EasyPrivacy, uBlock filters, Twitch (vaft) · " + (
+                    stringResource(
+                        R.string.blocker_lists,
                         info.listsUpdated?.let {
-                            "updated " + DateUtils.getRelativeTimeSpanString(
-                                it * 1000,
-                                System.currentTimeMillis(),
-                                DateUtils.MINUTE_IN_MILLIS,
+                            stringResource(
+                                R.string.blocker_lists_updated,
+                                DateUtils.getRelativeTimeSpanString(
+                                    it * 1000,
+                                    System.currentTimeMillis(),
+                                    DateUtils.MINUTE_IN_MILLIS,
+                                ),
                             )
-                        } ?: "not downloaded yet"
-                        ),
+                        } ?: stringResource(R.string.blocker_lists_not_downloaded),
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

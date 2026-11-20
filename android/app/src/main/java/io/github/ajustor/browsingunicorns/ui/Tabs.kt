@@ -52,6 +52,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -59,6 +60,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.toOffset
 import androidx.compose.ui.zIndex
 import io.github.ajustor.browsingunicorns.BrowserController
+import io.github.ajustor.browsingunicorns.R
 import io.github.ajustor.browsingunicorns.Screen
 
 /**
@@ -71,11 +73,11 @@ fun TabsScreen(c: BrowserController) {
     val private = c.showPrivate && c.views.privateSupported
     val tabs = c.state.tabs.filter { it.private == private }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        Header(c, "Tabs (${tabs.size})") {
+        Header(c, stringResource(R.string.tabs_title, tabs.size)) {
             IconButton(onClick = {
                 c.act { openTab(null, private) }
                 c.screen = Screen.Browser
-            }) { Icon(Icons.Filled.Add, contentDescription = if (private) "New private tab" else "New tab") }
+            }) { Icon(Icons.Filled.Add, contentDescription = stringResource(if (private) R.string.new_private_tab else R.string.new_tab)) }
         }
         if (c.views.privateSupported) {
             SingleChoiceSegmentedButtonRow(
@@ -87,20 +89,19 @@ fun TabsScreen(c: BrowserController) {
                     onClick = { c.showPrivate = false },
                     shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
                     colors = seriesColors(),
-                ) { Text("Normal") }
+                ) { Text(stringResource(R.string.tabs_normal)) }
                 SegmentedButton(
                     selected = private,
                     onClick = { c.showPrivate = true },
                     shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
                     colors = seriesColors(),
                     icon = { Icon(MaskIcon, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                ) { Text("Private") }
+                ) { Text(stringResource(R.string.tabs_private)) }
             }
         }
         if (private && tabs.isEmpty()) {
             Text(
-                "Private tabs leave no history, and their cookies and site data are deleted " +
-                    "when the last one closes.",
+                stringResource(R.string.private_tabs_intro),
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(24.dp),
             )
@@ -141,7 +142,7 @@ fun TabsScreen(c: BrowserController) {
                     } else {
                         Modifier.animateItem()
                     },
-                    title = tab.title.ifBlank { tab.url ?: "New tab" },
+                    title = tab.title.ifBlank { tab.url ?: stringResource(R.string.new_tab) },
                     host = tab.url?.let { android.net.Uri.parse(it).host } ?: "",
                     active = tab.id == c.state.active,
                     thumbnail = c.views.thumbnails[tab.id],
@@ -243,7 +244,7 @@ private fun TabCard(
                     modifier = Modifier.weight(1f).padding(start = 6.dp),
                 )
                 IconButton(onClick = onClose) {
-                    Icon(Icons.Filled.Close, contentDescription = "Close tab", modifier = Modifier.size(18.dp))
+                    Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.close_tab), modifier = Modifier.size(18.dp))
                 }
             }
             Box(

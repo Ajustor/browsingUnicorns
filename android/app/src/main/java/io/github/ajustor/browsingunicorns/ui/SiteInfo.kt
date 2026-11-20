@@ -14,7 +14,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import io.github.ajustor.browsingunicorns.R
 import java.security.MessageDigest
 import java.text.DateFormat
 
@@ -23,21 +25,21 @@ import java.text.DateFormat
 fun SiteInfoDialog(host: String, secure: Boolean, certificate: SslCertificate?, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) } },
         title = { Text(host) },
         text = {
             SelectionContainer {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
                     when {
                         !secure -> Text(
-                            "Connection is not secure: what you send or see can be read on the way.",
+                            stringResource(R.string.site_info_not_secure),
                             color = MaterialTheme.colorScheme.error,
                         )
-                        certificate == null -> Text("Connection is secure (HTTPS). Certificate not available yet.")
+                        certificate == null -> Text(stringResource(R.string.site_info_secure_no_certificate))
                         else -> {
-                            Text("Connection is secure (HTTPS).")
+                            Text(stringResource(R.string.site_info_secure))
                             Spacer(Modifier.height(12.dp))
-                            Text("Certificate", style = MaterialTheme.typography.titleSmall)
+                            Text(stringResource(R.string.certificate), style = MaterialTheme.typography.titleSmall)
                             CertificateRows(certificate)
                         }
                     }
@@ -50,19 +52,19 @@ fun SiteInfoDialog(host: String, secure: Boolean, certificate: SslCertificate?, 
 @Composable
 private fun CertificateRows(cert: SslCertificate) {
     val dates = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
-    Row("Issued to", name(cert.issuedTo))
-    Row("Issued by", name(cert.issuedBy))
+    Row(stringResource(R.string.certificate_issued_to), name(cert.issuedTo))
+    Row(stringResource(R.string.certificate_issued_by), name(cert.issuedBy))
     // The full certificate (names covered, fingerprint): Android 10+.
     val x509 = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) cert.x509Certificate else null
     x509?.subjectAlternativeNames
         ?.filter { it.getOrNull(0) == 2 } // dNSName
         ?.mapNotNull { it.getOrNull(1) as? String }
         ?.takeIf { it.isNotEmpty() }
-        ?.let { Row("Covers", it.joinToString(", ")) }
-    cert.validNotBeforeDate?.let { Row("Valid from", dates.format(it)) }
-    cert.validNotAfterDate?.let { Row("Valid until", dates.format(it)) }
+        ?.let { Row(stringResource(R.string.certificate_covers), it.joinToString(", ")) }
+    cert.validNotBeforeDate?.let { Row(stringResource(R.string.certificate_valid_from), dates.format(it)) }
+    cert.validNotAfterDate?.let { Row(stringResource(R.string.certificate_valid_until), dates.format(it)) }
     x509?.let {
-        Row("Serial number", it.serialNumber.toByteArray().hex())
+        Row(stringResource(R.string.certificate_serial_number), it.serialNumber.toByteArray().hex())
         Row("SHA-256", MessageDigest.getInstance("SHA-256").digest(it.encoded).hex())
     }
 }

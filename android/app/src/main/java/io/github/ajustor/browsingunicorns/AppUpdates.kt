@@ -65,13 +65,13 @@ class AppUpdates(private val context: Context, private val scope: CoroutineScope
             val release = result.getOrElse {
                 Log.w(TAG, "update check failed", it)
                 state = UpdateState.Idle
-                if (manual) onMessage("Could not check for updates: ${it.message}")
+                if (manual) onMessage(context.getString(R.string.update_check_failed, it.message))
                 return@launch
             }
             val skipped = prefs.getString("skipped", null)
             state = when {
                 release == null || !isNewer(release.version, currentVersion) -> {
-                    if (manual) onMessage("Browsing Unicorns $currentVersion is up to date")
+                    if (manual) onMessage(context.getString(R.string.up_to_date, currentVersion))
                     UpdateState.Idle
                 }
                 !manual && release.version == skipped -> UpdateState.Idle
@@ -154,7 +154,7 @@ class AppUpdates(private val context: Context, private val scope: CoroutineScope
                     val sha = digest.digest().joinToString("") { "%02x".format(it) }
                     if (sha != release.sha256) {
                         apk.delete()
-                        error("the download is corrupted (SHA-256 mismatch)")
+                        error(context.getString(R.string.update_corrupted))
                     }
                     apk
                 }
@@ -167,7 +167,7 @@ class AppUpdates(private val context: Context, private val scope: CoroutineScope
                 onFailure = {
                     Log.w(TAG, "update download failed", it)
                     state = UpdateState.Available(release)
-                    onMessage("Update failed: ${it.message}")
+                    onMessage(context.getString(R.string.update_failed, it.message))
                 },
             )
         }
@@ -177,7 +177,7 @@ class AppUpdates(private val context: Context, private val scope: CoroutineScope
     private fun launchInstaller(apk: File) {
         val pm = context.packageManager
         if (!pm.canRequestPackageInstalls()) {
-            onMessage("Allow Browsing Unicorns to install apps, then tap Install again")
+            onMessage(context.getString(R.string.update_allow_installs))
             val settings = Intent(
                 Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
                 Uri.parse("package:${context.packageName}"),
@@ -192,7 +192,7 @@ class AppUpdates(private val context: Context, private val scope: CoroutineScope
         try {
             context.startActivity(install)
         } catch (e: ActivityNotFoundException) {
-            onMessage("No installer found on this device")
+            onMessage(context.getString(R.string.update_no_installer))
         }
     }
 
@@ -201,7 +201,7 @@ class AppUpdates(private val context: Context, private val scope: CoroutineScope
             connectTimeout = 15_000
             readTimeout = 30_000
             setRequestProperty("User-Agent", "browsingUnicorns/$currentVersion (Android)")
-            if (responseCode !in 200..299) error("HTTP $responseCode for $url")
+            if (responseCode !in 200..299) error(context.getString(R.string.http_status_for, responseCode, url))
         }
 
     private fun get(url: String) = open(url).inputStream

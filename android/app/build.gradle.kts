@@ -55,6 +55,12 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    lint {
+        // Every string in English (values) and French (values-fr): a missing
+        // translation fails lint, and the release build (lintVital).
+        fatal += "MissingTranslation"
+    }
+
     buildFeatures {
         compose = true
         buildConfig = true

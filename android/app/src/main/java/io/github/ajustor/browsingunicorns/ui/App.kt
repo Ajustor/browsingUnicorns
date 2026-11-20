@@ -57,6 +57,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
@@ -65,6 +66,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import io.github.ajustor.browsingunicorns.AppUpdates
+import io.github.ajustor.browsingunicorns.R
 import io.github.ajustor.browsingunicorns.BrowserController
 import io.github.ajustor.browsingunicorns.UpdateState
 import io.github.ajustor.browsingunicorns.Screen
@@ -141,14 +143,14 @@ private fun StoreBanner(c: BrowserController) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                "Install ${offer.name} in Browsing Unicorns?",
+                stringResource(R.string.store_offer, offer.name.ifEmpty { stringResource(R.string.store_offer_unnamed) }),
                 style = MaterialTheme.typography.bodyMedium,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
             TextButton(onClick = { c.installExtension(offer.id) }, enabled = !c.installing) {
-                Text(if (c.installing) "Installing…" else "Install")
+                Text(stringResource(if (c.installing) R.string.installing else R.string.install))
             }
         }
     }
@@ -158,9 +160,9 @@ private fun StoreBanner(c: BrowserController) {
 @Composable
 private fun UpdateBanner(u: AppUpdates) {
     val (version, label) = when (val s = u.state) {
-        is UpdateState.Available -> s.release.version to "Install"
-        is UpdateState.Ready -> s.release.version to "Install"
-        is UpdateState.Downloading -> s.release.version to "${s.percent} %"
+        is UpdateState.Available -> s.release.version to stringResource(R.string.install)
+        is UpdateState.Ready -> s.release.version to stringResource(R.string.install)
+        is UpdateState.Downloading -> s.release.version to stringResource(R.string.update_downloading, s.percent)
         else -> return
     }
     Surface(tonalElevation = 6.dp, modifier = Modifier.fillMaxWidth()) {
@@ -169,14 +171,14 @@ private fun UpdateBanner(u: AppUpdates) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                "Browsing Unicorns $version is available",
+                stringResource(R.string.update_available, version),
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.weight(1f),
             )
             val downloading = u.state is UpdateState.Downloading
             if (!downloading) {
-                TextButton(onClick = { u.skip() }) { Text("Skip") }
-                TextButton(onClick = { u.later() }) { Text("Later") }
+                TextButton(onClick = { u.skip() }) { Text(stringResource(R.string.update_skip)) }
+                TextButton(onClick = { u.later() }) { Text(stringResource(R.string.update_later)) }
             }
             TextButton(onClick = { u.install() }, enabled = !downloading) { Text(label) }
         }
@@ -239,11 +241,11 @@ private fun AddressBar(c: BrowserController) {
                     c.views.addressBarFocused = it.isFocused
                 },
             singleLine = true,
-            placeholder = { Text("Search or enter an address") },
+            placeholder = { Text(stringResource(R.string.address_placeholder)) },
             leadingIcon = {
                 if (c.activePrivate) {
                     Row(Modifier.padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(MaskIcon, contentDescription = "Private tab", modifier = Modifier.size(20.dp))
+                        Icon(MaskIcon, contentDescription = stringResource(R.string.private_tab), modifier = Modifier.size(20.dp))
                         if (url.isNotEmpty()) SiteButton(c) { siteInfo = true }
                     }
                 } else if (url.isEmpty()) {
@@ -258,7 +260,7 @@ private fun AddressBar(c: BrowserController) {
                         ShieldButton(blocker) { shield = true }
                     }
                     IconButton(onClick = { c.act { reload() } }) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "Reload")
+                        Icon(Icons.Filled.Refresh, contentDescription = stringResource(R.string.reload))
                     }
                 }
             },
@@ -302,7 +304,7 @@ private fun SuggestionRow(s: SuggestionInfo, onClick: () -> Unit) {
     ) {
         Icon(
             if (s.search) Icons.Filled.Search else HistoryIcon,
-            contentDescription = if (s.search) "Search" else "Page visited",
+            contentDescription = stringResource(if (s.search) R.string.suggestion_search else R.string.suggestion_page),
             tint = Unicorn.OnNight.copy(alpha = 0.7f),
             modifier = Modifier.size(18.dp),
         )
@@ -333,7 +335,7 @@ private fun SiteButton(c: BrowserController, onClick: () -> Unit) {
     IconButton(onClick = onClick) {
         Icon(
             if (c.state.activeSecure) Icons.Filled.Lock else Icons.Filled.Info,
-            contentDescription = if (c.state.activeSecure) "Secure connection: certificate" else "Not secure",
+            contentDescription = stringResource(if (c.state.activeSecure) R.string.site_secure else R.string.site_not_secure),
             tint = if (c.state.activeSecure) Unicorn.Cyan else Unicorn.OnNight,
             modifier = Modifier.size(18.dp),
         )
@@ -351,19 +353,19 @@ private fun BottomBar(c: BrowserController) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = { c.goBack() }, enabled = c.state.canGoBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
             }
             IconButton(onClick = { c.act { goForward() } }, enabled = c.state.canGoForward) {
-                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Forward")
+                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = stringResource(R.string.forward))
             }
             IconButton(onClick = { c.act { goHome() } }) {
-                Icon(Icons.Filled.Home, contentDescription = "Home")
+                Icon(Icons.Filled.Home, contentDescription = stringResource(R.string.home))
             }
             IconButton(onClick = { c.act { toggleBookmark() } }, enabled = c.state.activeUrl != null) {
                 if (c.state.bookmarked) {
-                    Icon(Icons.Filled.Star, contentDescription = "Remove bookmark", tint = Unicorn.Cyan)
+                    Icon(Icons.Filled.Star, contentDescription = stringResource(R.string.remove_bookmark), tint = Unicorn.Cyan)
                 } else {
-                    Icon(Icons.Outlined.Star, contentDescription = "Bookmark this page")
+                    Icon(Icons.Outlined.Star, contentDescription = stringResource(R.string.bookmark_this_page))
                 }
             }
             IconButton(onClick = { c.openTabs() }) {
@@ -385,50 +387,50 @@ private fun BottomBar(c: BrowserController) {
             }
             Box {
                 IconButton(onClick = { menu = true }) {
-                    Icon(Icons.Filled.MoreVert, contentDescription = "Menu")
+                    Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.menu))
                 }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                    DropdownMenuItem(text = { Text("New tab") }, onClick = {
+                    DropdownMenuItem(text = { Text(stringResource(R.string.new_tab)) }, onClick = {
                         menu = false
                         c.act { openTab(null, false) }
                     })
                     if (c.state.canReopenClosedTab) {
-                        DropdownMenuItem(text = { Text("Reopen closed tab") }, onClick = {
+                        DropdownMenuItem(text = { Text(stringResource(R.string.reopen_closed_tab)) }, onClick = {
                             menu = false
                             c.act { reopenClosedTab() }
                         })
                     }
-                    DropdownMenuItem(text = { Text("History") }, onClick = {
+                    DropdownMenuItem(text = { Text(stringResource(R.string.history)) }, onClick = {
                         menu = false
                         c.screen = Screen.History
                     })
-                    DropdownMenuItem(text = { Text("Bookmarks") }, onClick = {
+                    DropdownMenuItem(text = { Text(stringResource(R.string.bookmarks)) }, onClick = {
                         menu = false
                         c.screen = Screen.Bookmarks
                     })
-                    DropdownMenuItem(text = { Text("Sync") }, onClick = {
+                    DropdownMenuItem(text = { Text(stringResource(R.string.sync)) }, onClick = {
                         menu = false
                         c.refreshSync()
                         c.screen = Screen.Sync
                     })
-                    DropdownMenuItem(text = { Text("Extensions") }, onClick = {
+                    DropdownMenuItem(text = { Text(stringResource(R.string.extensions)) }, onClick = {
                         menu = false
                         c.refreshExtensions()
                         c.screen = Screen.Extensions
                     })
-                    DropdownMenuItem(text = { Text("Settings") }, onClick = {
+                    DropdownMenuItem(text = { Text(stringResource(R.string.settings)) }, onClick = {
                         menu = false
                         c.screen = Screen.Settings
                     })
                     DropdownMenuItem(
-                        text = { Text("Check for updates (${c.updates.currentVersion})") },
+                        text = { Text(stringResource(R.string.check_for_updates, c.updates.currentVersion)) },
                         onClick = {
                             menu = false
                             c.updates.check(manual = true)
                         },
                     )
                     DropdownMenuItem(
-                        text = { Text("Web debugging") },
+                        text = { Text(stringResource(R.string.web_debugging)) },
                         trailingIcon = { Checkbox(checked = c.webDebugging, onCheckedChange = null) },
                         onClick = {
                             menu = false

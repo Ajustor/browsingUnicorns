@@ -655,3 +655,36 @@ fn the_ad_blocker_blocks_and_counts() {
         Interception::Allow
     );
 }
+
+#[test]
+fn errors_built_here_speak_the_language_set() {
+    use i18n::{Lang, with_lang};
+    let dir = tempfile::tempdir().unwrap();
+    let http = Arc::new(FakeHttp::default());
+    let (b, _) = browser(&dir, "phone", &http);
+    let reason = |r: Result<(), MobileError>| r.unwrap_err().to_string();
+    with_lang(Lang::Fr, || {
+        assert_eq!(
+            reason(b.sync_join("not a code".into())),
+            "Ce code n’est pas valide\u{a0}: vérifiez-le sur l’autre appareil."
+        );
+        assert_eq!(
+            reason(b.set_search_engine("Nope".into())),
+            "Moteur de recherche inconnu\u{a0}: Nope"
+        );
+        assert_eq!(
+            reason(b.install_extension("nothing".into()).map(drop)),
+            "Collez un lien du Chrome Web Store ou l’identifiant d’une extension."
+        );
+    });
+    with_lang(Lang::En, || {
+        assert_eq!(
+            reason(b.set_home_page("not an address".into())),
+            "Not a web address: not an address"
+        );
+        assert_eq!(
+            reason(b.remove_extension("x".into())),
+            "Not an extension id."
+        );
+    });
+}

@@ -1,4 +1,186 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <string name="app_name">browsingUnicorns</string>
+<!-- English, the default. Every string is also in values-fr: lint fails on a
+     missing translation (MissingTranslation, app/build.gradle.kts). -->
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="app_name" translatable="false">browsingUnicorns</string>
+    <!-- The language these resources are in: handed to the Rust core
+         (setLanguage) so that its messages speak the language Android picked. -->
+    <string name="core_language_tag">en</string>
+
+    <!-- Common -->
+    <string name="close">Close</string>
+    <string name="install">Install</string>
+    <string name="installing">Installing…</string>
+    <string name="back_to_the_page">Back to the page</string>
+    <string name="remove_bookmark">Remove bookmark</string>
+    <string name="new_tab">New tab</string>
+    <string name="history">History</string>
+    <string name="bookmarks">Bookmarks</string>
+    <string name="sync">Sync</string>
+    <string name="extensions">Extensions</string>
+    <string name="settings">Settings</string>
+    <!-- How long ago, short: "now", "5 min", "3 h", "2 d". -->
+    <string name="ago_now">now</string>
+    <string name="ago_minutes">%1$d min</string>
+    <string name="ago_hours">%1$d h</string>
+    <string name="ago_days">%1$d d</string>
+
+    <!-- Browser screen: banners -->
+    <string name="store_offer">Install %1$s in Browsing Unicorns?</string>
+    <string name="store_offer_unnamed">this extension</string>
+    <string name="update_available">Browsing Unicorns %1$s is available</string>
+    <string name="update_downloading">%1$d %%</string>
+    <string name="update_skip">Skip</string>
+    <string name="update_later">Later</string>
+
+    <!-- Browser screen: address bar -->
+    <string name="address_placeholder">Search or enter an address</string>
+    <string name="private_tab">Private tab</string>
+    <string name="reload">Reload</string>
+    <string name="suggestion_search">Search</string>
+    <string name="suggestion_page">Page visited</string>
+    <string name="site_secure">Secure connection: certificate</string>
+    <string name="site_not_secure">Not secure</string>
+
+    <!-- Browser screen: bottom bar and its menu -->
+    <string name="back">Back</string>
+    <string name="forward">Forward</string>
+    <string name="home">Home</string>
+    <string name="bookmark_this_page">Bookmark this page</string>
+    <string name="menu">Menu</string>
+    <string name="reopen_closed_tab">Reopen closed tab</string>
+    <string name="check_for_updates">Check for updates (%1$s)</string>
+    <string name="web_debugging">Web debugging</string>
+
+    <!-- Messages (snackbar) -->
+    <string name="browsing_data_cleared">Cleared</string>
+    <string name="opened_in_new_tab">Opened in a new tab</string>
+    <string name="web_debugging_on">Web debugging on: inspect the pages from chrome://inspect on a computer (USB debugging)</string>
+    <string name="web_debugging_off">Web debugging off</string>
+    <!-- %1$s: the script's name and version. -->
+    <string name="user_script_installed">%1$s installed: it runs from the next page load.</string>
+    <!-- %1$s: the extension's name and version. -->
+    <string name="extension_installed">%1$s installed.</string>
+
+    <!-- Self-update -->
+    <string name="update_check_failed">Could not check for updates: %1$s</string>
+    <string name="up_to_date">Browsing Unicorns %1$s is up to date</string>
+    <string name="update_failed">Update failed: %1$s</string>
+    <string name="update_corrupted">the download is corrupted (SHA-256 mismatch)</string>
+    <string name="update_allow_installs">Allow Browsing Unicorns to install apps, then tap Install again</string>
+    <string name="update_no_installer">No installer found on this device</string>
+    <string name="http_status_for" tools:ignore="PluralsCandidate">HTTP %1$d for %2$s</string>
+
+    <!-- Downloads -->
+    <string name="download_permission_denied">Download cancelled: storage permission denied</string>
+    <string name="download_saved">%1$s saved in Downloads</string>
+    <string name="download_failed">Download of %1$s failed: %2$s</string>
+    <string name="download_unsupported">Can’t download %1$s</string>
+    <string name="downloading">Downloading %1$s…</string>
+    <string name="download_no_room">no room in Downloads</string>
+
+    <!-- The HTTP client's errors (sync, extension and list downloads), shown
+         inside the core's messages. -->
+    <string name="http_unreachable">unreachable: %1$s</string>
+    <string name="http_redirect_without_location">redirect without a location</string>
+    <string name="http_status">HTTP %1$d</string>
+    <string name="http_package_too_big">package too big</string>
+    <string name="http_download_failed">download failed: %1$s</string>
+    <string name="http_too_many_redirects">too many redirects</string>
+    <string name="relay_unreachable">relay unreachable: %1$s</string>
+    <string name="relay_error">relay: %1$d %2$s</string>
+
+    <!-- History and bookmarks -->
+    <string name="clear">Clear</string>
+    <string name="search_history">Search history</string>
+    <string name="no_pages">No pages.</string>
+    <string name="no_bookmarks">No bookmarks. The star at the bottom saves the page.</string>
+
+    <!-- Extensions -->
+    <string name="extensions_intro">From the Chrome Web Store: their blocking rules, page scripts, background pages and popups run here, without the extension toolbar.</string>
+    <string name="extension_field">Chrome Web Store link or extension id</string>
+    <string name="no_extensions">No extensions.</string>
+    <string name="extension_popup">Popup</string>
+    <string name="extension_options">Options</string>
+    <string name="user_scripts">User scripts</string>
+    <string name="user_scripts_intro">Greasemonkey / Tampermonkey scripts: paste the address of a .user.js file.</string>
+    <string name="user_script_field">Address of a .user.js script</string>
+    <string name="no_user_scripts">No user scripts.</string>
+    <!-- %1$s: an extension's or a user script's name. -->
+    <string name="remove_add_on">Remove %1$s</string>
+
+    <!-- Settings -->
+    <string name="home_page">Home page</string>
+    <string name="save">Save</string>
+    <string name="search_engine">Search engine</string>
+    <string name="clear_browsing_data">Clear browsing data</string>
+    <string name="clear_cookies">Cookies and site data (signs you out of sites)</string>
+    <string name="clear_cache">Cached images and files</string>
+    <string name="clear_now">Clear now</string>
+
+    <!-- Ad blocker (shield) -->
+    <string name="shield_on">Ad blocker: on for this site</string>
+    <string name="shield_off">Ad blocker: off for this site</string>
+    <string name="blocker_off">The ad blocker is off.</string>
+    <string name="blocker_site_allowed">Not blocking on this site.</string>
+    <plurals name="items_blocked">
+        <item quantity="one">%1$d item blocked on this page.</item>
+        <item quantity="other">%1$d items blocked on this page.</item>
+    </plurals>
+    <string name="block_on_this_site">Block on this site</string>
+    <string name="ad_blocker">Ad blocker</string>
+    <!-- %1$s: blocker_lists_updated or blocker_lists_not_downloaded. -->
+    <string name="blocker_lists">Lists: EasyList, EasyPrivacy, uBlock filters, Twitch (vaft) · %1$s</string>
+    <!-- %1$s: when, as Android says it ("5 minutes ago"). -->
+    <string name="blocker_lists_updated">updated %1$s</string>
+    <string name="blocker_lists_not_downloaded">not downloaded yet</string>
+
+    <!-- Site information (padlock) -->
+    <string name="site_info_not_secure">Connection is not secure: what you send or see can be read on the way.</string>
+    <string name="site_info_secure_no_certificate">Connection is secure (HTTPS). Certificate not available yet.</string>
+    <string name="site_info_secure">Connection is secure (HTTPS).</string>
+    <string name="certificate">Certificate</string>
+    <string name="certificate_issued_to">Issued to</string>
+    <string name="certificate_issued_by">Issued by</string>
+    <string name="certificate_covers">Covers</string>
+    <string name="certificate_valid_from">Valid from</string>
+    <string name="certificate_valid_until">Valid until</string>
+    <string name="certificate_serial_number">Serial number</string>
+
+    <!-- Sync -->
+    <string name="sync_intro">Sync bookmarks, history, open tabs and settings with your other devices. Everything is encrypted on the device: the relay cannot read it.</string>
+    <string name="sync_turn_on">Turn on sync</string>
+    <string name="sync_join_intro">Already on another device? Scan its QR code (Sync › Add a device) or type its code.</string>
+    <string name="sync_scanner_unavailable">Scanner unavailable: type the code instead.</string>
+    <string name="sync_scan">Scan QR code</string>
+    <string name="sync_join">Join</string>
+    <string name="sync_this_device">This device: %1$s</string>
+    <string name="sync_syncing">Syncing…</string>
+    <!-- %1$s: how long ago (ago_*). -->
+    <string name="sync_synced">Synced %1$s.</string>
+    <string name="sync_never">Not synced yet.</string>
+    <string name="sync_now">Sync now</string>
+    <string name="sync_turn_off">Turn off</string>
+    <string name="sync_add_device">Add a device</string>
+    <string name="sync_add_device_intro">On the other device, choose “Join” and scan this QR code or type the code. Keep it secret: it gives access to your data.</string>
+    <string name="sync_show_code">Show the code</string>
+    <string name="sync_copy">Copy</string>
+    <string name="sync_hide">Hide</string>
+    <string name="sync_other_devices">Other devices</string>
+    <string name="sync_no_devices">None yet.</string>
+    <!-- Another device: its name, its tabs, how long ago it synced (ago_*). -->
+    <plurals name="sync_device">
+        <item quantity="one">%1$s · %2$d tab · %3$s</item>
+        <item quantity="other">%1$s · %2$d tabs · %3$s</item>
+    </plurals>
+    <string name="sync_qr_code">Sync QR code</string>
+    <string name="sync_code_clip_label">browsingUnicorns sync code</string>
+
+    <!-- Tabs -->
+    <string name="tabs_title">Tabs (%1$d)</string>
+    <string name="new_private_tab">New private tab</string>
+    <string name="tabs_normal">Normal</string>
+    <string name="tabs_private">Private</string>
+    <string name="private_tabs_intro">Private tabs leave no history, and their cookies and site data are deleted when the last one closes.</string>
+    <string name="close_tab">Close tab</string>
 </resources>

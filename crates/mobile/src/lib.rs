@@ -729,9 +729,8 @@ impl MobileBrowser {
 
     /// Joins another device's group from its code (typed or scanned).
     pub fn sync_join(&self, code: String) -> Result<(), MobileError> {
-        let key = SyncKey::from_code(&code).ok_or_else(|| {
-            MobileError::new("This code is not valid: check it on the other device.")
-        })?;
+        let key = SyncKey::from_code(&code)
+            .ok_or_else(|| MobileError::new(i18n::mobile::sync_code_invalid()))?;
         self.join_group(key)
     }
 
@@ -863,7 +862,7 @@ impl MobileBrowser {
     /// Sets the home page: a full address or a host name.
     pub fn set_home_page(&self, input: String) -> Result<(), MobileError> {
         let address = WebAddress::parse_site(&input)
-            .ok_or_else(|| MobileError::new(format!("Not a web address: {input}")))?;
+            .ok_or_else(|| MobileError::new(i18n::mobile::not_a_web_address(&input)))?;
         self.change_settings(|s| s.home_page = address)
     }
 
@@ -872,7 +871,7 @@ impl MobileBrowser {
         let engine = domain::SearchEngine::well_known()
             .into_iter()
             .find(|e| e.name == name)
-            .ok_or_else(|| MobileError::new(format!("Unknown search engine: {name}")))?;
+            .ok_or_else(|| MobileError::new(i18n::mobile::unknown_search_engine(&name)))?;
         self.change_settings(|s| s.search_engine = engine)
     }
 

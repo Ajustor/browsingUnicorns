@@ -30,12 +30,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.ajustor.browsingunicorns.BrowserController
+import io.github.ajustor.browsingunicorns.R
 
 /**
  * Extensions from the Chrome Web Store and user scripts. Android's WebView
@@ -45,45 +47,44 @@ import io.github.ajustor.browsingunicorns.BrowserController
 @Composable
 fun ExtensionsScreen(c: BrowserController) {
     Column(Modifier.fillMaxSize()) {
-        Header(c, "Extensions")
+        Header(c, stringResource(R.string.extensions))
         LazyColumn(Modifier.fillMaxSize()) {
             item {
                 InstallField(
                     c,
-                    intro = "From the Chrome Web Store: their blocking rules, page scripts, background pages " +
-                        "and popups run here, without the extension toolbar.",
-                    label = "Chrome Web Store link or extension id",
+                    intro = stringResource(R.string.extensions_intro),
+                    label = stringResource(R.string.extension_field),
                     siteLabel = "Chrome Web Store",
                     site = "https://chromewebstore.google.com/",
                     install = c::installExtension,
                 )
             }
-            if (c.extensions.isEmpty()) item { Empty("No extensions.") }
+            if (c.extensions.isEmpty()) item { Empty(stringResource(R.string.no_extensions)) }
             items(c.extensions, key = { "ext:" + it.id }) { e ->
                 AddOnRow(e.name, e.version, e.description, e.enabled,
                     onEnabled = { c.setExtensionEnabled(e.id, it) },
                     onRemove = { c.removeExtension(e.id) }) {
-                    if (e.hasPopup) TextButton(onClick = { c.openPopup(e.id, e.name) }, enabled = e.enabled) { Text("Popup") }
-                    if (e.hasOptions) TextButton(onClick = { c.openOptions(e.id) }, enabled = e.enabled) { Text("Options") }
+                    if (e.hasPopup) TextButton(onClick = { c.openPopup(e.id, e.name) }, enabled = e.enabled) { Text(stringResource(R.string.extension_popup)) }
+                    if (e.hasOptions) TextButton(onClick = { c.openOptions(e.id) }, enabled = e.enabled) { Text(stringResource(R.string.extension_options)) }
                 }
             }
             item {
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 Text(
-                    "User scripts",
+                    stringResource(R.string.user_scripts),
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.padding(horizontal = 16.dp),
                 )
                 InstallField(
                     c,
-                    intro = "Greasemonkey / Tampermonkey scripts: paste the address of a .user.js file.",
-                    label = "Address of a .user.js script",
+                    intro = stringResource(R.string.user_scripts_intro),
+                    label = stringResource(R.string.user_script_field),
                     siteLabel = "Greasy Fork",
                     site = "https://greasyfork.org/",
                     install = c::installUserScript,
                 )
             }
-            if (c.userScripts.isEmpty()) item { Empty("No user scripts.") }
+            if (c.userScripts.isEmpty()) item { Empty(stringResource(R.string.no_user_scripts)) }
             items(c.userScripts, key = { "us:" + it.id }) { s ->
                 AddOnRow(s.name, s.version, s.description, s.enabled,
                     onEnabled = { c.setUserScriptEnabled(s.id, it) },
@@ -126,7 +127,7 @@ private fun InstallField(
                     input = ""
                 },
                 enabled = input.isNotBlank() && !c.installing,
-            ) { Text("Install") }
+            ) { Text(stringResource(R.string.install)) }
             TextButton(onClick = { c.open(site, newTab = true) }) { Text(siteLabel) }
             if (c.installing) CircularProgressIndicator(Modifier.size(24.dp))
         }
@@ -161,7 +162,7 @@ private fun AddOnRow(
         }
         Switch(checked = enabled, onCheckedChange = onEnabled)
         IconButton(onClick = onRemove) {
-            Icon(Icons.Filled.Delete, contentDescription = "Remove $name")
+            Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.remove_add_on, name))
         }
     }
 }
