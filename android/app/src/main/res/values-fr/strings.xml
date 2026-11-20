@@ -2,6 +2,7 @@
 <!-- Français. Espace insécable ( ) avant : ; ! ? et %. -->
 <resources>
     <string name="core_language_tag">fr</string>
+    <string name="share_target">Ouvrir dans browsingUnicorns</string>
 
     <!-- Commun -->
     <string name="close">Fermer</string>

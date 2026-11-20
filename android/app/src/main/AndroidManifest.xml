@@ -36,6 +36,12 @@
                 <data android:scheme="http" />
                 <data android:scheme="https" />
             </intent-filter>
+            <!-- In the share sheet: a shared link (or text) opens in a new tab. -->
+            <intent-filter android:label="@string/share_target">
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
         </activity>
 
         <!-- The outcome of an update's install session. -->

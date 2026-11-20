@@ -94,10 +94,14 @@ class MainActivity : ComponentActivity() {
         openFromIntent(intent)
     }
 
-    /** A link opened from another app. */
+    /** A link opened from another app, or text shared to this one. */
     private fun openFromIntent(intent: Intent?) {
-        val url = intent?.takeIf { it.action == Intent.ACTION_VIEW }?.dataString ?: return
-        controller.act { submit(url, true) }
+        val input = when (intent?.action) {
+            Intent.ACTION_VIEW -> intent.dataString
+            Intent.ACTION_SEND -> sharedInput(intent.getStringExtra(Intent.EXTRA_TEXT))
+            else -> null
+        } ?: return
+        controller.act { submit(input, true) }
         controller.screen = Screen.Browser
     }
 

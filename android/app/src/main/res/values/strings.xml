@@ -6,6 +6,8 @@
     <!-- The language these resources are in: handed to the Rust core
          (setLanguage) so that its messages speak the language Android picked. -->
     <string name="core_language_tag">en</string>
+    <!-- The app's entry in the share sheet. -->
+    <string name="share_target">Open in browsingUnicorns</string>
 
     <!-- Common -->
     <string name="close">Close</string>
