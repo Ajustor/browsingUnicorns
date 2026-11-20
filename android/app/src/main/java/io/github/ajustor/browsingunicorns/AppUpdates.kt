@@ -1,16 +1,18 @@
 package io.github.ajustor.browsingunicorns
 
-import android.content.ActivityNotFoundException
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageInstaller
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.core.content.FileProvider
 import java.io.File
+import java.lang.ref.WeakReference
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
@@ -35,7 +37,9 @@ sealed interface UpdateState {
 /**
  * Self-update, like the desktop app: a daily look at the release manifest,
  * a banner when a newer version exists, the signed APK downloaded and its
- * SHA-256 checked, then Android's installer (same signing key: an update).
+ * SHA-256 checked, then handed to Android's package installer through a
+ * [PackageInstaller] session (same signing key: an update). The outcome
+ * comes back to [UpdateInstallReceiver].
  */
 class AppUpdates(private val context: Context, private val scope: CoroutineScope) {
     var state by mutableStateOf<UpdateState>(UpdateState.Idle)
@@ -48,6 +52,13 @@ class AppUpdates(private val context: Context, private val scope: CoroutineScope
     private val dir = File(context.cacheDir, "updates")
 
     val currentVersion: String = BuildConfig.VERSION_NAME
+
+    /** True while the APK is copied into an install session. */
+    private var committing = false
+
+    init {
+        live = WeakReference(this)
+    }
 
     /** Checks if the last check is a day old (at start, back to the app). */
     fun checkIfDue() {
@@ -173,7 +184,11 @@ class AppUpdates(private val context: Context, private val scope: CoroutineScope
         }
     }
 
-    /** Android asks once to allow installing apps from this browser. */
+    /**
+     * Android asks once to allow installing apps from this browser; then the
+     * APK goes into an install session (copied off the main thread) and the
+     * system confirms with the user if needed.
+     */
     private fun launchInstaller(apk: File) {
         val pm = context.packageManager
         if (!pm.canRequestPackageInstalls()) {
@@ -185,16 +200,63 @@ class AppUpdates(private val context: Context, private val scope: CoroutineScope
             runCatching { context.startActivity(settings) }
             return
         }
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.updates", apk)
-        val install = Intent(Intent.ACTION_VIEW)
-            .setDataAndType(uri, "application/vnd.android.package-archive")
-            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-        try {
-            context.startActivity(install)
-        } catch (e: ActivityNotFoundException) {
-            onMessage(context.getString(R.string.update_no_installer))
+        if (committing) return
+        committing = true
+        scope.launch {
+            val result = withContext(Dispatchers.IO) { runCatching { commitSession(apk) } }
+            committing = false
+            result.onFailure {
+                Log.w(TAG, "update install session failed", it)
+                onMessage(context.getString(R.string.update_failed, it.message ?: it.javaClass.simpleName))
+            }
         }
     }
+
+    /** Writes [apk] into a new install session and commits it. */
+    private fun commitSession(apk: File) {
+        val installer = context.packageManager.packageInstaller
+        // A session left over from an attempt that never finished.
+        installer.mySessions.forEach { runCatching { installer.abandonSession(it.sessionId) } }
+        val size = apk.length()
+        val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
+            setAppPackageName(context.packageName)
+            setSize(size)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                // Honoured only when this app installed itself last time.
+                setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
+            }
+        }
+        val id = installer.createSession(params)
+        try {
+            installer.openSession(id).use { session ->
+                apk.inputStream().use { input ->
+                    session.openWrite("base.apk", 0, size).use { output ->
+                        input.copyTo(output, 64 * 1024)
+                        session.fsync(output)
+                    }
+                }
+                var flags = PendingIntent.FLAG_UPDATE_CURRENT
+                // The system fills in the status extras.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) flags = flags or PendingIntent.FLAG_MUTABLE
+                val status = PendingIntent.getBroadcast(
+                    context,
+                    id,
+                    Intent(context, UpdateInstallReceiver::class.java).setPackage(context.packageName),
+                    flags,
+                )
+                session.commit(status.intentSender)
+            }
+        } catch (e: Exception) {
+            runCatching { installer.abandonSession(id) }
+            throw e
+        }
+    }
+
+    /**
+     * The installer gave up ([UpdateInstallReceiver]). The state is still
+     * Ready (the APK stays in the cache), so Install tries again.
+     */
+    internal fun installFailed(message: String) = onMessage(message)
 
     private fun open(url: String): HttpURLConnection =
         (URL(url).openConnection() as HttpURLConnection).apply {
@@ -211,6 +273,10 @@ class AppUpdates(private val context: Context, private val scope: CoroutineScope
         private const val DAY_MS = 24L * 60 * 60 * 1000
         const val MANIFEST_URL = "https://ajustor.github.io/browsingUnicorns/latest.json"
         const val APK_NAME = "browsingUnicorns-android.apk"
+
+        /** The instance the UI shows, if the process still has one. */
+        @Volatile
+        internal var live: WeakReference<AppUpdates>? = null
 
         /** `0.10.0` > `0.9.3`; a pre-release suffix (`-rc.1`) is ignored. */
         fun isNewer(candidate: String, current: String): Boolean {

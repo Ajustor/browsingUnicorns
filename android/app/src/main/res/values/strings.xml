@@ -69,6 +69,12 @@
     <string name="update_corrupted">the download is corrupted (SHA-256 mismatch)</string>
     <string name="update_allow_installs">Allow Browsing Unicorns to install apps, then tap Install again</string>
     <string name="update_no_installer">No installer found on this device</string>
+    <string name="update_install_blocked">installation blocked by the system</string>
+    <string name="update_install_conflict">another app with this name, signed differently, is installed</string>
+    <string name="update_install_incompatible">this version is not compatible with this device</string>
+    <string name="update_install_invalid">the package is invalid</string>
+    <string name="update_install_storage">not enough storage space</string>
+    <string name="update_install_error">the installer reported an error</string>
     <string name="http_status_for" tools:ignore="PluralsCandidate">HTTP %1$d for %2$s</string>
 
     <!-- Downloads -->

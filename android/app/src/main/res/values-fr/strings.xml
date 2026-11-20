@@ -62,6 +62,12 @@
     <string name="update_corrupted">le téléchargement est corrompu (SHA-256 différent)</string>
     <string name="update_allow_installs">Autorisez Browsing Unicorns à installer des applications, puis touchez de nouveau Installer</string>
     <string name="update_no_installer">Aucun programme d’installation sur cet appareil</string>
+    <string name="update_install_blocked">installation bloquée par le système</string>
+    <string name="update_install_conflict">une autre application du même nom, signée différemment, est installée</string>
+    <string name="update_install_incompatible">cette version n’est pas compatible avec cet appareil</string>
+    <string name="update_install_invalid">le paquet est invalide</string>
+    <string name="update_install_storage">espace de stockage insuffisant</string>
+    <string name="update_install_error">le programme d’installation a signalé une erreur</string>
     <string name="http_status_for">HTTP %1$d pour %2$s</string>
 
     <!-- Téléchargements -->
