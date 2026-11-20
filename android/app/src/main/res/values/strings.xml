@@ -19,11 +19,11 @@
     <string name="sync">Sync</string>
     <string name="extensions">Extensions</string>
     <string name="settings">Settings</string>
-    <!-- How long ago, short: "now", "5 min", "3 h", "2 d". -->
-    <string name="ago_now">now</string>
-    <string name="ago_minutes">%1$d min</string>
-    <string name="ago_hours">%1$d h</string>
-    <string name="ago_days">%1$d d</string>
+    <!-- How long ago, short: "just now", "5 min ago", "3 h ago", "2 d ago". -->
+    <string name="ago_now">just now</string>
+    <string name="ago_minutes">%1$d min ago</string>
+    <string name="ago_hours">%1$d h ago</string>
+    <string name="ago_days">%1$d d ago</string>
 
     <!-- Browser screen: banners -->
     <string name="store_offer">Install %1$s in Browsing Unicorns?</string>

@@ -148,7 +148,7 @@ fun BookmarksScreen(c: BrowserController) {
     }
 }
 
-/** How long ago, short: "now", "5 min", "3 h", "2 d". */
+/** How long ago, short: "just now", "5 min ago", "3 h ago", "2 d ago". */
 @Composable
 fun ago(now: Long, at: Long): String {
     val secs = (now - at).coerceAtLeast(0)
