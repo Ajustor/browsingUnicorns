@@ -14,8 +14,6 @@ messages! {
     fn no_folder() { en: "No folder", fr: "Aucun dossier" }
     /// The field naming a new folder.
     fn new_folder_hint() { en: "New folder (Work/Projects)", fr: "Nouveau dossier (Travail/Projets)" }
-    /// Moves the bookmark into the folder typed.
-    fn move_ok() { en: "OK", fr: "OK" }
     /// A folder of the bookmarks bar.
     fn show_folder_tip() { en: "Show this folder's bookmarks", fr: "Afficher les favoris de ce dossier" }
 }

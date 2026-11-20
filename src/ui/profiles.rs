@@ -265,7 +265,7 @@ impl ProfilesPanel {
                         commands.push(Command::Profile(ProfileCommand::Remove(p.id.clone())));
                         self.confirm_remove = None;
                     }
-                    if ui.button(i18n::profiles::cancel()).clicked() {
+                    if ui.button(i18n::common::cancel()).clicked() {
                         self.confirm_remove = None;
                     }
                 });

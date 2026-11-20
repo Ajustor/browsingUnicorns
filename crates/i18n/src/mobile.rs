@@ -1,12 +1,7 @@
-//! Texts built in Rust for the Android app (crates/mobile), errors apart.
+//! Texts built in Rust for the Android app (crates/mobile), errors apart;
+//! it shares the others it needs (`sync::invalid_code`).
 
 messages! {
-    /// A pairing code typed or scanned that is not one.
-    fn sync_code_invalid() {
-        en: "This code is not valid: check it on the other device.",
-        fr: "Ce code n’est pas valide\u{a0}: vérifiez-le sur l’autre appareil.",
-    }
-
     /// The home page typed is not an address nor a host name.
     fn not_a_web_address(input: &str) {
         en: "Not a web address: {input}",

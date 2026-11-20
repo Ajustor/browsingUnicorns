@@ -159,7 +159,7 @@ impl Library {
                         },
                     );
                     if super::theme::hover_fill(ui, |ui| ui.add(Button::new(icon::X).frame(false)))
-                        .on_hover_text(i18n::library::close_tip())
+                        .on_hover_text(i18n::common::close())
                         .clicked()
                     {
                         commands.push(Command::ToggleLibrary(view));
@@ -378,9 +378,7 @@ fn bookmark_row(
                     .desired_width(ui.available_width() - 40.0),
             );
             let enter = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-            if (ui.button(i18n::bookmarks::move_ok()).clicked() || enter)
-                && !typed.trim().is_empty()
-            {
+            if (ui.button(i18n::common::ok()).clicked() || enter) && !typed.trim().is_empty() {
                 chosen = Some(typed.clone());
             }
         });

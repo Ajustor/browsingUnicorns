@@ -5,6 +5,6 @@ messages! {
     fn ok() { en: "OK", fr: "OK" }
     /// Stops what is under way.
     fn cancel() { en: "Cancel", fr: "Annuler" }
-    /// Closes a bar or a panel.
+    /// Closes a bar, a panel or the window.
     fn close() { en: "Close", fr: "Fermer" }
 }

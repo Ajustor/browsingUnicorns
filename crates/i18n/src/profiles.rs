@@ -23,7 +23,6 @@ messages! {
         en: "Remove {name} and delete its history, bookmarks, tabs, extensions and cookies?",
         fr: "Supprimer {name} et effacer son historique, ses favoris, ses onglets, ses extensions et ses cookies\u{a0}?",
     }
-    fn cancel() { en: "Cancel", fr: "Annuler" }
     /// Over the new profile's field.
     fn new_profile() { en: "New profile:", fr: "Nouveau profil\u{a0}:" }
     fn name_hint() { en: "Name (Work, Personal…)", fr: "Nom (Travail, Perso…)" }

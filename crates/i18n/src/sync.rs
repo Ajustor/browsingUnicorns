@@ -13,7 +13,7 @@ messages! {
     }
     /// Joins the group of the code typed.
     fn join() { en: "Join", fr: "Rejoindre" }
-    /// The code typed is not a sync code.
+    /// The code typed (or scanned, on Android) is not a sync code.
     fn invalid_code() {
         en: "This code is not valid: check it on the other device.",
         fr: "Ce code n’est pas valide\u{a0}: vérifiez-le sur l’autre appareil.",

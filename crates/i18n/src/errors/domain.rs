@@ -13,6 +13,6 @@ messages! {
     fn profile_name_taken() { en: "another profile has this name", fr: "un autre profil porte ce nom" }
     /// A profile that is not (or no longer) there.
     fn no_such_profile() { en: "no such profile", fr: "profil introuvable" }
-    /// Removing the default profile.
+    /// Removing the default profile (or deleting its data).
     fn default_profile_kept() { en: "the default profile cannot be removed", fr: "le profil par défaut ne peut pas être supprimé" }
 }

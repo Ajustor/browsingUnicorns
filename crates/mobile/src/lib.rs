@@ -730,7 +730,7 @@ impl MobileBrowser {
     /// Joins another device's group from its code (typed or scanned).
     pub fn sync_join(&self, code: String) -> Result<(), MobileError> {
         let key = SyncKey::from_code(&code)
-            .ok_or_else(|| MobileError::new(i18n::mobile::sync_code_invalid()))?;
+            .ok_or_else(|| MobileError::new(i18n::sync::invalid_code()))?;
         self.join_group(key)
     }
 

@@ -6,11 +6,6 @@ messages! {
     /// A change refused in a private window (saving, installing).
     fn not_in_private_window() { en: "Not available in a private window.", fr: "Indisponible dans une fenêtre privée." }
 
-    // Profiles.
-
-    /// Deleting the data of the default profile.
-    fn default_profile_kept() { en: "the default profile is kept", fr: "le profil par défaut est conservé" }
-
     // Extensions.
 
     /// A store (`Chrome Web Store`, `Edge Add-ons`) serving nothing for the id.

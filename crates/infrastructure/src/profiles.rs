@@ -74,7 +74,7 @@ impl ProfileStore for ProfileDirs {
     fn delete(&self, id: &ProfileId) -> Result<(), RepositoryError> {
         if id.is_default() {
             return Err(RepositoryError(
-                i18n::errors::infrastructure::default_profile_kept().into(),
+                i18n::errors::domain::default_profile_kept().into(),
             ));
         }
         let dir = self.dir(id);

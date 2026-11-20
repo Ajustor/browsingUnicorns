@@ -16,8 +16,6 @@ messages! {
     fn settings_pill() { en: "Settings", fr: "Réglages" }
     /// The About view's pill.
     fn about_pill() { en: "About", fr: "À propos" }
-    /// The panel's close button.
-    fn close_tip() { en: "Close", fr: "Fermer" }
     /// The search field over the history and the bookmarks.
     fn filter_hint() { en: "Filter", fr: "Filtrer" }
 }

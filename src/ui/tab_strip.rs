@@ -335,7 +335,7 @@ fn window_buttons(ui: &mut egui::Ui) {
         );
         response.on_hover_text(tip).clicked()
     };
-    if button(icon::X, i18n::window::close(), true) {
+    if button(icon::X, i18n::common::close(), true) {
         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
     }
     let (glyph, tip) = if maximized {
