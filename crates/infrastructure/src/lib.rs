@@ -67,7 +67,7 @@ use domain::{BrowsingHistory, SessionSnapshot, Settings};
 pub use clock::SystemClock;
 pub use device_file::DeviceFile;
 pub use json_store::JsonRepository;
-pub use memory_store::{MemoryRepository, NOT_IN_PRIVATE, NoPackages, ReadOnlyRepository};
+pub use memory_store::{MemoryRepository, NoPackages, ReadOnlyRepository};
 #[cfg(feature = "desktop")]
 pub use parent_window::ParentWindow;
 #[cfg(feature = "desktop")]
@@ -191,7 +191,7 @@ mod tests {
         added.add(addr("https://secret.com/"), "S", 2);
         assert_eq!(
             private.bookmarks.save(&added).unwrap_err().0,
-            NOT_IN_PRIVATE
+            i18n::errors::infrastructure::in_lang::not_in_private_window(i18n::Lang::En)
         );
         let changed = Settings {
             blocker: false,

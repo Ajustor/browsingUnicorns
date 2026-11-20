@@ -445,12 +445,9 @@ fn private_pill(ui: &mut egui::Ui, chrome: &super::theme::Chrome) {
 }
 
 /// What a tab is called: its title, else its host, else "New tab" in the
-/// current language.
+/// current language (the core's placeholder follows it).
 pub fn title_of(tab: &domain::Tab) -> &str {
-    match tab.display_title() {
-        domain::Tab::UNTITLED => i18n::tabs::untitled(),
-        title => title,
-    }
+    tab.display_title()
 }
 
 pub fn truncate(title: &str, max: usize) -> String {

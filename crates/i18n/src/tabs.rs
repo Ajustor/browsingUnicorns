@@ -1,8 +1,6 @@
 //! The tab strip and the tabs' menus (src/ui/tab_strip.rs).
 
 messages! {
-    /// The title of a tab with neither title nor address.
-    fn untitled() { en: "New tab", fr: "Nouvel onglet" }
     /// Tooltip of the + after the tabs.
     fn new_tab() {
         en: "New tab (Ctrl+T)\nRight-click: reopen the last tab closed (Ctrl+Shift+T)",

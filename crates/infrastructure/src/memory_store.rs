@@ -8,11 +8,6 @@ use application::ports::{
 };
 use domain::{Extension, ExtensionId, Extensions, UserScript, UserScriptId, UserScripts};
 
-/// The message of a write refused in a private window, in English: the
-/// refusals here speak the current language
-/// (`i18n::errors::infrastructure::not_in_private_window`).
-pub const NOT_IN_PRIVATE: &str = "Not available in a private window.";
-
 /// Keeps the value in memory: `load` gives what was last saved (at first,
 /// the value it was made with).
 pub struct MemoryRepository<T> {
@@ -115,7 +110,10 @@ mod tests {
     fn read_only_reads_and_refuses_writes() {
         let r = ReadOnlyRepository::new(MemoryRepository::new(3u32));
         assert_eq!(r.load().unwrap(), 3);
-        assert_eq!(r.save(&4).unwrap_err().0, NOT_IN_PRIVATE);
+        assert_eq!(
+            r.save(&4).unwrap_err().0,
+            i18n::errors::infrastructure::in_lang::not_in_private_window(i18n::Lang::En)
+        );
         assert_eq!(r.load().unwrap(), 3);
     }
 

@@ -6,7 +6,7 @@ use application::Browser;
 use application::ports::{EngineEvent, PageSource, Viewport, WebEngine as _};
 use domain::TabId;
 use egui::{CentralPanel, Frame, TopBottomPanel, ViewportCommand};
-use infrastructure::{NOT_IN_PRIVATE, PrivateDataDir, WryEngine};
+use infrastructure::{PrivateDataDir, WryEngine};
 use updater::ExitAction;
 
 use super::blocker::BlockerRunner;
@@ -154,7 +154,7 @@ impl BrowserApp {
         if self.is_private() && writes_profile(&command) {
             self.notice = Some(Notice {
                 error: false,
-                text: NOT_IN_PRIVATE.into(),
+                text: i18n::errors::infrastructure::not_in_private_window().into(),
             });
             return;
         }

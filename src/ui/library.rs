@@ -174,7 +174,7 @@ impl Library {
                 );
                 if private && not_private {
                     ui.separator();
-                    ui.weak(infrastructure::NOT_IN_PRIVATE);
+                    ui.weak(i18n::errors::infrastructure::not_in_private_window());
                     return;
                 }
                 match view {
