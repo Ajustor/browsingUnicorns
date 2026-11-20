@@ -4,7 +4,7 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
-## [Non publié]
+## [0.16.0] - 2026-11-20
 
 ### Ajouté
 
@@ -22,6 +22,9 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 
 ### Corrigé
 
+- Les infobulles et les menus de l'interface (barre d'outils, onglets,
+  favoris, téléchargements, liste du moteur de recherche) étaient cachés
+  par la page : ils passent maintenant par-dessus (Windows).
 - Certaines extensions du Chrome Web Store ne s'installaient pas (par
   exemple heylogin, qui demande un navigateur récent) : la boutique
   répondait « aucune extension avec cet identifiant ».
