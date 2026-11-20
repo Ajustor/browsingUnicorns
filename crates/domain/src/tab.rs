@@ -42,8 +42,6 @@ pub struct Tab {
 }
 
 impl Tab {
-    pub const UNTITLED: &'static str = "New tab";
-
     pub fn new(id: TabId) -> Self {
         Self {
             id,
@@ -99,7 +97,7 @@ impl Tab {
         }
         self.address()
             .and_then(WebAddress::host)
-            .unwrap_or(Self::UNTITLED)
+            .unwrap_or_else(|| i18n::errors::domain::untitled_tab())
     }
 
     /// The title the page gave itself (may be empty).
@@ -139,7 +137,11 @@ mod tests {
     #[test]
     fn display_title_falls_back_to_host_then_placeholder() {
         let mut tab = Tab::new(TabId::new(1));
-        assert_eq!(tab.display_title(), Tab::UNTITLED);
+        assert_eq!(tab.display_title(), "New tab");
+        assert_eq!(
+            i18n::with_lang(i18n::Lang::Fr, || tab.display_title().to_owned()),
+            "Nouvel onglet"
+        );
         tab.load_started(addr("https://example.com/x"));
         assert_eq!(tab.display_title(), "example.com");
         tab.set_title("  Example  ");

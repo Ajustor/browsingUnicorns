@@ -73,7 +73,9 @@ impl ProfileStore for ProfileDirs {
 
     fn delete(&self, id: &ProfileId) -> Result<(), RepositoryError> {
         if id.is_default() {
-            return Err(RepositoryError("the default profile is kept".into()));
+            return Err(RepositoryError(
+                i18n::errors::infrastructure::default_profile_kept().into(),
+            ));
         }
         let dir = self.dir(id);
         match std::fs::remove_dir_all(&dir) {

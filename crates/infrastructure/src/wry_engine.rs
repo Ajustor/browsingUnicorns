@@ -177,7 +177,7 @@ fn download_target(
         .or_else(|| suggested.parent().map(std::path::Path::to_path_buf));
     if device.ask_where_to_save {
         let mut dialog = rfd::FileDialog::new()
-            .set_title("Save as")
+            .set_title(i18n::errors::infrastructure::save_as())
             .set_file_name(name.to_string_lossy());
         if let Some(dir) = &dir {
             dialog = dialog.set_directory(dir);
@@ -679,7 +679,9 @@ impl WryEngine {
         #[cfg(not(windows))]
         {
             let _ = tab;
-            Some(Err("this system's web view doesn't tell".into()))
+            Some(Err(
+                i18n::errors::infrastructure::web_view_does_not_tell().into()
+            ))
         }
     }
 
@@ -1023,7 +1025,9 @@ impl WebEngine for WryEngine {
     fn navigate(&mut self, tab: TabId, address: &WebAddress) -> Result<(), EngineError> {
         match self.views.get(&tab) {
             Some(view) => view.load_url(address.as_str()).map_err(engine_error),
-            None => Err(EngineError(format!("no view for tab {tab}"))),
+            None => Err(EngineError(i18n::errors::infrastructure::no_view_for_tab(
+                &tab,
+            ))),
         }
     }
 

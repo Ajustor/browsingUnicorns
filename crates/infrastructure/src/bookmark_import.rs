@@ -80,7 +80,7 @@ fn parse_chromium(text: &str) -> Result<Vec<Imported>, String> {
     let roots = json
         .get("roots")
         .and_then(Value::as_object)
-        .ok_or("no bookmarks in this file")?;
+        .ok_or_else(i18n::errors::infrastructure::no_bookmarks_in_file)?;
     let mut out = Vec::new();
     // The bar's bookmarks at the top; "Other" and "Mobile" in folders
     // named after them, as the browser shows them.

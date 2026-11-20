@@ -44,7 +44,7 @@ fn check(
 }
 
 fn network(e: ureq::Error) -> SyncError {
-    SyncError(format!("relay unreachable: {e}"))
+    SyncError(i18n::errors::infrastructure::relay_unreachable(&e))
 }
 
 impl BlobTransport for HttpTransport {
@@ -74,7 +74,7 @@ impl BlobTransport for HttpTransport {
             .with_config()
             .limit(32 * 1024 * 1024)
             .read_to_string()
-            .map_err(|e| SyncError(format!("relay: {e}")))?;
+            .map_err(|e| SyncError(i18n::errors::infrastructure::relay_failed(&e)))?;
         decode_group(&text)
     }
 

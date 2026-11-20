@@ -40,7 +40,9 @@ pub trait WebEngine {
     /// [`Self::open_view`] for a private tab: its cookies and site storage
     /// are kept apart from the others'. An error where the engine can't.
     fn open_private_view(&mut self, _tab: TabId, _address: &WebAddress) -> Result<(), EngineError> {
-        Err(EngineError("private tabs are not available here".into()))
+        Err(EngineError(
+            i18n::errors::application::private_tabs_unavailable().into(),
+        ))
     }
     fn close_view(&mut self, tab: TabId);
     /// Shows the view of `tab` (hides the others); `None` hides them all.

@@ -214,9 +214,8 @@ mod imp {
         if result.0 as isize > 32 {
             Ok(())
         } else {
-            Err(format!(
-                "could not open the Settings (error {})",
-                result.0 as isize
+            Err(i18n::errors::infrastructure::settings_not_opened(
+                result.0 as isize,
             ))
         }
     }
@@ -246,9 +245,8 @@ mod imp {
         if out.status.success() {
             Ok(())
         } else {
-            Err(format!(
-                "xdg-settings: {} (is browsingUnicorns installed with its .desktop file?)",
-                String::from_utf8_lossy(&out.stderr).trim()
+            Err(i18n::errors::infrastructure::xdg_settings_failed(
+                String::from_utf8_lossy(&out.stderr).trim(),
             ))
         }
     }
@@ -261,7 +259,7 @@ mod imp {
     }
 
     pub fn make_default() -> Result<(), String> {
-        Err("not available on macOS".into())
+        Err(i18n::errors::infrastructure::not_available_on_macos().into())
     }
 }
 

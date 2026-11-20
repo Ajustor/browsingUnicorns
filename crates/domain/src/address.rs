@@ -16,8 +16,10 @@ pub enum AddressError {
 impl fmt::Display for AddressError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Invalid(raw) => write!(f, "invalid address: {raw}"),
-            Self::UnsupportedScheme(scheme) => write!(f, "unsupported scheme: {scheme}"),
+            Self::Invalid(raw) => f.write_str(&i18n::errors::domain::invalid_address(raw)),
+            Self::UnsupportedScheme(scheme) => {
+                f.write_str(&i18n::errors::domain::unsupported_scheme(scheme))
+            }
         }
     }
 }
@@ -115,5 +117,15 @@ mod tests {
             WebAddress::parse("not a url"),
             Err(AddressError::Invalid(_))
         ));
+    }
+
+    #[test]
+    fn errors_speak_the_language_they_are_shown_in() {
+        let e = AddressError::UnsupportedScheme("javascript".into());
+        assert_eq!(e.to_string(), "unsupported scheme: javascript");
+        assert_eq!(
+            i18n::with_lang(i18n::Lang::Fr, || e.to_string()),
+            "schéma non pris en charge\u{a0}: javascript"
+        );
     }
 }

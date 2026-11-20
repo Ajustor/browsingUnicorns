@@ -161,7 +161,7 @@ impl<T: BlobTransport> EncryptedSyncStore<T> {
 impl<T: BlobTransport> SyncStore for EncryptedSyncStore<T> {
     fn push(&self, record: &DeviceRecord) -> Result<(), SyncError> {
         let json = serde_json::to_vec(&DeviceRecordDto::from(record))
-            .map_err(|e| SyncError(format!("encoding the record: {e}")))?;
+            .map_err(|e| SyncError(i18n::errors::infrastructure::record_not_encoded(&e)))?;
         let device = record.device.as_str();
         let blob = self.key.seal(device, &json);
         self.transport

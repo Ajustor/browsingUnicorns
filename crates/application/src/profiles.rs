@@ -20,7 +20,7 @@ impl fmt::Display for ProfilesError {
         match self {
             Self::Profile(e) => e.fmt(f),
             Self::Storage(e) => e.fmt(f),
-            Self::InUse => f.write_str("this profile is open in a window: close it first"),
+            Self::InUse => f.write_str(i18n::errors::application::profile_in_use()),
         }
     }
 }

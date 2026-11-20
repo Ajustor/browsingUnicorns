@@ -8,7 +8,9 @@ use application::ports::{
 };
 use domain::{Extension, ExtensionId, Extensions, UserScript, UserScriptId, UserScripts};
 
-/// The message of a write refused in a private window.
+/// The message of a write refused in a private window, in English: the
+/// refusals here speak the current language
+/// (`i18n::errors::infrastructure::not_in_private_window`).
 pub const NOT_IN_PRIVATE: &str = "Not available in a private window.";
 
 /// Keeps the value in memory: `load` gives what was last saved (at first,
@@ -59,7 +61,9 @@ impl<T, R: Repository<T>> Repository<T> for ReadOnlyRepository<R> {
     }
 
     fn save(&self, _value: &T) -> Result<(), RepositoryError> {
-        Err(RepositoryError(NOT_IN_PRIVATE.into()))
+        Err(RepositoryError(
+            i18n::errors::infrastructure::not_in_private_window().into(),
+        ))
     }
 }
 
@@ -69,7 +73,9 @@ pub struct NoPackages;
 
 impl ExtensionPackages for NoPackages {
     fn install(&self, _source: &ExtensionSource) -> Result<Extension, ExtensionError> {
-        Err(ExtensionError(NOT_IN_PRIVATE.into()))
+        Err(ExtensionError(
+            i18n::errors::infrastructure::not_in_private_window().into(),
+        ))
     }
 
     fn remove(&self, _id: &ExtensionId) -> Result<(), ExtensionError> {
@@ -81,7 +87,9 @@ impl ExtensionPackages for NoPackages {
 
 impl UserScriptPackages for NoPackages {
     fn install(&self, _url: &str) -> Result<UserScript, ExtensionError> {
-        Err(ExtensionError(NOT_IN_PRIVATE.into()))
+        Err(ExtensionError(
+            i18n::errors::infrastructure::not_in_private_window().into(),
+        ))
     }
 
     fn remove(&self, _id: &UserScriptId) -> Result<(), ExtensionError> {
@@ -109,5 +117,12 @@ mod tests {
         assert_eq!(r.load().unwrap(), 3);
         assert_eq!(r.save(&4).unwrap_err().0, NOT_IN_PRIVATE);
         assert_eq!(r.load().unwrap(), 3);
+    }
+
+    #[test]
+    fn refusals_speak_the_current_language() {
+        let r = ReadOnlyRepository::new(MemoryRepository::new(3u32));
+        let e = i18n::with_lang(i18n::Lang::Fr, || r.save(&4).unwrap_err());
+        assert_eq!(e.0, "Indisponible dans une fenêtre privée.");
     }
 }
