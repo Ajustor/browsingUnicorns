@@ -55,6 +55,12 @@ fn main() -> eframe::Result<()> {
         viewport,
         ..Default::default()
     };
+    // A relaunch (an update, a DRM reset) opens the same profile.
+    let relaunch_args: Vec<String> = args
+        .profile
+        .iter()
+        .flat_map(|id| ["--profile".to_owned(), id.clone()])
+        .collect();
     let exit_slot = ui::ExitSlot::default();
     let slot = exit_slot.clone();
     eframe::run_native(
@@ -69,7 +75,10 @@ fn main() -> eframe::Result<()> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .take();
     if let Some(action) = action
-        && let Err(e) = updater::run_exit_action(&action, &[])
+        && let Err(e) = updater::run_exit_action(
+            &action,
+            &relaunch_args.iter().map(String::as_str).collect::<Vec<_>>(),
+        )
     {
         log::error!("could not apply the update ({action:?}): {e}");
     }

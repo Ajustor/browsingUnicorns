@@ -11,6 +11,8 @@ mod clock;
 #[cfg(feature = "desktop")]
 pub mod default_browser;
 mod device_file;
+#[cfg(feature = "desktop")]
+mod drm_reset;
 mod dto;
 pub mod extension_fetch;
 pub mod extension_hub;
@@ -66,6 +68,8 @@ use domain::{BrowsingHistory, SessionSnapshot, Settings};
 
 pub use clock::SystemClock;
 pub use device_file::DeviceFile;
+#[cfg(feature = "desktop")]
+pub use drm_reset::DrmReset;
 pub use json_store::JsonRepository;
 pub use memory_store::{MemoryRepository, NoPackages, ReadOnlyRepository};
 #[cfg(feature = "desktop")]

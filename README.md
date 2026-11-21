@@ -58,7 +58,8 @@ binaire reste petit et le moteur profite des mises à jour de sécurité de l'OS
   favoris sous la barre d'outils (clic molette : nouvel onglet) ; import
   depuis Chrome, Edge, Brave, Vivaldi ou un fichier HTML exporté
 - ⚙️ *Settings* : page d'accueil, moteur de recherche, téléchargements,
-  mots de passe, zoom par site, effacer les données de navigation
+  mots de passe, zoom par site, effacer les données de navigation,
+  réinitialiser les DRM quand un site de streaming charge sans fin (Windows)
 - ↩️ Rouvrir le dernier onglet fermé (Ctrl+Shift+T, clic droit sur `+`)
 - 🎬 Vidéos en plein écran sur tout l'écran ; icône des sites et
   haut-parleur (clic : couper le son) sur les onglets

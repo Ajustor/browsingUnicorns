@@ -63,6 +63,10 @@ pub struct BrowserApp {
     language: domain::LanguageChoice,
     last_persist: Instant,
     close_requested: bool,
+    /// The DRM data this window can reset (Windows, the profile's window).
+    drm: Option<infrastructure::DrmReset>,
+    /// Started again once closed (a DRM reset).
+    relaunch: bool,
     /// A private window's web view data. Last: dropped (deleted) after the
     /// web views.
     private_data: Option<PrivateDataDir>,
@@ -95,6 +99,7 @@ impl BrowserApp {
         exit_slot: ExitSlot,
         private_data: Option<PrivateDataDir>,
         default_browser: super::default_browser::DefaultBrowser,
+        drm: Option<infrastructure::DrmReset>,
     ) -> Self {
         let AddOns {
             extensions,
@@ -134,6 +139,8 @@ impl BrowserApp {
             language: super::device_language(),
             last_persist: Instant::now(),
             close_requested: false,
+            drm,
+            relaunch: false,
             private_data,
         }
     }
@@ -179,6 +186,17 @@ impl BrowserApp {
                 r
             }
             Command::ClearBrowsingData(what) => self.clear_browsing_data(what),
+            Command::ResetDrm => {
+                let Some(drm) = &self.drm else { return };
+                match drm.request() {
+                    Ok(()) => {
+                        self.relaunch = true;
+                        self.close_requested = true;
+                    }
+                    Err(e) => self.report(i18n::notices::drm_reset_failed(&e.to_string())),
+                }
+                return;
+            }
             Command::ImportBookmarks(from) => {
                 let r = self.import_bookmarks(from);
                 return self.report_err(r);
@@ -469,6 +487,7 @@ impl BrowserApp {
             | Command::ReopenClosedTab
             | Command::UpdateSettings(_)
             | Command::ClearBrowsingData(_)
+            | Command::ResetDrm
             | Command::ImportBookmarks(_)
             | Command::MoveBookmark(..)
             | Command::Home
@@ -911,6 +930,7 @@ impl BrowserApp {
                     language: self.language,
                     passwords: self.browser.engine().can_save_passwords(),
                     clear_site_data: self.browser.engine().can_clear_site_data(),
+                    reset_drm: self.drm.is_some(),
                     default_download_dir: infrastructure::downloads_dir(),
                 },
             },
@@ -1024,10 +1044,15 @@ impl eframe::App for BrowserApp {
         self.persist();
         // A downloaded update still applies on a plain quit (MSI).
         self.updates.updater.schedule_on_quit();
+        let action = match (self.updates.updater.exit_action.clone(), self.relaunch) {
+            // A DRM reset restarts the app, with the update if one waits.
+            (Some(ExitAction::RunMsi(msi)), true) => Some(ExitAction::RunMsiThenRelaunch(msi)),
+            (None, true) => Some(ExitAction::Relaunch),
+            (action, _) => action,
+        };
         *self
             .exit_slot
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) =
-            self.updates.updater.exit_action.clone();
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = action;
     }
 }

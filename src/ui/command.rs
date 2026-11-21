@@ -32,6 +32,8 @@ pub enum Command {
     SetLanguage(domain::LanguageChoice),
     /// Removes the history, the sites' data or the cache.
     ClearBrowsingData(ClearData),
+    /// Resets the protected videos' data (DRM) and restarts the app.
+    ResetDrm,
     /// Applies the zoom by site to the open tabs.
     ApplyZoom,
     /// Back to 100% on the active tab's site.

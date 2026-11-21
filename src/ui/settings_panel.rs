@@ -1,5 +1,6 @@
 //! The Settings view of the side panel: language, home page, search engine,
-//! downloads, passwords, zoom by site, and clearing what pages left.
+//! downloads, passwords, zoom by site, clearing what pages left, and
+//! resetting the protected videos' data.
 
 use domain::{LanguageChoice, SearchEngine, Settings, WebAddress};
 use egui::{Button, RichText, TextEdit};
@@ -45,6 +46,9 @@ pub struct SettingsView<'a> {
     /// The engine can save passwords and clear site data (WebView2).
     pub passwords: bool,
     pub clear_site_data: bool,
+    /// The protected videos' data can be reset (Windows, the profile's
+    /// window).
+    pub reset_drm: bool,
     /// Where downloads go when no folder is chosen.
     pub default_download_dir: Option<std::path::PathBuf>,
 }
@@ -267,6 +271,22 @@ impl SettingsPanel {
         }
         if let Some(text) = &self.cleared {
             ui.label(text);
+        }
+
+        if view.reset_drm {
+            section(ui, icon::FILM_STRIP, i18n::settings::protected_videos());
+            ui.weak(i18n::settings::protected_videos_hint());
+            if ui
+                .button(format!(
+                    "{} {}",
+                    icon::ARROW_CLOCKWISE,
+                    i18n::settings::reset_drm()
+                ))
+                .on_hover_text(i18n::settings::reset_drm_tip())
+                .clicked()
+            {
+                commands.push(Command::ResetDrm);
+            }
         }
 
         if let Some(s) = changed {

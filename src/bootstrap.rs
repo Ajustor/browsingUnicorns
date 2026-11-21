@@ -15,8 +15,8 @@ use infrastructure::profiles::{ProfileDirs, ProfileLock};
 use infrastructure::script_storage::{ScriptStorage, new_token};
 use infrastructure::user_scripts::{UserScriptFolder, UserScriptRepository};
 use infrastructure::{
-    EngineFiles, JsonRepository, MemoryRepository, NoPackages, ParentWindow, PrivateDataDir,
-    TomlSettingsRepository, WryEngine,
+    DrmReset, EngineFiles, JsonRepository, MemoryRepository, NoPackages, ParentWindow,
+    PrivateDataDir, TomlSettingsRepository, WryEngine,
 };
 use updater::{UpdateMemory, Updater};
 
@@ -133,6 +133,14 @@ pub fn build(
         lock
     };
     let holds_profile = lock.is_some();
+    // The protected videos' data (WebView2's DRM files): reset by the
+    // profile's window, before its engine opens them.
+    let drm = (cfg!(windows) && holds_profile).then(|| DrmReset::new(&files_dir));
+    match drm.as_ref().and_then(DrmReset::apply_if_requested) {
+        Some(Ok(())) => log::info!("DRM data reset"),
+        Some(Err(e)) => log::warn!("DRM data not reset, tried again next start: {e}"),
+        None => {}
+    }
     let profile_list: Box<dyn Repository<Profiles>> = if args.private {
         let list = dirs.list().load().context("could not read the profiles")?;
         Box::new(MemoryRepository::new(list))
@@ -303,6 +311,7 @@ pub fn build(
         exit_slot,
         private_data,
         default_browser,
+        drm,
     ))
 }
 

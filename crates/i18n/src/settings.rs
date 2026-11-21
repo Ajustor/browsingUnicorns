@@ -70,4 +70,18 @@ messages! {
     fn clear_cache() { en: "Cached images and files", fr: "Images et fichiers en cache" }
     /// The button.
     fn clear_now() { en: "Clear now", fr: "Effacer maintenant" }
+
+    /// Section title: the DRM data of streaming sites.
+    fn protected_videos() { en: "Protected videos", fr: "Vidéos protégées" }
+    /// Under the Protected videos title.
+    fn protected_videos_hint() {
+        en: "If Netflix or another streaming site loads forever, reset its DRM data.",
+        fr: "Si Netflix ou un autre site de streaming charge sans fin, réinitialisez ses données DRM.",
+    }
+    /// The button.
+    fn reset_drm() { en: "Reset DRM data and restart", fr: "Réinitialiser les DRM et redémarrer" }
+    fn reset_drm_tip() {
+        en: "Restarts the app: your tabs reopen. Sites stay signed in.",
+        fr: "Redémarre l’appli\u{a0}: vos onglets se rouvrent. Vous restez connecté aux sites.",
+    }
 }

@@ -44,6 +44,8 @@ messages! {
     fn cleared_cookies() { en: "cookies and site data", fr: "cookies et données des sites" }
     /// In [`cleared`].
     fn cleared_cache() { en: "cache", fr: "cache" }
+    /// The DRM reset could not be asked for.
+    fn drm_reset_failed(e: &str) { en: "Could not reset the DRM data: {e}", fr: "Impossible de réinitialiser les DRM\u{a0}: {e}" }
 }
 
 #[cfg(test)]
