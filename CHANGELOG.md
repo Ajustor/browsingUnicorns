@@ -4,6 +4,23 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.19.0] - 2026-11-21
+
+### Ajouté
+
+- Windows : *Settings* > *Vidéos protégées*, « Réinitialiser les DRM et
+  redémarrer ». Quand Netflix ou un autre site de streaming charge sans fin
+  alors qu'il marche en fenêtre privée, les données DRM (Widevine,
+  PlayReady) du profil sont abîmées, et effacer les données du site n'y
+  touche pas. L'appli redémarre, les efface avant de rouvrir les pages, et
+  rouvre les onglets ; les sites restent connectés.
+
+### Corrigé
+
+- Après une mise à jour sans installateur (exécutable seul, AppImage,
+  macOS), l'appli redémarrait sur le profil par défaut au lieu de celui
+  qui était ouvert.
+
 ## [0.18.1] - 2026-11-21
 
 ### Corrigé
