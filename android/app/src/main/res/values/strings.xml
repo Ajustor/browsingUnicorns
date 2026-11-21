@@ -138,7 +138,7 @@
     <string name="block_on_this_site">Block on this site</string>
     <string name="ad_blocker">Ad blocker</string>
     <!-- %1$s: blocker_lists_updated or blocker_lists_not_downloaded. -->
-    <string name="blocker_lists">Lists: EasyList, EasyPrivacy, uBlock filters, Twitch (vaft) · %1$s</string>
+    <string name="blocker_lists">Lists: EasyList, EasyPrivacy, uBlock filters, Twitch (vaft), Netflix · %1$s</string>
     <!-- %1$s: when, as Android says it ("5 minutes ago"). -->
     <string name="blocker_lists_updated">updated %1$s</string>
     <string name="blocker_lists_not_downloaded">not downloaded yet</string>

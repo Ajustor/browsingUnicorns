@@ -128,7 +128,7 @@
     </plurals>
     <string name="block_on_this_site">Bloquer sur ce site</string>
     <string name="ad_blocker">Bloqueur de pubs</string>
-    <string name="blocker_lists">Listes : EasyList, EasyPrivacy, filtres uBlock, Twitch (vaft) · %1$s</string>
+    <string name="blocker_lists">Listes : EasyList, EasyPrivacy, filtres uBlock, Twitch (vaft), Netflix · %1$s</string>
     <string name="blocker_lists_updated">mises à jour %1$s</string>
     <string name="blocker_lists_not_downloaded">pas encore téléchargées</string>
 

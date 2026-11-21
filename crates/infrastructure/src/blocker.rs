@@ -1,7 +1,7 @@
 //! The built-in ad blocker: EasyList, EasyPrivacy and uBlock Origin's own
 //! lists through adblock-rust (Brave's engine), with uBlock Origin's
-//! scriptlets for the lists' `+js(...)` rules and TwitchAdSolutions' vaft on
-//! Twitch. The lists are downloaded and cached under the app's data folder
+//! scriptlets for the lists' `+js(...)` rules, TwitchAdSolutions' vaft on
+//! Twitch and our own script on Netflix. The lists are downloaded and cached under the app's data folder
 //! with the compiled engine; the request
 //! hooks (WebView2, Android), the cosmetic page script and the scriptlet
 //! injection consult it through a [`BlockerHandle`].
@@ -67,6 +67,11 @@ pub const TWITCH: (&str, &str) = (
     "https://raw.githubusercontent.com/ryanbr/TwitchAdSolutions/master/vaft/vaft.user.js",
 );
 
+/// Netflix's ads plan: ad breaks muted and sped up, the pause ad closed.
+/// Ours, shipped with the app: Netflix's ads come with the film, no list
+/// blocks them.
+const NETFLIX: &str = include_str!("netflix_ads.js");
+
 const ENGINE_FILE: &str = "engine.dat";
 const STATE_FILE: &str = "state.json";
 /// How often the lists are checked.
@@ -118,14 +123,27 @@ fn is_vaft(script: &str) -> bool {
             .any(|name| name.contains("vaft"))
 }
 
-/// `url` is on Twitch: `twitch.tv` or a subdomain.
-fn on_twitch(url: &str) -> bool {
+/// `url` is on `site` (`twitch.tv`) or one of its subdomains.
+fn on_site(url: &str, site: &str) -> bool {
     WebAddress::parse(url)
         .ok()
         .and_then(|a| a.host().map(str::to_ascii_lowercase))
         // `www.twitch.tv.` is the same host.
         .map(|h| h.trim_end_matches('.').to_owned())
-        .is_some_and(|h| h == "twitch.tv" || h.ends_with(".twitch.tv"))
+        .is_some_and(|h| {
+            h.strip_suffix(site)
+                .is_some_and(|sub| sub.is_empty() || sub.ends_with('.'))
+        })
+}
+
+/// `url` is on Twitch.
+fn on_twitch(url: &str) -> bool {
+    on_site(url, "twitch.tv")
+}
+
+/// `url` is on Netflix.
+fn on_netflix(url: &str) -> bool {
+    on_site(url, "netflix.com")
 }
 
 /// adblock's name for a request type; `None` for the page itself, never
@@ -234,7 +252,8 @@ impl Blocker {
     }
 
     /// The script the lists' `+js(...)` rules inject into `url`'s pages
-    /// (their exceptions included), then vaft on Twitch; empty when none.
+    /// (their exceptions included), then vaft on Twitch, our script on
+    /// Netflix; empty when none.
     pub fn scriptlets(&self, url: &str) -> String {
         let mut script = self.engine.url_cosmetic_resources(url).injected_script;
         if !script.is_empty() {
@@ -244,6 +263,9 @@ impl Blocker {
         }
         if let Some(vaft) = self.twitch.as_deref().filter(|_| on_twitch(url)) {
             script.push_str(vaft);
+        }
+        if on_netflix(url) {
+            script.push_str(NETFLIX);
         }
         script
     }
@@ -1171,6 +1193,37 @@ sub.site.test#@#+js(say, hello)
     fn a_trailing_dot_host_is_twitch() {
         assert!(on_twitch("https://www.twitch.tv./x"));
         assert!(!on_twitch("https://nottwitch.tv./"));
+    }
+
+    #[test]
+    fn the_netflix_script_comes_on_netflix_only() {
+        let b = blocker();
+        for url in [
+            "https://www.netflix.com/watch/1",
+            "https://netflix.com/",
+            "https://www.netflix.com./browse",
+        ] {
+            assert!(b.scriptlets(url).contains("__buNetflixAds"), "{url}");
+        }
+        for url in [
+            "https://notnetflix.com/",
+            "https://netflix.com.evil.test/",
+            "https://www.twitch.tv/x",
+        ] {
+            assert_eq!(b.scriptlets(url), "", "{url}");
+        }
+    }
+
+    #[test]
+    fn the_netflix_script_follows_the_policy() {
+        let handle = BlockerHandle::default();
+        handle.set(blocker());
+        assert!(!handle.scriptlets("https://www.netflix.com/watch/1").is_empty());
+        handle.set_policy(BlockerPolicy {
+            enabled: true,
+            allowlist: vec!["netflix.com".into()],
+        });
+        assert_eq!(handle.scriptlets("https://www.netflix.com/watch/1"), "");
     }
 
     #[test]

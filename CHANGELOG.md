@@ -4,6 +4,16 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [Unreleased]
+
+### Ajouté
+
+- Netflix (offre avec pub) : le bloqueur coupe le son des coupures pub et
+  les accélère (×3 sous Windows, ×8 ailleurs), puis remet la vitesse et le
+  son d'avant ; la pub affichée sur une vidéo en pause est fermée. Les pubs
+  de Netflix viennent avec le film, aucune liste ne peut les bloquer. Suit
+  le bouclier : coupé pour Netflix, le script ne tourne pas.
+
 ## [0.17.4] - 2026-11-20
 
 ### Modifié
