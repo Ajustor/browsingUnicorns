@@ -152,6 +152,7 @@ pub fn build(
     // Safety: the web views live in the app, which eframe drops before the
     // window.
     let parent = unsafe { ParentWindow::new(cc) }.context("no native window to embed pages in")?;
+    parent.use_app_icon();
     let (sender, receiver) = mpsc::channel();
     let ctx = cc.egui_ctx.clone();
     let page_token = new_token();

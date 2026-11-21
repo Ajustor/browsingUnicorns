@@ -4,6 +4,13 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [Unreleased]
+
+### Corrigé
+
+- Windows : l'icône de l'appli manquait dans la barre des tâches et dans
+  Alt+Tab (seule la petite icône de la fenêtre était donnée).
+
 ## [0.18.0] - 2026-11-21
 
 ### Ajouté

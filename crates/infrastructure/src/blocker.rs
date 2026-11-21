@@ -1218,7 +1218,11 @@ sub.site.test#@#+js(say, hello)
     fn the_netflix_script_follows_the_policy() {
         let handle = BlockerHandle::default();
         handle.set(blocker());
-        assert!(!handle.scriptlets("https://www.netflix.com/watch/1").is_empty());
+        assert!(
+            !handle
+                .scriptlets("https://www.netflix.com/watch/1")
+                .is_empty()
+        );
         handle.set_policy(BlockerPolicy {
             enabled: true,
             allowlist: vec!["netflix.com".into()],
