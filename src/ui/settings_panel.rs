@@ -17,8 +17,8 @@ pub struct SettingsPanel {
     clear: ClearChoice,
     /// What the last clearing did, to tell.
     pub cleared: Option<String>,
-    /// The browsers found here to import bookmarks from (looked for once).
-    sources: Option<Vec<infrastructure::bookmark_import::Source>>,
+    /// The browsers found here to import from (looked for once).
+    sources: Option<Vec<infrastructure::browser_import::Source>>,
 }
 
 /// What "Clear browsing data" removes.
@@ -230,17 +230,14 @@ impl SettingsPanel {
         ui.weak(i18n::settings::import_bookmarks_hint());
         let sources = self
             .sources
-            .get_or_insert_with(infrastructure::bookmark_import::chromium_sources);
+            .get_or_insert_with(infrastructure::browser_import::sources);
         ui.horizontal_wrapped(|ui| {
             for source in sources.iter() {
                 if ui
                     .button(i18n::settings::import_from(source.name))
                     .clicked()
                 {
-                    commands.push(Command::ImportBookmarks(ImportFrom::Chromium(
-                        source.name.to_owned(),
-                        source.file.clone(),
-                    )));
+                    commands.push(Command::Import(ImportFrom::Browser(source.clone())));
                 }
             }
             if ui
@@ -256,7 +253,22 @@ impl SettingsPanel {
                     .add_filter(i18n::settings::import_filter(), &["html", "htm"])
                     .pick_file()
             {
-                commands.push(Command::ImportBookmarks(ImportFrom::Html(file)));
+                commands.push(Command::Import(ImportFrom::Html(file)));
+            }
+            if ui
+                .button(format!(
+                    "{} {}",
+                    icon::KEY,
+                    i18n::settings::import_passwords()
+                ))
+                .on_hover_text(i18n::settings::import_passwords_tip())
+                .clicked()
+                && let Some(file) = rfd::FileDialog::new()
+                    .set_title(i18n::settings::import_passwords_title())
+                    .add_filter(i18n::settings::import_passwords_filter(), &["csv"])
+                    .pick_file()
+            {
+                commands.push(Command::Import(ImportFrom::Passwords(file)));
             }
         });
 

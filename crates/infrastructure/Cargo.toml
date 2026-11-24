@@ -31,6 +31,7 @@ desktop = [
     "dep:block2",
     "dep:x509-parser",
     "dep:libc",
+    "dep:rusqlite",
 ]
 
 [dependencies]
@@ -51,6 +52,8 @@ data-encoding = "2"
 wry = { version = "0.57", optional = true, features = ["devtools"] }
 # The "save as" dialog of downloads.
 rfd = { version = "0.18", optional = true }
+# Other browsers' history and Firefox's bookmarks (SQLite files).
+rusqlite = { version = "0.43", features = ["bundled"], optional = true }
 raw-window-handle = { version = "0.6", optional = true }
 # `platform-verifier`: the system's certificates (corporate proxies...).
 ureq = { version = "3", features = ["platform-verifier"], optional = true }

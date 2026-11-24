@@ -201,8 +201,8 @@ impl BrowserApp {
                 }
                 return;
             }
-            Command::ImportBookmarks(from) => {
-                let r = self.import_bookmarks(from);
+            Command::Import(from) => {
+                let r = self.import(from);
                 return self.report_err(r);
             }
             Command::MoveBookmark(address, folder) => self.browser.move_bookmark(&address, &folder),
@@ -316,36 +316,94 @@ impl BrowserApp {
         }
     }
 
-    /// Reads another browser's bookmarks and adds them in a folder named
-    /// after it; says how many came.
-    fn import_bookmarks(&mut self, from: super::command::ImportFrom) -> Result<(), String> {
-        use infrastructure::bookmark_import;
-        let (name, found) = match from {
-            super::command::ImportFrom::Chromium(name, file) => {
-                (name, bookmark_import::read_chromium(&file)?)
+    /// Imports what `from` holds (another browser's bookmarks and history,
+    /// a bookmarks or passwords file); says how much came.
+    fn import(&mut self, from: super::command::ImportFrom) -> Result<(), String> {
+        use super::command::ImportFrom;
+        use infrastructure::browser_import;
+        let read = |file: &std::path::Path| {
+            std::fs::read_to_string(file)
+                .map_err(|e| i18n::notices::read_failed(&file.display(), &e))
+        };
+        // What could not be read, told after what came.
+        let mut errors = Vec::new();
+        let text = match from {
+            ImportFrom::Browser(source) => {
+                let added = match browser_import::read_bookmarks(&source) {
+                    Ok(found) => self.add_bookmarks(source.name, found)?,
+                    Err(e) => {
+                        errors.push(e);
+                        0
+                    }
+                };
+                let pages = match browser_import::read_history(&source) {
+                    Ok(found) => {
+                        let visits = found.into_iter().filter_map(|v| {
+                            Some(domain::Visit {
+                                address: domain::WebAddress::parse(&v.url).ok()?,
+                                title: v.title,
+                                at: v.at,
+                            })
+                        });
+                        self.browser
+                            .import_history(visits)
+                            .map_err(|e| e.to_string())?
+                    }
+                    Err(e) => {
+                        errors.push(e);
+                        0
+                    }
+                };
+                if errors.len() == 2 {
+                    return Err(errors.join(" "));
+                }
+                i18n::notices::browser_imported(added, pages, source.name)
             }
-            super::command::ImportFrom::Html(file) => {
-                let text = std::fs::read_to_string(&file)
-                    .map_err(|e| i18n::notices::read_failed(&file.display(), &e))?;
-                (
-                    i18n::notices::html_file().to_owned(),
-                    bookmark_import::parse_html(&text),
-                )
+            ImportFrom::Html(file) => {
+                let found = browser_import::parse_html(&read(&file)?);
+                let from = i18n::notices::html_file();
+                let added = self.add_bookmarks(from, found)?;
+                i18n::notices::bookmarks_imported(added, from)
+            }
+            ImportFrom::Passwords(file) => {
+                let found = browser_import::parse_passwords_csv(&read(&file)?)?;
+                let items = found.into_iter().filter_map(|l| {
+                    Some((
+                        domain::WebAddress::parse(&l.url).ok()?,
+                        l.username,
+                        l.password,
+                    ))
+                });
+                let added = self
+                    .browser
+                    .import_credentials(items)
+                    .map_err(|e| e.to_string())?;
+                i18n::notices::passwords_imported(added)
             }
         };
+        self.notice = Some(Notice {
+            error: !errors.is_empty(),
+            text: std::iter::once(text)
+                .chain(errors)
+                .collect::<Vec<_>>()
+                .join(" "),
+        });
+        Ok(())
+    }
+
+    /// Adds bookmarks `from` another browser in a folder named after it.
+    fn add_bookmarks(
+        &mut self,
+        from: &str,
+        found: Vec<infrastructure::browser_import::Imported>,
+    ) -> Result<usize, String> {
         let items = found.into_iter().filter_map(|b| {
             let address = domain::WebAddress::parse(&b.url).ok()?;
             Some((address, b.title, b.folder))
         });
-        let added = self
-            .browser
-            .import_bookmarks(&i18n::notices::imported_folder(&name), items)
-            .map_err(|e| e.to_string())?;
-        self.notice = Some(Notice {
-            error: false,
-            text: i18n::notices::bookmarks_imported(added, &name),
-        });
-        Ok(())
+        self.browser
+            .import_bookmarks(&i18n::notices::imported_folder(from), items)
+            .map_err(|e| e.to_string())
     }
 
     /// Removes what was asked, and says what it did.
@@ -492,7 +550,7 @@ impl BrowserApp {
             | Command::UpdateSettings(_)
             | Command::ClearBrowsingData(_)
             | Command::ResetDrm
-            | Command::ImportBookmarks(_)
+            | Command::Import(_)
             | Command::MoveBookmark(..)
             | Command::Home
             | Command::Submit(_)
@@ -801,7 +859,7 @@ fn writes_profile(command: &Command) -> bool {
         command,
         Command::ToggleBookmark
             | Command::RemoveBookmark(_)
-            | Command::ImportBookmarks(_)
+            | Command::Import(_)
             | Command::MoveBookmark(..)
             | Command::SyncTurnOn
             | Command::SyncJoin(_)

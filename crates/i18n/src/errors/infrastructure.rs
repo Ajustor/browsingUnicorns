@@ -113,4 +113,18 @@ messages! {
 
     /// A browser's bookmarks file without bookmarks.
     fn no_bookmarks_in_file() { en: "no bookmarks in this file", fr: "aucun favori dans ce fichier" }
+    /// A passwords file without the columns of one.
+    fn no_passwords_in_file() {
+        en: "not a passwords file (no url, username and password columns)",
+        fr: "ce n’est pas un fichier de mots de passe (pas de colonnes url, username et password)",
+    }
+    /// Another browser's history or bookmarks database could not be read.
+    fn cannot_read_browser_data(file: &dyn std::fmt::Display, e: &dyn std::fmt::Display) {
+        en: "could not read {file} (close that browser and try again): {e}",
+        fr: "impossible de lire {file} (fermez ce navigateur et réessayez)\u{a0}: {e}",
+    }
+    /// Firefox's bookmark roots, as folders of the imported bookmarks.
+    fn firefox_menu() { en: "Bookmarks Menu", fr: "Menu des marque-pages" }
+    fn firefox_other() { en: "Other Bookmarks", fr: "Autres marque-pages" }
+    fn firefox_mobile() { en: "Mobile Bookmarks", fr: "Marque-pages des appareils mobiles" }
 }

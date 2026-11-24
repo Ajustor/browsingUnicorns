@@ -1,9 +1,9 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use domain::{
     Bookmarks, BrowsingHistory, Credentials, DeviceId, DeviceRecord, Offer, RemoteTab, SeenCookies,
-    Session, SessionSnapshot, Settings, SiteCookie, Suggestion, TabId, Timestamp, WebAddress,
-    cookies_to_import, cookies_to_share, resolve_omnibox, suggest,
+    Session, SessionSnapshot, Settings, SiteCookie, Suggestion, TabId, Timestamp, Visit,
+    WebAddress, cookies_to_import, cookies_to_share, resolve_omnibox, suggest,
 };
 
 use crate::BrowserError;
@@ -237,6 +237,31 @@ impl<E: WebEngine> Browser<E> {
         Ok(added)
     }
 
+    /// Adds another browser's history (its pages at their last visit).
+    /// Returns how many visits were new.
+    pub fn import_history(
+        &mut self,
+        visits: impl IntoIterator<Item = Visit>,
+    ) -> Result<usize, BrowserError> {
+        let known: HashSet<(WebAddress, Timestamp)> = self
+            .history
+            .visits()
+            .iter()
+            .map(|v| (v.address.clone(), v.at))
+            .collect();
+        let new: Vec<Visit> = visits
+            .into_iter()
+            .filter(|v| {
+                BrowsingHistory::is_recordable(&v.address)
+                    && !known.contains(&(v.address.clone(), v.at))
+            })
+            .collect();
+        if self.history.merge(&new) {
+            self.profile.history.save(&self.history)?;
+        }
+        Ok(new.len())
+    }
+
     /// Moves a bookmark to `folder` (empty: out of any).
     pub fn move_bookmark(
         &mut self,
@@ -428,6 +453,31 @@ impl<E: WebEngine> Browser<E> {
             self.save_credentials()?;
         }
         Ok(())
+    }
+
+    /// Adds sign-ins of another browser (page address, user name,
+    /// password): those not saved yet; one already saved keeps its
+    /// password. Returns how many were added.
+    pub fn import_credentials(
+        &mut self,
+        items: impl IntoIterator<Item = (WebAddress, String, String)>,
+    ) -> Result<usize, BrowserError> {
+        let now = self.now();
+        let mut added = 0;
+        for (address, username, password) in items {
+            let Some(origin) = address.origin() else {
+                continue;
+            };
+            let username = username.trim();
+            if self.credentials.offer(&origin, username, &password) == Offer::Save {
+                self.credentials.save(&origin, username, &password, now);
+                added += 1;
+            }
+        }
+        if added > 0 {
+            self.save_credentials()?;
+        }
+        Ok(added)
     }
 
     fn save_credentials(&mut self) -> Result<(), BrowserError> {
@@ -1212,6 +1262,54 @@ mod tests {
         phone.apply_remote(std::slice::from_ref(&record)).unwrap();
         assert_eq!(phone.credentials().saved().len(), 1);
         assert!(store.credentials.lock().unwrap().is_some());
+    }
+
+    #[test]
+    fn imported_sign_ins_add_only_the_new_ones() {
+        let (store, mut b, id) = signed_in_browser();
+        b.offer_credential(id, "me", "mine");
+        b.answer_credential(CredentialAnswer::Save).unwrap();
+        let origin = b.credentials().saved()[0].origin.clone();
+        let added = b
+            .import_credentials([
+                (
+                    addr(&format!("{origin}/login")),
+                    "me".into(),
+                    "theirs".into(),
+                ),
+                (addr("https://other.org/x"), " bob ".into(), "pw".into()),
+                (addr("https://other.org/y"), "bob".into(), "pw".into()),
+            ])
+            .unwrap();
+        assert_eq!(added, 1);
+        let mine = b.credentials().for_origin(&origin);
+        assert_eq!(mine[0].password, "mine");
+        let other = b.credentials().for_origin("https://other.org");
+        assert_eq!(other[0].username, "bob");
+        assert!(store.credentials.lock().unwrap().is_some());
+    }
+
+    #[test]
+    fn imported_history_skips_known_visits() {
+        let store = Store::default();
+        let mut b = browser_with(&store);
+        let visit = |url: &str, at| Visit {
+            address: addr(url),
+            title: "T".into(),
+            at,
+        };
+        let pages = || {
+            [
+                visit("https://a.org/", 10),
+                visit("https://b.org/", 20),
+                visit("about:blank", 30),
+            ]
+        };
+        assert_eq!(b.import_history(pages()).unwrap(), 2);
+        assert_eq!(b.history().len(), 2);
+        assert!(store.history.lock().unwrap().is_some());
+        assert_eq!(b.import_history(pages()).unwrap(), 0);
+        assert_eq!(b.history().len(), 2);
     }
 
     #[test]

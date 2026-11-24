@@ -55,8 +55,10 @@ binaire reste petit et le moteur profite des mises à jour de sécurité de l'OS
   leur progression, les annule, les ouvre ; sur Android, le gestionnaire
   de téléchargement du système
 - ⭐ Favoris : étoile dans la barre d'adresse (Ctrl+D), dossiers, barre de
-  favoris sous la barre d'outils (clic molette : nouvel onglet) ; import
-  depuis Chrome, Edge, Brave, Vivaldi ou un fichier HTML exporté
+  favoris sous la barre d'outils (clic molette : nouvel onglet)
+- 📥 Import (bureau) : favoris et historique depuis Chrome, Edge, Brave,
+  Vivaldi ou Firefox, favoris depuis un fichier HTML exporté, mots de
+  passe depuis le fichier CSV qu'exportent navigateurs et gestionnaires
 - ⚙️ *Settings* : page d'accueil, moteur de recherche, téléchargements,
   mots de passe, zoom par site, effacer les données de navigation,
   réinitialiser les DRM quand un site de streaming charge sans fin (Windows)

@@ -49,14 +49,26 @@ messages! {
     fn zoom_reset_tip() { en: "Back to 100%", fr: "Revenir à 100\u{a0}%" }
 
     /// Section title.
-    fn import_bookmarks() { en: "Import bookmarks", fr: "Importer des favoris" }
-    fn import_bookmarks_hint() { en: "Into a folder named after the browser.", fr: "Dans un dossier au nom du navigateur." }
+    fn import_bookmarks() { en: "Import from another browser", fr: "Importer depuis un autre navigateur" }
+    fn import_bookmarks_hint() {
+        en: "Bookmarks (into a folder named after the browser) and history.",
+        fr: "Les favoris (dans un dossier au nom du navigateur) et l’historique.",
+    }
+    /// Imports passwords exported as CSV.
+    fn import_passwords() { en: "Passwords (CSV file)…", fr: "Mots de passe (fichier CSV)…" }
+    fn import_passwords_tip() {
+        en: "The file browsers and password managers export. Chrome / Edge: Settings > Passwords > Export passwords. Firefox: Passwords > ⋯ > Export passwords. Delete the file afterwards: it holds them in clear.",
+        fr: "Le fichier qu’exportent les navigateurs et gestionnaires de mots de passe. Chrome / Edge\u{a0}: Paramètres > Mots de passe > Exporter les mots de passe. Firefox\u{a0}: Mots de passe > ⋯ > Exporter les mots de passe. Supprimez ensuite le fichier\u{a0}: ils y sont en clair.",
+    }
+    /// The passwords file picker's title and filter.
+    fn import_passwords_title() { en: "Passwords exported from a browser", fr: "Mots de passe exportés d’un navigateur" }
+    fn import_passwords_filter() { en: "Passwords (CSV)", fr: "Mots de passe (CSV)" }
     /// Imports from a browser found here.
     fn import_from(browser: &str) { en: "From {browser}", fr: "Depuis {browser}" }
     fn import_html() { en: "From an HTML file…", fr: "Depuis un fichier HTML…" }
     fn import_html_tip() {
-        en: "The file other browsers export (Firefox: Bookmarks > Manage bookmarks > Import and backup > Export bookmarks to HTML)",
-        fr: "Le fichier qu’exportent les autres navigateurs (Firefox\u{a0}: Marque-pages > Gérer les marque-pages > Importation et sauvegarde > Exporter des marque-pages au format HTML)",
+        en: "The file browsers export (Safari: File > Export Bookmarks)",
+        fr: "Le fichier qu’exportent les navigateurs (Safari\u{a0}: Fichier > Exporter les signets)",
     }
     /// The file picker's title.
     fn import_dialog_title() { en: "Bookmarks exported from a browser", fr: "Favoris exportés d’un navigateur" }

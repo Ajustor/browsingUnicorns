@@ -4,13 +4,15 @@ use domain::{ExtensionId, TabId, UserScriptId, WebAddress};
 use super::library::LibraryView;
 use super::profiles::ProfileCommand;
 
-/// Where bookmarks are imported from.
+/// What is imported, from where.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImportFrom {
-    /// A Chromium browser's `Bookmarks` file, and the browser's name.
-    Chromium(String, std::path::PathBuf),
-    /// An exported HTML file (Firefox, Safari...).
+    /// A browser found here: its bookmarks and history.
+    Browser(infrastructure::browser_import::Source),
+    /// Bookmarks exported as an HTML file (Safari...).
     Html(std::path::PathBuf),
+    /// Passwords exported as a CSV file.
+    Passwords(std::path::PathBuf),
 }
 
 /// What "Clear browsing data" removes.
@@ -41,7 +43,7 @@ pub enum Command {
     /// Mutes a tab's page, or lets it play sound again.
     SetMuted(TabId, bool),
     /// Imports another browser's bookmarks.
-    ImportBookmarks(ImportFrom),
+    Import(ImportFrom),
     /// Moves a bookmark to a folder (empty: out of any).
     MoveBookmark(WebAddress, String),
     /// Shows a folder's bookmarks in the side panel.
