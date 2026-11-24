@@ -1054,7 +1054,35 @@ function contentScript(entry, code) {
   if (!code) return;
   isolateFieldValues();
   const api = makeChrome(entry);
-  at(entry.runAt, () => code.call(window, api, api));
+  at(entry.runAt, () => asExtension(api, () => code.call(window, api, api)));
+}
+
+// Runs `f` with the page's `chrome` and `browser` globals being the
+// extension's API, as a content script's isolated world has them: scripts
+// built with WXT or the webextension polyfill read `globalThis.chrome`
+// when they load rather than their parameters. The page's own come back
+// right after (synchronous: the page never sees the swap).
+function asExtension(api, f) {
+  const saved = ["chrome", "browser"].map((name) => [name, Object.getOwnPropertyDescriptor(window, name)]);
+  for (const [name, desc] of saved) {
+    try {
+      if (!desc || desc.configurable) Object.defineProperty(window, name, { value: api, writable: true, configurable: true });
+      else if ("value" in desc) window[name] = api;
+    } catch (e) {
+      // A global the page made unchangeable: left as it is.
+    }
+  }
+  try {
+    return f();
+  } finally {
+    for (const [name, desc] of saved) {
+      try {
+        if (!desc) delete window[name];
+        else if (desc.configurable) Object.defineProperty(window, name, desc);
+        else if ("value" in desc) window[name] = desc.value;
+      } catch (e) {}
+    }
+  }
 }
 
 // A script an extension runs in the tab (`scripting.executeScript`): like
@@ -1063,7 +1091,7 @@ function contentScript(entry, code) {
 function injected(entry, fn) {
   isolateFieldValues();
   const api = makeChrome(entry);
-  return fn.call(window, api, api);
+  return asExtension(api, () => fn.call(window, api, api));
 }
 
 // The built-in ad blocker's site-specific cosmetic filters: the browser
