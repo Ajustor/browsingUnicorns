@@ -4,6 +4,22 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.20.3] - 2026-11-24
+
+### Corrigé
+
+- Un message d'une extension qui n'arrivait jamais à destination (page de
+  fond en train de se recharger, ou pas encore démarrée) laissait
+  l'expéditeur attendre indéfiniment : il reçoit désormais « pas de
+  réponse » après 3 secondes, ou une erreur si la page de fond ne démarre
+  pas dans les 10 secondes, comme dans Chrome. heylogin.app pouvait
+  ainsi ne jamais apprendre que l'extension était installée.
+- Une page de fond d'extension qui redémarre (après une mise à jour) ou
+  se recharge n'était plus attendue : les messages envoyés pendant ce
+  temps se perdaient. Ils sont désormais gardés jusqu'à ce qu'elle
+  écoute, et ceux qu'elle traitait au moment de s'arrêter reçoivent
+  « pas de réponse ».
+
 ## [0.20.2] - 2026-11-24
 
 ### Ajouté
