@@ -4,6 +4,17 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.20.4] - 2026-11-24
+
+### Corrigé
+
+- Les scripts d'extension prévus « au tout début de la page »
+  (`document_start`) pouvaient s'exécuter avant que la page ait son
+  élément racine `<html>`, selon la vitesse du poste : ceux qui y
+  ajoutent un élément plantaient (heylogin ne se signalait alors jamais à
+  heylogin.app, qui demandait d'installer l'extension). Ils attendent
+  désormais cet élément, comme dans Chrome.
+
 ## [0.20.3] - 2026-11-24
 
 ### Corrigé
