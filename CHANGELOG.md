@@ -4,6 +4,14 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [Unreleased]
+
+### Corrigé
+
+- Une page ouverte depuis le popup d'une extension (`window.open`) ne
+  s'ouvrait pas : le bouton « Log in now » de heylogin, par exemple, ne
+  faisait rien. Elle s'ouvre maintenant dans un nouvel onglet.
+
 ## [0.20.0] - 2026-11-24
 
 ### Ajouté

@@ -325,8 +325,22 @@ fn base_builder<'a>(
     let builder = builder.with_incognito(private);
     #[cfg(not(target_os = "macos"))]
     let _ = private;
+    let emit = std::rc::Rc::new(emit);
+    let on_new_window = emit.clone();
     let builder = builder
         .with_devtools(true)
+        // An extension's popup or background page opening a page
+        // (`window.open`: heylogin's "Log in"): a new tab, shown. Tabs
+        // replace this with their own handler.
+        .with_new_window_req_handler(move |url, _features| {
+            if let Ok(address) = WebAddress::parse(&url) {
+                on_new_window(EngineEvent::NewTabRequested {
+                    opener: None,
+                    address,
+                });
+            }
+            NewWindowResponse::Deny
+        })
         .with_ipc_handler(move |request| {
             emit(EngineEvent::PageMessage {
                 from: source.clone(),
