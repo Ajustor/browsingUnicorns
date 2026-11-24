@@ -9,6 +9,7 @@ pub mod browser_import;
 pub mod certificates;
 mod clock;
 mod credentials_store;
+pub mod csp;
 #[cfg(feature = "desktop")]
 pub mod default_browser;
 mod device_file;
@@ -47,6 +48,8 @@ mod webview2_address;
 mod webview2_blocking;
 #[cfg(all(windows, feature = "desktop"))]
 mod webview2_cookies;
+#[cfg(all(windows, feature = "desktop"))]
+mod webview2_csp;
 #[cfg(all(windows, feature = "desktop"))]
 mod webview2_downloads;
 #[cfg(all(windows, feature = "desktop"))]

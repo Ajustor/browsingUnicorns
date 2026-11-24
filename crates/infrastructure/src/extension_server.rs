@@ -223,6 +223,18 @@ impl ExtensionServer {
         *self.extensions.write().unwrap_or_else(|p| p.into_inner()) = extensions.clone();
     }
 
+    /// The origins of the enabled extensions.
+    pub fn enabled_origins(&self) -> Vec<String> {
+        self.extensions
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .items()
+            .iter()
+            .filter(|e| e.enabled)
+            .map(|e| self.origins.origin(&e.id))
+            .collect()
+    }
+
     fn enabled(&self, id: &ExtensionId) -> bool {
         self.extensions
             .read()

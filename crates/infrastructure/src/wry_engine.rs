@@ -1050,6 +1050,12 @@ impl WebEngine for WryEngine {
                 log::warn!("security of tab {tab}: {e}");
             }
             self.security.insert(tab, slot);
+            // The page's policy lets the extensions' frames in, as Chrome.
+            if let Some(server) = self.server.clone()
+                && let Err(e) = crate::webview2_csp::attach(&view, move || server.enabled_origins())
+            {
+                log::warn!("page policy of tab {tab}: {e}");
+            }
         }
         let mut handles = Handles::default();
         page_injection::replace(&view, &self.page_scripts, &mut handles);
