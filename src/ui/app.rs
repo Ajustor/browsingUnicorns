@@ -973,12 +973,19 @@ impl eframe::App for BrowserApp {
         self.blocker.follow(ctx, self.browser.settings());
         self.extensions.poll(self.browser.engine_mut());
         self.user_scripts.poll(self.browser.engine_mut());
+        for id in self.browser.engine_mut().take_stopped_backgrounds() {
+            self.hub.background_closed(&id);
+        }
         let mut host = BrowserHub {
             browser: &mut self.browser,
             extensions: self.extensions.extensions(),
         };
         self.hub.tabs_changed(&mut host);
         self.hub.pump_native(&mut host);
+        if self.hub.waiting() {
+            // Unanswered extension messages expire: look again shortly.
+            ctx.request_repaint_after(std::time::Duration::from_millis(500));
+        }
         if let Some(notice) = self.updates.poll() {
             self.notice = Some(notice);
         }

@@ -100,6 +100,8 @@ pub struct WryEngine {
     backgrounds: HashMap<ExtensionId, WebView>,
     /// The version each background page runs: an update restarts it.
     background_versions: HashMap<ExtensionId, String>,
+    /// Background pages stopped since [`Self::take_stopped_backgrounds`].
+    stopped_backgrounds: Vec<ExtensionId>,
     /// The extension popup, and its address.
     panel: Option<(String, WebView)>,
     /// Its content's size in physical pixels, as last measured.
@@ -415,6 +417,7 @@ impl WryEngine {
             injected: HashMap::new(),
             backgrounds: HashMap::new(),
             background_versions: HashMap::new(),
+            stopped_backgrounds: Vec::new(),
             panel: None,
             panel_size: Arc::default(),
             panel_measured: None,
@@ -666,10 +669,15 @@ impl WryEngine {
             .collect();
         // Gone, disabled, or updated (its files changed under it): stopped.
         let versions = &self.background_versions;
+        let stopped = &mut self.stopped_backgrounds;
         self.backgrounds.retain(|id, _| {
-            wanted
+            let keep = wanted
                 .get(id)
-                .is_some_and(|(_, version)| versions.get(id) == Some(version))
+                .is_some_and(|(_, version)| versions.get(id) == Some(version));
+            if !keep {
+                stopped.push(id.clone());
+            }
+            keep
         });
         for (id, (url, version)) in wanted {
             if self.backgrounds.contains_key(&id) {
@@ -773,6 +781,12 @@ impl WryEngine {
         return self.page_focused.replace(false);
         #[cfg(not(windows))]
         false
+    }
+
+    /// The background pages stopped (or restarted) since the last call: the
+    /// extension hub forgets they were listening.
+    pub fn take_stopped_backgrounds(&mut self) -> Vec<ExtensionId> {
+        std::mem::take(&mut self.stopped_backgrounds)
     }
 
     /// The shortcuts pressed in a page since the last call.

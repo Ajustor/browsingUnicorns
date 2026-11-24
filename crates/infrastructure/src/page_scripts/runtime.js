@@ -442,6 +442,12 @@ function makeChrome(entry) {
         }
       }
       if (!async) answer.left -= 1;
+      // A listener answers later: the browser then waits for it (else it
+      // answers "nothing" once the message went unanswered a while).
+      if (async && !answer.done && !answer.taken) {
+        answer.taken = true;
+        send(owner, "ack", { rid: msg.rid }).catch(() => {});
+      }
       if (!answer.done && answer.left <= 0) {
         answer.done = true;
         send(owner, "respond", { rid: msg.rid, none: true }).catch(() => {});

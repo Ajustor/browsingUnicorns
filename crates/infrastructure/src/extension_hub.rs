@@ -9,6 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::time::{Duration, Instant};
 
 use application::Browser;
 use application::ports::{PageSource, WebEngine};
@@ -121,6 +122,12 @@ struct Pending {
     ch: Option<String>,
     /// Receivers that did not answer yet.
     waiting: usize,
+    /// Where it went: when they all close, nobody will answer.
+    receivers: Vec<PageSource>,
+    /// When it was sent, and whether a receiver took it on (an
+    /// asynchronous listener): see [`UNTAKEN`].
+    since: Instant,
+    taken: bool,
 }
 
 pub struct Hub {
@@ -180,11 +187,23 @@ struct Queued {
     ch: Option<String>,
     payload: Value,
     sender: Value,
+    since: Instant,
 }
 
 /// At most this many messages wait for a background page (one that never
 /// starts would keep them all).
 const MAX_QUEUED: usize = 64;
+
+/// A message no listener took on by then never reached one (its page was
+/// loading, reloading or gone): the sender gets "no answer", as in Chrome,
+/// rather than waiting forever.
+const UNTAKEN: Duration = Duration::from_secs(3);
+
+/// A background page not ready by then is not starting: the messages
+/// waiting for it fail, as in Chrome when nothing receives them.
+const NEVER_READY: Duration = Duration::from_secs(10);
+
+const NO_RECEIVER: &str = "Could not establish connection. Receiving end does not exist.";
 
 /// The browser's window, holding every tab not opened as a window.
 const MAIN_WINDOW: u64 = 1;
@@ -282,6 +301,22 @@ impl Hub {
 
     /// `page` went away: its ports close, the other ends are told.
     fn close_ports_of(&mut self, page: &PageSource, host: &mut dyn HubHost) {
+        // The messages only it could answer: answered "nothing", as in
+        // Chrome when the receiving page goes away.
+        let orphans: Vec<u64> = self
+            .pending
+            .iter_mut()
+            .filter_map(|(rid, p)| {
+                let before = p.receivers.len();
+                p.receivers.retain(|r| r != page);
+                (before > 0 && p.receivers.is_empty()).then_some(*rid)
+            })
+            .collect();
+        for rid in orphans {
+            if let Some(p) = self.pending.remove(&rid) {
+                Self::reply(host, &p.to, p.id, &p.ch, Ok(Value::Null));
+            }
+        }
         let mut tell = Vec::new();
         self.ports.retain(|id, port| {
             if &port.opener == page {
@@ -302,6 +337,38 @@ impl Hub {
             let event = json!({"event": "portDisconnect", "owner": owner, "port": id});
             host.deliver(&to, &event.to_string());
         }
+    }
+
+    /// Answers the messages nobody will: not taken on by a listener within
+    /// [`UNTAKEN`], or waiting for a background page that is not starting.
+    fn expire(&mut self, now: Instant, host: &mut dyn HubHost) {
+        let lost: Vec<u64> = self
+            .pending
+            .iter()
+            .filter(|(_, p)| !p.taken && now.duration_since(p.since) >= UNTAKEN)
+            .map(|(rid, _)| *rid)
+            .collect();
+        for rid in lost {
+            if let Some(p) = self.pending.remove(&rid) {
+                Self::reply(host, &p.to, p.id, &p.ch, Ok(Value::Null));
+            }
+        }
+        for queue in self.queued.values_mut() {
+            let (old, keep): (Vec<_>, Vec<_>) = std::mem::take(queue)
+                .into_iter()
+                .partition(|q| now.duration_since(q.since) >= NEVER_READY);
+            *queue = keep;
+            for q in old {
+                Self::reply(host, &q.from, q.id, &q.ch, Err(NO_RECEIVER.into()));
+            }
+        }
+        self.queued.retain(|_, q| !q.is_empty());
+    }
+
+    /// Whether messages wait for an answer: the caller then calls
+    /// [`Self::tabs_changed`] again a moment later, for them to expire.
+    pub fn waiting(&self) -> bool {
+        self.pending.values().any(|p| !p.taken) || !self.queued.is_empty()
     }
 
     /// Called when a native host sends something or a request finishes:
@@ -533,7 +600,11 @@ impl Hub {
                             .insert(owner.to_owned());
                     }
                     (PageSource::Background(_), _) => {
+                        // A background page (re)loading: not listening yet,
+                        // whatever its previous load said. Messages wait
+                        // for its "ready" rather than reaching no listener.
                         self.backgrounds.insert(owner.to_owned());
+                        self.ready.remove(owner);
                     }
                     (PageSource::Panel, _) => self.panel = Some(owner.to_owned()),
                     _ => {}
@@ -777,6 +848,7 @@ impl Hub {
                         ch: ch.clone(),
                         payload: field("payload"),
                         sender,
+                        since: Instant::now(),
                     });
                     return None;
                 }
@@ -805,6 +877,13 @@ impl Hub {
                     sender,
                     host,
                 )
+            }
+            "ack" => {
+                let rid = field("rid").as_u64()?;
+                if let Some(p) = self.pending.get_mut(&rid) {
+                    p.taken = true;
+                }
+                None
             }
             "respond" => {
                 let rid = field("rid").as_u64()?;
@@ -914,6 +993,9 @@ impl Hub {
                         id,
                         ch: ch.clone(),
                         waiting: 1,
+                        receivers: Vec::new(),
+                        since: Instant::now(),
+                        taken: true,
                     },
                 );
                 host.run_in_tab(tab, &self.result_script(&code, &nonce));
@@ -983,6 +1065,9 @@ impl Hub {
                 id,
                 ch: ch.clone(),
                 waiting: to.len(),
+                receivers: to.to_vec(),
+                since: Instant::now(),
+                taken: false,
             },
         );
         let event = json!({"event": "message", "owner": owner, "rid": rid, "payload": payload, "sender": sender})
@@ -1496,6 +1581,7 @@ impl Hub {
     /// Compares the tabs with the last time and sends `tabs.on*` events to
     /// the background pages. Call once per frame (cheap when nothing moved).
     pub fn tabs_changed(&mut self, host: &mut dyn HubHost) {
+        self.expire(Instant::now(), host);
         for page in std::mem::take(&mut self.closed_pages) {
             self.close_ports_of(&page, host);
         }
@@ -1917,6 +2003,74 @@ mod tests {
     }
 
     #[test]
+    fn a_restarted_background_page_gets_the_messages_once_ready() {
+        let dir = tempfile::tempdir().unwrap();
+        let ext_dir = extension_dir(&dir.path().join("ext"), &ext());
+        std::fs::create_dir_all(&ext_dir).unwrap();
+        std::fs::write(
+            ext_dir.join("manifest.json"),
+            r#"{"name": "E", "version": "1", "manifest_version": 3, "background": {"service_worker": "bg.js"}}"#,
+        )
+        .unwrap();
+        let mut hub = hub(dir.path());
+        let mut host = Host::default();
+        let tab = host.create_tab(Some("https://news.test/"), true).unwrap();
+        hub.tabs_changed(&mut host);
+        let (bg, page) = (PageSource::Background(ext()), PageSource::Tab(tab));
+        hub.handle(&bg, &msg(1, "background", "hello", json!({})), &mut host);
+        hub.handle(&bg, &msg(2, "background", "ready", json!({})), &mut host);
+        hub.handle(&page, &msg(1, "content", "hello", json!({})), &mut host);
+        host.delivered.clear();
+
+        // Taken on, then the page stops (an update restarts it): "nothing".
+        hub.handle(
+            &page,
+            &msg(2, "content", "sendMessage", json!({"payload": 1})),
+            &mut host,
+        );
+        let rid = host.delivered.pop().unwrap().1["rid"].as_u64().unwrap();
+        hub.handle(
+            &bg,
+            &msg(3, "background", "ack", json!({"rid": rid})),
+            &mut host,
+        );
+        hub.background_closed(&ext());
+        hub.tabs_changed(&mut host);
+        assert_eq!(
+            host.delivered.pop().unwrap(),
+            (page.clone(), json!({"id": 2, "ch": "c", "result": null}))
+        );
+
+        // While it starts again: kept for it until it listens.
+        hub.handle(
+            &page,
+            &msg(3, "content", "sendMessage", json!({"payload": 2})),
+            &mut host,
+        );
+        hub.handle(&bg, &msg(4, "background", "hello", json!({})), &mut host);
+        let to_bg = |host: &Host| {
+            host.delivered
+                .iter()
+                .filter(|(to, m)| to == &bg && m["event"] == "message")
+                .map(|(_, m)| m["payload"].clone())
+                .collect::<Vec<_>>()
+        };
+        assert!(to_bg(&host).is_empty());
+        hub.handle(&bg, &msg(5, "background", "ready", json!({})), &mut host);
+        assert_eq!(to_bg(&host), [json!(2)]);
+
+        // A page reloading by itself is not ready either until it says so.
+        hub.handle(&bg, &msg(6, "background", "hello", json!({})), &mut host);
+        host.delivered.clear();
+        hub.handle(
+            &page,
+            &msg(4, "content", "sendMessage", json!({"payload": 3})),
+            &mut host,
+        );
+        assert!(host.delivered.is_empty());
+    }
+
+    #[test]
     fn messages_between_content_scripts_and_background() {
         let dir = tempfile::tempdir().unwrap();
         let mut hub = hub(dir.path());
@@ -2002,6 +2156,61 @@ mod tests {
                 .unwrap()
                 .contains("Receiving end")
         );
+    }
+
+    #[test]
+    fn unanswered_messages_expire() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut hub = hub(dir.path());
+        let mut host = Host::default();
+        let tab = host.create_tab(Some("https://news.test/"), true).unwrap();
+        hub.tabs_changed(&mut host);
+        let (bg, page) = (PageSource::Background(ext()), PageSource::Tab(tab));
+        hub.handle(&bg, &msg(1, "background", "hello", json!({})), &mut host);
+        hub.handle(&page, &msg(1, "content", "hello", json!({})), &mut host);
+        host.delivered.clear();
+        let later = Instant::now() + UNTAKEN + Duration::from_secs(1);
+
+        // Lost on the way (the page was reloading): "no answer", not a wait.
+        hub.handle(
+            &page,
+            &msg(2, "content", "sendMessage", json!({"payload": 1})),
+            &mut host,
+        );
+        host.delivered.clear();
+        assert!(hub.waiting());
+        hub.expire(later, &mut host);
+        assert_eq!(
+            host.delivered.pop().unwrap(),
+            (page.clone(), json!({"id": 2, "ch": "c", "result": null}))
+        );
+        assert!(!hub.waiting());
+
+        // Taken on by an asynchronous listener: waited for.
+        hub.handle(
+            &page,
+            &msg(3, "content", "sendMessage", json!({"payload": 2})),
+            &mut host,
+        );
+        let rid = host.delivered.pop().unwrap().1["rid"].as_u64().unwrap();
+        hub.handle(
+            &bg,
+            &msg(4, "background", "ack", json!({"rid": rid})),
+            &mut host,
+        );
+        hub.expire(later, &mut host);
+        assert!(host.delivered.is_empty());
+        hub.handle(
+            &bg,
+            &msg(
+                5,
+                "background",
+                "respond",
+                json!({"rid": rid, "payload": 42}),
+            ),
+            &mut host,
+        );
+        assert_eq!(host.delivered.pop().unwrap().1["result"], 42);
     }
 
     #[test]
