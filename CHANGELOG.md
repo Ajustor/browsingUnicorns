@@ -4,6 +4,29 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.21.0] - 2026-11-24
+
+### Ajouté
+
+- Import depuis un autre navigateur (*Settings* > « Importer depuis un
+  autre navigateur », sur ordinateur) : un clic sur Chrome, Edge, Brave,
+  Vivaldi ou Firefox importe ses favoris et son historique (pas besoin de
+  le fermer). Firefox est désormais lu directement, sans passer par un
+  export HTML.
+- Import des mots de passe depuis le fichier CSV qu'exportent Chrome,
+  Edge, Firefox ou Bitwarden : seuls les identifiants pas encore
+  enregistrés sont ajoutés, et ils se synchronisent ensuite comme les
+  autres.
+
+### Corrigé
+
+- Les scripts d'extension qui prennent leur API dans `chrome` ou
+  `browser` au chargement (extensions construites avec WXT ou le
+  polyfill webextension, comme heylogin) tombaient sur le `chrome` de la
+  page, sans `runtime` sur certains postes : le script plantait et
+  heylogin.app demandait d'installer l'extension. Ils voient désormais
+  l'API de leur extension, comme dans Chrome.
+
 ## [0.20.4] - 2026-11-24
 
 ### Corrigé
