@@ -277,6 +277,7 @@ version = "0.1.0"
 dependencies = [
  "domain",
  "i18n",
+ "log",
 ]
 
 [[package]]

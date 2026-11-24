@@ -32,7 +32,7 @@ pub use credentials::{
     Credential, CredentialRemoval, Credentials, Offer, SeenCookies, SiteCookie, cookies_to_import,
     cookies_to_share,
 };
-pub use extensions::{Extension, ExtensionId, Extensions};
+pub use extensions::{Extension, ExtensionId, Extensions, is_newer_version};
 pub use history::History;
 pub use omnibox::resolve_omnibox;
 pub use page_scripts::{RunAt, UrlPattern, UserScript, UserScriptId, UserScriptMeta, UserScripts};

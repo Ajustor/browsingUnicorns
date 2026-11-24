@@ -130,6 +130,32 @@ impl MobileBrowser {
         Ok(name)
     }
 
+    /// Installs the newer versions of the extensions from their stores, at
+    /// most once a day. Blocking (downloads): call it off the main thread.
+    /// Returns how many were updated.
+    pub fn update_extensions(&self) -> u32 {
+        let clock = infrastructure::extensions::UpdateClock::new(
+            self.extensions_dir.join(".last-update-check"),
+        );
+        let (packages, installed) = {
+            let manager = self.extensions_lock();
+            (manager.packages(), manager.versions())
+        };
+        if installed.is_empty() || !clock.is_due() {
+            return 0;
+        }
+        clock.mark();
+        let updated = application::extensions::fetch_updates(packages.as_ref(), &installed);
+        let count = updated.len() as u32;
+        let mut manager = self.extensions_lock();
+        for extension in updated {
+            if let Err(e) = manager.installed(extension, self.lock().browser.engine_mut()) {
+                eprintln!("extensions: recording an update: {e}");
+            }
+        }
+        count
+    }
+
     pub fn set_extension_enabled(&self, id: String, enabled: bool) -> Result<(), MobileError> {
         let id = self::id(&id)?;
         let mut manager = self.extensions_lock();

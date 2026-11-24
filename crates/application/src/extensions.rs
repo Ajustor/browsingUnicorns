@@ -13,7 +13,36 @@ pub struct ExtensionManager {
     packages: Arc<dyn ExtensionPackages>,
 }
 
+/// Updates `installed` (id, version) from their stores, one after the
+/// other: the extensions a newer version was unpacked for, to record with
+/// [`ExtensionManager::installed`]. Failures are logged and skipped.
+/// Blocking (downloads).
+pub fn fetch_updates(
+    packages: &dyn ExtensionPackages,
+    installed: &[(ExtensionId, String)],
+) -> Vec<Extension> {
+    installed
+        .iter()
+        .filter_map(|(id, version)| match packages.update(id, version) {
+            Ok(update) => update,
+            Err(e) => {
+                log::info!("extension {id}: no update: {e}");
+                None
+            }
+        })
+        .collect()
+}
+
 impl ExtensionManager {
+    /// The installed extensions' ids and versions, for [`fetch_updates`].
+    pub fn versions(&self) -> Vec<(ExtensionId, String)> {
+        self.extensions
+            .items()
+            .iter()
+            .map(|e| (e.id.clone(), e.version.clone()))
+            .collect()
+    }
+
     /// Loads the saved list; files of extensions no longer in it are deleted.
     pub fn load(
         repository: Box<dyn Repository<Extensions>>,

@@ -4,6 +4,18 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [Unreleased]
+
+### Ajouté
+
+- Les extensions installées depuis le Chrome Web Store ou Edge Add-ons se
+  mettent à jour toutes seules : une fois par jour (30 secondes après le
+  démarrage), la boutique est consultée et une version plus récente est
+  installée, sa page de fond redémarrée. Une extension restée dans une
+  vieille version n'était plus reconnue par son site (heylogin.app
+  demandait d'installer l'extension). Les extensions chargées depuis un
+  dossier ne sont pas touchées.
+
 ## [0.20.1] - 2026-11-24
 
 ### Corrigé

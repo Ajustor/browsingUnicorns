@@ -227,17 +227,23 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
         }
     }
 
+    /** The version each background page runs: an update restarts it. */
+    private val backgroundVersions = HashMap<String, String>()
+
     override fun setBackgrounds(pages: List<BackgroundPage>) {
         container.post {
             val wanted = pages.associate { it.extension to it.url }
-            for (id in backgrounds.keys.filter { it !in wanted }) {
+            val versions = pages.associate { it.extension to it.version }
+            for (id in backgrounds.keys.filter { it !in wanted || backgroundVersions[it] != versions[it] }) {
                 backgrounds.remove(id)?.let {
                     container.removeView(it)
                     it.destroy()
                 }
+                backgroundVersions.remove(id)
             }
             for ((id, url) in wanted) {
                 if (id in backgrounds) continue
+                versions[id]?.let { backgroundVersions[id] = it }
                 val view = extensionView(PageTarget.Background(id))
                 // Attached (scripts and timers run) but out of sight.
                 view.visibility = View.INVISIBLE

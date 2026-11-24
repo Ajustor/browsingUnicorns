@@ -125,6 +125,46 @@ fn error(e: impl std::fmt::Display) -> ExtensionError {
 }
 
 /// The folder of the unpacked extension `id`.
+/// When the extensions were last looked up in their stores for updates: a
+/// file holding the time (unix seconds).
+pub struct UpdateClock {
+    path: PathBuf,
+}
+
+impl UpdateClock {
+    /// Updates are looked for this often.
+    pub const EVERY: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+
+    pub fn new(path: impl Into<PathBuf>) -> Self {
+        Self { path: path.into() }
+    }
+
+    fn now() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs())
+    }
+
+    /// Whether the last look is older than [`Self::EVERY`] (or never was).
+    pub fn is_due(&self) -> bool {
+        let last = fs::read_to_string(&self.path)
+            .ok()
+            .and_then(|t| t.trim().parse::<u64>().ok())
+            .unwrap_or(0);
+        Self::now().saturating_sub(last) >= Self::EVERY.as_secs()
+    }
+
+    /// Remembers that the extensions were just looked up.
+    pub fn mark(&self) {
+        if let Some(dir) = self.path.parent() {
+            let _ = fs::create_dir_all(dir);
+        }
+        if let Err(e) = fs::write(&self.path, Self::now().to_string()) {
+            log::warn!("extensions: {}: {e}", self.path.display());
+        }
+    }
+}
+
 pub fn extension_dir(dir: &Path, id: &ExtensionId) -> PathBuf {
     dir.join(id.as_str())
 }
@@ -297,6 +337,25 @@ impl ExtensionPackages for ExtensionFolder {
             }
             ExtensionSource::Folder(folder) => self.copy_unpacked(folder),
         }
+    }
+
+    fn update(
+        &self,
+        id: &ExtensionId,
+        installed: &str,
+    ) -> Result<Option<Extension>, ExtensionError> {
+        if !manifest::from_store(&extension_dir(&self.dir, id)) {
+            return Ok(None);
+        }
+        let bytes = self.download(id)?;
+        let crx = crx::parse(&bytes).map_err(error)?;
+        let Some(version) = manifest::version_in_zip(crx.zip) else {
+            return Ok(None);
+        };
+        if !domain::is_newer_version(&version, installed) {
+            return Ok(None);
+        }
+        self.unpack(&bytes, Some(id)).map(Some)
     }
 
     fn remove(&self, id: &ExtensionId) -> Result<(), ExtensionError> {
@@ -478,6 +537,65 @@ mod tests {
         );
         let ext = folder.install(&ExtensionSource::Store(id.clone())).unwrap();
         assert_eq!((ext.id, ext.name.as_str()), (id, "From Edge"));
+    }
+
+    fn store_package(version: &str) -> Vec<u8> {
+        crx::tests::crx3(
+            b"publisher key",
+            &zip_with(&[(
+                "manifest.json",
+                &format!(
+                    r#"{{"name":"Ext","version":"{version}","update_url":"https://clients2.google.com/service/update2/crx"}}"#
+                ),
+            )]),
+        )
+    }
+
+    #[test]
+    fn store_extensions_update_to_newer_versions_only() {
+        let root = tempfile::tempdir().unwrap();
+        let id = crx::id_of_key(b"publisher key");
+        let at = |version: &str| {
+            ExtensionFolder::new(
+                root.path(),
+                serving(vec![(store_package_url(&id), store_package(version))]),
+            )
+        };
+        at("1.2")
+            .install(&ExtensionSource::Store(id.clone()))
+            .unwrap();
+        assert_eq!(at("1.2").update(&id, "1.2").unwrap(), None);
+        assert_eq!(at("1.1").update(&id, "1.2").unwrap(), None);
+        let updated = at("1.10").update(&id, "1.2").unwrap().unwrap();
+        assert_eq!(updated.version, "1.10");
+        assert!(manifest::from_store(&extension_dir(root.path(), &id)));
+        // Offline: an error, the installed version stays.
+        let offline = ExtensionFolder::new(root.path(), no_download());
+        assert!(offline.update(&id, "1.10").is_err());
+        assert!(
+            extension_dir(root.path(), &id)
+                .join("manifest.json")
+                .exists()
+        );
+    }
+
+    #[test]
+    fn extensions_not_from_a_store_are_never_updated() {
+        let root = tempfile::tempdir().unwrap();
+        let file = root.path().join("ext.crx");
+        fs::write(&file, package("Mine")).unwrap();
+        let folder = ExtensionFolder::new(root.path().join("extensions"), no_download());
+        let ext = folder.install(&ExtensionSource::File(file)).unwrap();
+        assert_eq!(folder.update(&ext.id, "0").unwrap(), None);
+    }
+
+    #[test]
+    fn the_update_clock_is_due_once_a_day() {
+        let root = tempfile::tempdir().unwrap();
+        let clock = UpdateClock::new(root.path().join("x").join("checked"));
+        assert!(clock.is_due());
+        clock.mark();
+        assert!(!clock.is_due());
     }
 
     #[test]

@@ -9,7 +9,7 @@ use application::{Browser, ExtensionManager, ProfileManager, Target, UserScriptM
 use domain::{Extensions, ProfileId, Profiles, Settings, UserScripts};
 use infrastructure::blocker::{BlockerHandle, BlockerLists, BlockerPolicy};
 use infrastructure::extension_hub::Hub;
-use infrastructure::extensions::ExtensionFolder;
+use infrastructure::extensions::{ExtensionFolder, UpdateClock};
 use infrastructure::page_scripts::Bridge;
 use infrastructure::profiles::{ProfileDirs, ProfileLock};
 use infrastructure::script_storage::{ScriptStorage, new_token};
@@ -267,7 +267,11 @@ pub fn build(
         ctx.request_repaint()
     });
     let ctx = cc.egui_ctx.clone();
-    let extensions = ExtensionsRunner::new(extensions, move || ctx.request_repaint());
+    // Kept up to date from their stores (not from a private window).
+    let update_clock = setup
+        .extensions
+        .then(|| UpdateClock::new(profile_dir.join("extensions").join(".last-update-check")));
+    let extensions = ExtensionsRunner::new(extensions, update_clock, move || ctx.request_repaint());
     let ctx = cc.egui_ctx.clone();
     let user_scripts = UserScriptsRunner::new(user_scripts, move || ctx.request_repaint());
     let ctx = cc.egui_ctx.clone();

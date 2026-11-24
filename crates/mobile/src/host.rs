@@ -59,6 +59,8 @@ impl PageTarget {
 pub struct BackgroundPage {
     pub extension: String,
     pub url: String,
+    /// The extension's version: an update restarts the page.
+    pub version: String,
 }
 
 /// One Android WebView per tab, only the shown one visible.
@@ -195,6 +197,7 @@ impl WebEngine for HostEngine {
                 Some(BackgroundPage {
                     extension: e.id.to_string(),
                     url: self.server.background_url(&e.id)?,
+                    version: e.version.clone(),
                 })
             })
             .collect();

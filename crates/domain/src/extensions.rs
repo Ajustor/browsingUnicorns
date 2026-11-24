@@ -80,6 +80,21 @@ pub struct Extension {
     pub options: Option<String>,
 }
 
+/// Whether extension version `candidate` comes after `installed` (Chrome's
+/// versions: up to four dot-separated numbers, `1.2` = `1.2.0.0`).
+pub fn is_newer_version(candidate: &str, installed: &str) -> bool {
+    let parts = |v: &str| -> Vec<u64> {
+        let mut p: Vec<u64> = v
+            .trim()
+            .split('.')
+            .map(|n| n.trim().parse().unwrap_or(0))
+            .collect();
+        p.resize(4, 0);
+        p
+    };
+    parts(candidate) > parts(installed)
+}
+
 impl Extension {
     /// `chrome-extension://<id>/<path>`.
     fn page(&self, path: &str) -> Option<WebAddress> {
@@ -157,6 +172,15 @@ impl Extensions {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn versions_compare_number_by_number() {
+        assert!(is_newer_version("1.17.651", "1.15.2"));
+        assert!(is_newer_version("1.10", "1.9.9"));
+        assert!(is_newer_version("2", "1.99.99.99"));
+        assert!(!is_newer_version("1.2", "1.2.0.0"));
+        assert!(!is_newer_version("1.1", "1.2"));
+    }
 
     const UBO_LITE: &str = "ddkjiahejlhfcafbddmgiahcphecmpfh";
 

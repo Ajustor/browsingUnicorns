@@ -243,6 +243,14 @@ class BrowserController(
 
     // --- Ad blocker ---------------------------------------------------------
 
+    /** Installs the extensions' newer versions from their stores (once a day). */
+    fun updateExtensions() {
+        scope.launch {
+            val updated = withContext(Dispatchers.IO) { runCatching { browser.updateExtensions() }.getOrDefault(0u) }
+            if (updated > 0u) refreshExtensions()
+        }
+    }
+
     /** Loads the cached lists, and downloads them when due (once a day). */
     fun updateBlockerLists() {
         scope.launch {

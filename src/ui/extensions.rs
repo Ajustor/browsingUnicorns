@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::time::{Duration, Instant};
 
 use application::ExtensionManager;
 use application::Target;
@@ -11,12 +12,25 @@ use domain::{Extension, ExtensionId, Extensions, WebAddress};
 use egui::{Button, RichText, ScrollArea, TextEdit};
 use egui_phosphor::regular as icon;
 
+use infrastructure::extensions::UpdateClock;
+
 use super::command::Command;
+
+/// The stores are first asked for updates this long after start-up...
+const FIRST_UPDATE_CHECK: Duration = Duration::from_secs(30);
+/// ...then looked at again this often (a check runs once a day).
+const UPDATE_CHECK_EVERY: Duration = Duration::from_secs(60 * 60);
 
 type Installed = Result<Extension, ExtensionError>;
 
 pub struct ExtensionsRunner {
     manager: ExtensionManager,
+    /// When the stores were last asked for updates; `None`: never (a
+    /// private window).
+    update_clock: Option<UpdateClock>,
+    next_update_check: Instant,
+    updates_tx: Sender<Vec<Extension>>,
+    updates_rx: Receiver<Vec<Extension>>,
     installing: Option<String>,
     /// The last install's outcome, shown under the field.
     pub status: Option<Result<String, String>>,
@@ -39,10 +53,19 @@ fn source_of(input: &str) -> Option<ExtensionSource> {
 }
 
 impl ExtensionsRunner {
-    pub fn new(manager: ExtensionManager, repaint: impl Fn() + Send + Sync + 'static) -> Self {
+    pub fn new(
+        manager: ExtensionManager,
+        update_clock: Option<UpdateClock>,
+        repaint: impl Fn() + Send + Sync + 'static,
+    ) -> Self {
         let (tx, rx) = mpsc::channel();
+        let (updates_tx, updates_rx) = mpsc::channel();
         Self {
             manager,
+            update_clock,
+            next_update_check: Instant::now() + FIRST_UPDATE_CHECK,
+            updates_tx,
+            updates_rx,
             installing: None,
             status: None,
             repaint: Arc::new(repaint),
@@ -78,8 +101,46 @@ impl ExtensionsRunner {
         });
     }
 
-    /// Records a finished install and hands it to the engine.
+    /// Asks the stores for newer versions of the extensions, once a day,
+    /// in the background; [`Self::poll`] records what came.
+    fn check_updates(&mut self) {
+        let Some(clock) = &self.update_clock else {
+            return;
+        };
+        if Instant::now() < self.next_update_check {
+            return;
+        }
+        self.next_update_check = Instant::now() + UPDATE_CHECK_EVERY;
+        if !clock.is_due() || self.manager.extensions().items().is_empty() {
+            return;
+        }
+        clock.mark();
+        let (packages, installed) = (self.manager.packages(), self.manager.versions());
+        let (tx, repaint) = (self.updates_tx.clone(), self.repaint.clone());
+        std::thread::spawn(move || {
+            let _ = tx.send(application::extensions::fetch_updates(
+                packages.as_ref(),
+                &installed,
+            ));
+            repaint();
+        });
+    }
+
+    /// Records a finished install or updates, and hands them to the engine.
     pub fn poll(&mut self, engine: &mut dyn WebEngine) {
+        self.check_updates();
+        if let Ok(updated) = self.updates_rx.try_recv() {
+            for extension in updated {
+                log::info!(
+                    "extensions: {} updated to {}",
+                    extension.name,
+                    extension.version
+                );
+                if let Err(e) = self.manager.installed(extension, engine) {
+                    log::warn!("extensions: recording an update: {e}");
+                }
+            }
+        }
         let Ok(result) = self.rx.try_recv() else {
             return;
         };

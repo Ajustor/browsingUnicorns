@@ -296,6 +296,16 @@ pub enum ExtensionSource {
 /// Installing may download: callers run it off the UI thread.
 pub trait ExtensionPackages: Send + Sync {
     fn install(&self, source: &ExtensionSource) -> Result<Extension, ExtensionError>;
+    /// Installs the store's version of `id` when it is newer than
+    /// `installed` (only for extensions that came from a store); `None`
+    /// when there is nothing newer. Downloads: off the UI thread.
+    fn update(
+        &self,
+        _id: &ExtensionId,
+        _installed: &str,
+    ) -> Result<Option<Extension>, ExtensionError> {
+        Ok(None)
+    }
     fn remove(&self, id: &ExtensionId) -> Result<(), ExtensionError>;
     /// Deletes the files of extensions that are not in `keep` (left over by
     /// a removal that could not finish).

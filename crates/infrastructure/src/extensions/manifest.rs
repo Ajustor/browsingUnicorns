@@ -231,6 +231,31 @@ pub fn has_permission(dir: &Path, permission: &str) -> bool {
     })
 }
 
+/// Whether the extension in `dir` came from a store (Chrome Web Store, Edge
+/// Add-ons): their packages declare where updates come from. Unpacked
+/// folders loaded by hand don't, and are left as they are.
+pub fn from_store(dir: &Path) -> bool {
+    load(dir).ok().is_some_and(|m| {
+        text(&m, &["update_url"])
+            .is_some_and(|u| u.contains("clients2.google.com") || u.contains("edge.microsoft.com"))
+    })
+}
+
+/// The `version` of the manifest in a package's `zip`.
+pub fn version_in_zip(zip: &[u8]) -> Option<String> {
+    use std::io::Read as _;
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(zip)).ok()?;
+    let mut entry = archive.by_name("manifest.json").ok()?;
+    let mut text = String::new();
+    entry.read_to_string(&mut text).ok()?;
+    let m: Map<String, Value> = serde_json::from_str(text.trim_start_matches('\u{feff}')).ok()?;
+    text_owned(&m, "version")
+}
+
+fn text_owned(m: &Map<String, Value>, key: &str) -> Option<String> {
+    m.get(key)?.as_str().map(str::to_owned)
+}
+
 /// The publisher's public key (base64 DER) the manifest declares, if any.
 pub fn key(dir: &Path) -> Option<String> {
     let m = load(dir).ok()?;

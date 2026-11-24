@@ -98,6 +98,8 @@ pub struct WryEngine {
     injected: HashMap<TabId, Handles>,
     /// Background pages, by extension.
     backgrounds: HashMap<ExtensionId, WebView>,
+    /// The version each background page runs: an update restarts it.
+    background_versions: HashMap<ExtensionId, String>,
     /// The extension popup, and its address.
     panel: Option<(String, WebView)>,
     /// Its content's size in physical pixels, as last measured.
@@ -412,6 +414,7 @@ impl WryEngine {
             page_scripts: Vec::new(),
             injected: HashMap::new(),
             backgrounds: HashMap::new(),
+            background_versions: HashMap::new(),
             panel: None,
             panel_size: Arc::default(),
             panel_measured: None,
@@ -649,15 +652,26 @@ impl WryEngine {
         let Some(server) = self.server.clone() else {
             return;
         };
-        let wanted: HashMap<ExtensionId, String> = self
+        let wanted: HashMap<ExtensionId, (String, String)> = self
             .extensions
             .items()
             .iter()
             .filter(|e| e.enabled)
-            .filter_map(|e| Some((e.id.clone(), server.background_url(&e.id)?)))
+            .filter_map(|e| {
+                Some((
+                    e.id.clone(),
+                    (server.background_url(&e.id)?, e.version.clone()),
+                ))
+            })
             .collect();
-        self.backgrounds.retain(|id, _| wanted.contains_key(id));
-        for (id, url) in wanted {
+        // Gone, disabled, or updated (its files changed under it): stopped.
+        let versions = &self.background_versions;
+        self.backgrounds.retain(|id, _| {
+            wanted
+                .get(id)
+                .is_some_and(|(_, version)| versions.get(id) == Some(version))
+        });
+        for (id, (url, version)) in wanted {
             if self.backgrounds.contains_key(&id) {
                 continue;
             }
@@ -675,7 +689,8 @@ impl WryEngine {
             .build_as_child(&self.parent);
             match view {
                 Ok(view) => {
-                    log::info!("extensions: background page of {id} started");
+                    log::info!("extensions: background page of {id} {version} started");
+                    self.background_versions.insert(id.clone(), version);
                     self.backgrounds.insert(id, view);
                 }
                 Err(e) => log::warn!("extensions: background page of {id}: {e}"),
