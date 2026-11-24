@@ -8,6 +8,7 @@
 // MSVC prints "creating library ….lib" for the host build of the cdylib.
 #![allow(linker_messages)]
 
+mod credentials;
 mod extensions;
 mod host;
 
@@ -30,8 +31,12 @@ use infrastructure::sync::{
     EncryptedSyncStore, SyncConfig, SyncConfigFile, SyncKey, new_device_id,
 };
 use infrastructure::user_scripts::{UserScriptFolder, UserScriptRepository};
-use infrastructure::{JsonRepository, SystemClock, TomlSettingsRepository};
+use infrastructure::{
+    CredentialsRepository, JsonRepository, MergingRepository, SeenCookiesRepository, SystemClock,
+    TomlSettingsRepository,
+};
 
+pub use credentials::{CookieInfo, CredentialChoice, CredentialOffer, SavedCredential};
 pub use extensions::{ExtensionInfo, ExtensionResource, Interception, UserScriptInfo};
 pub use host::{BackgroundPage, PageTarget, SyncHttp, WebViewHost};
 use host::{HostEngine, HostTransport};
@@ -110,6 +115,10 @@ pub struct GeneralSettings {
     pub home_page: String,
     pub search_engine: String,
     pub engines: Vec<String>,
+    /// Offer to save the passwords typed in pages, and fill them in.
+    pub save_passwords: bool,
+    /// Share the sites' cookies with the other devices of the sync group.
+    pub sync_cookies: bool,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -249,6 +258,22 @@ impl MobileBrowser {
         Ok(())
     }
 
+    /// Changes this device's own settings (not synced) and applies them.
+    fn change_device_settings(
+        &self,
+        change: impl FnOnce(&mut domain::DeviceSettings),
+    ) -> Result<(), MobileError> {
+        use application::ports::WebEngine as _;
+        let mut inner = self.lock();
+        let mut device = inner.browser.settings().device.clone();
+        change(&mut device);
+        inner.browser.engine_mut().apply_device_settings(&device);
+        inner
+            .browser
+            .update_device_settings(device)
+            .map_err(MobileError::new)
+    }
+
     /// `tabs.on*` events for the extensions, after the tabs changed.
     fn hub_tick(&self) {
         let extensions = self.extensions_lock().extensions().clone();
@@ -306,6 +331,11 @@ impl MobileBrowser {
             history: Box::new(JsonRepository::new(dir.join("history.json"))),
             bookmarks: Box::new(JsonRepository::new(dir.join("bookmarks.json"))),
             session: Box::new(JsonRepository::new(dir.join("session.json"))),
+            // The app's private storage: not sealed further.
+            credentials: Box::new(MergingRepository::new(CredentialsRepository::new(
+                dir.join("credentials.json"),
+            ))),
+            seen_cookies: Box::new(SeenCookiesRepository::new(dir.join("shared-cookies.json"))),
             clock: Box::new(SystemClock),
         };
         let initial = application::ports::Repository::load(&settings).unwrap_or_default();
@@ -342,6 +372,7 @@ impl MobileBrowser {
             extensions: Default::default(),
             user_scripts: Default::default(),
             server: server.clone(),
+            credentials: initial.device.save_passwords,
         };
         let mut browser = Browser::new(engine, initial, profile);
         let _ = browser.load_profile();
@@ -856,6 +887,8 @@ impl MobileBrowser {
                 .into_iter()
                 .map(|e| e.name)
                 .collect(),
+            save_passwords: s.device.save_passwords,
+            sync_cookies: s.device.sync_cookies,
         }
     }
 

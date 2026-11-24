@@ -26,6 +26,8 @@ fn record(name: &str, bookmark: &str) -> DeviceRecord {
         history: vec![],
         tabs: vec![],
         settings: Settings::default(),
+        credentials: Default::default(),
+        cookies: vec![],
     }
 }
 

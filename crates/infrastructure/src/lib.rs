@@ -8,6 +8,7 @@ pub mod bookmark_import;
 #[cfg(feature = "desktop")]
 pub mod certificates;
 mod clock;
+mod credentials_store;
 #[cfg(feature = "desktop")]
 pub mod default_browser;
 mod device_file;
@@ -45,6 +46,8 @@ mod webview2_address;
 #[cfg(all(windows, feature = "desktop"))]
 mod webview2_blocking;
 #[cfg(all(windows, feature = "desktop"))]
+mod webview2_cookies;
+#[cfg(all(windows, feature = "desktop"))]
 mod webview2_downloads;
 #[cfg(all(windows, feature = "desktop"))]
 mod webview2_extensions;
@@ -64,9 +67,10 @@ mod wry_engine;
 use std::path::{Path, PathBuf};
 
 use application::ports::Profile;
-use domain::{BrowsingHistory, SessionSnapshot, Settings};
+use domain::{BrowsingHistory, SeenCookies, SessionSnapshot, Settings};
 
 pub use clock::SystemClock;
+pub use credentials_store::{CredentialsRepository, SeenCookiesRepository};
 pub use device_file::DeviceFile;
 #[cfg(feature = "desktop")]
 pub use drm_reset::DrmReset;
@@ -115,6 +119,10 @@ pub fn json_profile(dir: &Path, settings: TomlSettingsRepository) -> Profile {
             dir.join("bookmarks.json"),
         ))),
         session: Box::new(JsonRepository::new(dir.join("session.json"))),
+        credentials: Box::new(MergingRepository::new(CredentialsRepository::new(
+            dir.join("credentials.json"),
+        ))),
+        seen_cookies: Box::new(SeenCookiesRepository::new(dir.join("shared-cookies.json"))),
         clock: Box::new(SystemClock),
     }
 }
@@ -140,6 +148,10 @@ pub fn private_profile(dir: &Path, settings: Settings) -> Profile {
             dir.join("bookmarks.json"),
         ))),
         session: Box::new(MemoryRepository::<SessionSnapshot>::default()),
+        credentials: Box::new(ReadOnlyRepository::new(CredentialsRepository::new(
+            dir.join("credentials.json"),
+        ))),
+        seen_cookies: Box::new(MemoryRepository::<SeenCookies>::default()),
         clock: Box::new(SystemClock),
     }
 }

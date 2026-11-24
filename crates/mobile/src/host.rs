@@ -7,13 +7,14 @@ use std::sync::{Arc, RwLock};
 use application::ports::{
     EngineError, ExtensionSupport, PageSource, SyncError, Viewport, WebEngine,
 };
-use domain::{Extensions, RuleSet, TabId, UserScripts, WebAddress};
+use domain::{Extensions, RuleSet, SiteCookie, TabId, UserScripts, WebAddress};
 use infrastructure::extension_server::ExtensionServer;
 use infrastructure::page_scripts::{Bridge, Sources, page_scripts};
 use infrastructure::sync::BlobTransport;
 use infrastructure::sync::relay_api::{decode_group, device_url, group_url};
 
 use crate::MobileError;
+use crate::credentials::CookieInfo;
 
 /// Which WebView a page script message is for.
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
@@ -84,6 +85,12 @@ pub trait WebViewHost: Send + Sync {
     fn set_backgrounds(&self, pages: Vec<BackgroundPage>);
     /// Shows an extension popup (`None`: closes it).
     fn show_panel(&self, url: Option<String>);
+    /// Every cookie of the (non-private) WebViews; `None` when they can't be
+    /// read. Called from a background thread (sync).
+    fn cookies(&self) -> Option<Vec<CookieInfo>>;
+    /// Sets `cookies` in the (non-private) WebViews. Called from a
+    /// background thread (sync).
+    fn set_cookies(&self, cookies: Vec<CookieInfo>);
 }
 
 /// HTTP for the sync relay. Blocking: called from a background thread.
@@ -113,6 +120,8 @@ pub struct HostEngine {
     pub user_scripts: UserScripts,
     /// Serves the extensions' files (`https://<id>.bu-ext.invalid/`).
     pub server: Arc<ExtensionServer>,
+    /// The password manager's page script is injected.
+    pub credentials: bool,
 }
 
 impl HostEngine {
@@ -127,6 +136,7 @@ impl HostEngine {
             origins: infrastructure::extension_server::Origins::Android,
             state_dir: Some(&self.state_dir),
             blocker: true,
+            credentials: self.credentials,
         });
         self.host.set_page_scripts(scripts);
     }
@@ -201,6 +211,34 @@ impl WebEngine for HostEngine {
     fn run_in_tab(&mut self, tab: TabId, script: &str) {
         self.host
             .post_to_page(PageTarget::Tab { tab: tab.get() }, script.to_owned());
+    }
+
+    fn apply_device_settings(&mut self, settings: &domain::DeviceSettings) {
+        if self.credentials != settings.save_passwords {
+            self.credentials = settings.save_passwords;
+            self.send_page_scripts();
+        }
+    }
+
+    fn fill_credentials(&mut self, tab: TabId, origin: &str, username: &str, password: &str) {
+        let script =
+            infrastructure::page_scripts::credentials::fill_script(origin, username, password);
+        self.run_in_tab(tab, &script);
+    }
+
+    fn site_cookies(&mut self) -> Option<Vec<SiteCookie>> {
+        Some(
+            self.host
+                .cookies()?
+                .into_iter()
+                .map(SiteCookie::from)
+                .collect(),
+        )
+    }
+
+    fn set_site_cookies(&mut self, cookies: &[SiteCookie]) {
+        self.host
+            .set_cookies(cookies.iter().map(CookieInfo::from).collect());
     }
 
     fn show_panel_page(&mut self, url: Option<&str>, _area: Viewport) {

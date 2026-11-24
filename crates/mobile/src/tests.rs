@@ -53,6 +53,15 @@ impl WebViewHost for FakeHost {
     fn show_panel(&self, url: Option<String>) {
         self.0.lock().unwrap().push(format!("panel {url:?}"));
     }
+    fn cookies(&self) -> Option<Vec<CookieInfo>> {
+        None
+    }
+    fn set_cookies(&self, cookies: Vec<CookieInfo>) {
+        self.0
+            .lock()
+            .unwrap()
+            .push(format!("cookies {}", cookies.len()));
+    }
 }
 
 impl FakeHost {
@@ -470,15 +479,15 @@ fn user_scripts_run_in_pages_with_their_storage() {
             .to_vec(),
     );
     let (b, host) = browser(&dir, "phone", &http);
-    // The ad blocker's cosmetic filters only.
-    assert_eq!(host.1.lock().unwrap().len(), 1);
+    // The ad blocker's cosmetic filters and the password manager's script.
+    assert_eq!(host.1.lock().unwrap().len(), 2);
 
     assert!(b.install_user_script("not a url".into()).is_err());
     assert_eq!(b.install_user_script(url.into()).unwrap(), "Counter 2");
     let scripts = host.1.lock().unwrap().clone();
-    assert_eq!(scripts.len(), 2);
-    assert!(scripts[1].contains("GM_setValue('n', 1);"));
-    assert!(scripts[1].contains("const BRIDGE = \"android\";"));
+    assert_eq!(scripts.len(), 3);
+    assert!(scripts[2].contains("GM_setValue('n', 1);"));
+    assert!(scripts[2].contains("const BRIDGE = \"android\";"));
 
     // The page script's storage goes through `page_message`, with its token.
     let token = scripts[0]
@@ -507,7 +516,7 @@ fn user_scripts_run_in_pages_with_their_storage() {
     );
 
     b.set_user_script_enabled(id.clone(), false).unwrap();
-    assert_eq!(host.1.lock().unwrap().len(), 1);
+    assert_eq!(host.1.lock().unwrap().len(), 2);
     b.remove_user_script(id).unwrap();
     assert!(b.user_scripts().is_empty());
 }
@@ -687,4 +696,35 @@ fn errors_built_here_speak_the_language_set() {
             "Not an extension id."
         );
     });
+}
+
+#[test]
+fn sign_ins_are_offered_saved_filled_and_the_setting_drops_the_script() {
+    let dir = tempfile::tempdir().unwrap();
+    let http = Arc::new(FakeHttp::default());
+    let (b, host) = browser(&dir, "phone", &http);
+    let tab = b.open_tab(None, false).unwrap();
+    b.on_load_finished(tab, "https://a.com/login".into());
+    let submit = r#"{"op":"credentials.submit","username":"me","password":"pw"}"#;
+    b.page_message(PageTarget::Tab { tab }, submit.into());
+    let offer = b.pending_credential().unwrap();
+    assert_eq!(
+        (offer.origin.as_str(), offer.username.as_str()),
+        ("https://a.com", "me")
+    );
+    b.answer_credential(CredentialChoice::Save).unwrap();
+    assert!(b.pending_credential().is_none());
+    assert_eq!(b.saved_credentials().len(), 1);
+
+    b.on_load_finished(tab, "https://a.com/login".into());
+    let (_, script) = host.2.lock().unwrap().last().cloned().unwrap();
+    assert!(script.contains(r#"fillSignIn("https://a.com", "me", "pw")"#));
+
+    assert!(b.general_settings().save_passwords);
+    b.set_save_passwords(false).unwrap();
+    assert!(!b.general_settings().save_passwords);
+    assert_eq!(host.1.lock().unwrap().len(), 1, "the blocker's script only");
+    b.remove_credential("https://a.com".into(), "me".into())
+        .unwrap();
+    assert!(b.saved_credentials().is_empty());
 }

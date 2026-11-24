@@ -106,6 +106,10 @@ pub enum Command {
     OpenDevTools,
     /// The web inspector of an extension's background page.
     InspectExtension(ExtensionId),
+    /// The answer to the bar offering to save a sign-in.
+    AnswerCredential(application::CredentialAnswer),
+    /// Deletes a saved sign-in: origin, user name (empty with "never").
+    RemoveCredential(String, String),
     /// Opens an extension's popup under `anchor` (its button), or
     /// closes it.
     ToggleExtensionPopup {

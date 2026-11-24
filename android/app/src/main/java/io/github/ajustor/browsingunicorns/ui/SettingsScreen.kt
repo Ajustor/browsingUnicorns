@@ -10,14 +10,19 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -33,7 +38,7 @@ import androidx.compose.ui.unit.dp
 import io.github.ajustor.browsingunicorns.BrowserController
 import io.github.ajustor.browsingunicorns.R
 
-/** Home page, search engine, and clearing what was browsed. */
+/** Home page, search engine, passwords, and clearing what was browsed. */
 @Composable
 fun SettingsScreen(c: BrowserController) {
     var version by remember { mutableIntStateOf(0) }
@@ -42,6 +47,7 @@ fun SettingsScreen(c: BrowserController) {
     var history by remember { mutableStateOf(false) }
     var cookies by remember { mutableStateOf(true) }
     var cache by remember { mutableStateOf(true) }
+    LaunchedEffect(Unit) { c.refreshCredentials() }
     Column(Modifier.fillMaxSize()) {
         Header(c, stringResource(R.string.settings))
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
@@ -75,6 +81,52 @@ fun SettingsScreen(c: BrowserController) {
                 ) {
                     RadioButton(selected = engine == settings.searchEngine, onClick = null)
                     Text(engine, Modifier.padding(start = 8.dp, top = 10.dp, bottom = 10.dp))
+                }
+            }
+
+            Section(stringResource(R.string.passwords))
+            Check(stringResource(R.string.save_passwords), settings.savePasswords) {
+                c.act { setSavePasswords(it) }
+                version++
+            }
+            Check(stringResource(R.string.sync_cookies), settings.syncCookies) {
+                c.act { setSyncCookies(it) }
+                version++
+            }
+            Text(
+                stringResource(R.string.sync_cookies_hint),
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(start = 8.dp, bottom = 8.dp),
+            )
+            if (c.savedCredentials.isEmpty()) {
+                Text(
+                    stringResource(R.string.no_saved_passwords),
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(8.dp),
+                )
+            }
+            for (saved in c.savedCredentials) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f).padding(start = 8.dp)) {
+                        Text(
+                            android.net.Uri.parse(saved.origin).host ?: saved.origin,
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                        Text(
+                            when {
+                                saved.never -> stringResource(R.string.password_never_saved)
+                                saved.username.isEmpty() -> stringResource(R.string.password_no_username)
+                                else -> saved.username
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    IconButton(onClick = { c.removeCredential(saved) }) {
+                        Icon(
+                            Icons.Filled.Delete,
+                            contentDescription = stringResource(R.string.password_remove),
+                        )
+                    }
                 }
             }
 

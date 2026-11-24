@@ -73,6 +73,13 @@ impl WebAddress {
     pub fn is_secure(&self) -> bool {
         self.0.scheme() == "https"
     }
+
+    /// `scheme://host[:port]` of a web page (http, https), else `None`.
+    pub fn origin(&self) -> Option<String> {
+        matches!(self.scheme(), "http" | "https")
+            .then(|| self.0.origin().ascii_serialization())
+            .filter(|o| o != "null")
+    }
 }
 
 impl FromStr for WebAddress {

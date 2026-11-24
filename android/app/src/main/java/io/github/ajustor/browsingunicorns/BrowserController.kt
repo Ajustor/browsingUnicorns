@@ -1,7 +1,9 @@
 package io.github.ajustor.browsingunicorns
 
 import android.content.Context
+import android.os.SystemClock
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -12,9 +14,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import uniffi.mobile.BlockerInfo
 import uniffi.mobile.BrowserState
+import uniffi.mobile.CredentialChoice
+import uniffi.mobile.CredentialOffer
 import uniffi.mobile.ExtensionInfo
 import uniffi.mobile.MobileBrowser
 import uniffi.mobile.MobileException
+import uniffi.mobile.SavedCredential
 import uniffi.mobile.SuggestionInfo
 import uniffi.mobile.SyncInfo
 import uniffi.mobile.UserScriptInfo
@@ -68,6 +73,47 @@ class BrowserController(
     var blocker by mutableStateOf<BlockerInfo?>(null)
         private set
 
+    /** A sign-in typed in a page, that the user is asked to save. */
+    var credentialOffer by mutableStateOf<CredentialOffer?>(null)
+        private set
+
+    // --- Bars folded away while reading ---------------------------------------
+
+    /** The page scrolled down: the address bar shrinks to the site's name, the bottom bar hides. */
+    var barsCollapsed by mutableStateOf(false)
+        private set
+
+    /** How far the page is pulled down past its top (pixels), to reload it. */
+    var pull by mutableFloatStateOf(0f)
+        private set
+
+    private val density = context.resources.displayMetrics.density
+
+    /** Scrolled this far one way (pixels, signed) since the last change of way. */
+    private var scrollRun = 0
+    private var ignoreScrollUntil = 0L
+
+    /** The shown page scrolled from [oldY] to [y]: down folds the bars, up brings them back. */
+    private fun onScrolled(y: Int, oldY: Int) {
+        if (y <= TOP_SLOP_DP * density) return foldBars(false)
+        // The page's own size changed when the bars did: not the user's scroll.
+        if (SystemClock.uptimeMillis() < ignoreScrollUntil) return
+        val dy = y - oldY
+        scrollRun = if (dy == 0 || (dy > 0) == (scrollRun > 0)) scrollRun + dy else dy
+        val threshold = SCROLL_THRESHOLD_DP * density
+        if (scrollRun > threshold) foldBars(true) else if (scrollRun < -threshold) foldBars(false)
+    }
+
+    /** Brings the bars back (a tap on the folded address bar, a new page). */
+    fun expandBars() = foldBars(false)
+
+    private fun foldBars(collapsed: Boolean) {
+        scrollRun = 0
+        if (barsCollapsed == collapsed) return
+        barsCollapsed = collapsed
+        ignoreScrollUntil = SystemClock.uptimeMillis() + 300
+    }
+
     /** A page's element in full screen (a video), and how to leave it. */
     var fullscreen by mutableStateOf<android.view.View?>(null)
         private set
@@ -111,6 +157,10 @@ class BrowserController(
             leaveFullscreen = leave
         }
         views.onLinkTab = { message = context.getString(R.string.opened_in_new_tab) }
+        views.onScrolled = ::onScrolled
+        views.onNavigation = ::expandBars
+        views.onPull = { pull = it }
+        views.onPullRefresh = { refresh() }
         updates.onMessage = { message = it }
         refreshExtensions()
     }
@@ -133,8 +183,31 @@ class BrowserController(
     }
 
     fun refresh() {
+        val before = state.active
         state = browser.state()
+        if (state.active != before) expandBars()
+        credentialOffer = browser.pendingCredential()
         refreshBlocker()
+    }
+
+    // --- Passwords ------------------------------------------------------------
+
+    fun answerCredential(choice: CredentialChoice) {
+        act { answerCredential(choice) }
+        refreshCredentials()
+    }
+
+    /** The saved sign-ins (and the sites never saved), for the settings. */
+    var savedCredentials by mutableStateOf<List<SavedCredential>>(emptyList())
+        private set
+
+    fun refreshCredentials() {
+        savedCredentials = browser.savedCredentials()
+    }
+
+    fun removeCredential(c: SavedCredential) {
+        act { removeCredential(c.origin, c.username) }
+        refreshCredentials()
     }
 
     private fun refreshBlocker() {
@@ -345,6 +418,12 @@ class BrowserController(
     }
 
     companion object {
+        /** Scrolled this far (dp) one way, the bars fold or come back. */
+        private const val SCROLL_THRESHOLD_DP = 48
+
+        /** Closer than this (dp) to the page's top, the bars stay. */
+        private const val TOP_SLOP_DP = 8
+
         fun reason(e: MobileException): String = when (e) {
             is MobileException.Failed -> e.reason
         }

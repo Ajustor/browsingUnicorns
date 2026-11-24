@@ -66,8 +66,11 @@ binaire reste petit et le moteur profite des mises à jour de sécurité de l'OS
 - 🕘 Historique avec recherche (Ctrl+H) ; favoris (Ctrl+Shift+O) dans le même
   panneau latéral
 - ♻️ Les onglets ouverts sont rouverts au démarrage
+- 🔑 Gestionnaire de mots de passe : propose de les enregistrer après une
+  connexion, les remplit ensuite ; liste dans *Settings* > *Mots de passe*
 - 🔄 Synchro chiffrée de bout en bout avec les autres appareils (favoris,
-  historique, onglets ouverts, réglages) : onglet *Sync* du panneau latéral,
+  historique, onglets ouverts, réglages, mots de passe, et cookies des sites
+  pour y rester connecté) : onglet *Sync* du panneau latéral,
   appairage par code ou QR code, relais Cloudflare (`relay/sync`) qui ne voit
   que des données chiffrées
 - 🧩 Extensions Chrome : onglet *Extensions* du panneau latéral (menu

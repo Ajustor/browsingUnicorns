@@ -2,8 +2,8 @@
 //! the sync records. Entries whose address no longer parses are dropped.
 
 use domain::{
-    Bookmark, Bookmarks, DeviceId, DeviceRecord, RemoteTab, Removal, SearchEngine, Settings, Visit,
-    WebAddress,
+    Bookmark, Bookmarks, Credential, CredentialRemoval, Credentials, DeviceId, DeviceRecord,
+    RemoteTab, Removal, SearchEngine, Settings, SiteCookie, Visit, WebAddress,
 };
 use serde::{Deserialize, Serialize};
 
@@ -159,6 +159,138 @@ impl SettingsDto {
     }
 }
 
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct CredentialsDto {
+    #[serde(default)]
+    pub items: Vec<CredentialDto>,
+    #[serde(default)]
+    pub removed: Vec<CredentialRemovalDto>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CredentialDto {
+    pub origin: String,
+    #[serde(default)]
+    pub username: String,
+    #[serde(default)]
+    pub password: String,
+    #[serde(default)]
+    pub updated_at: u64,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub never: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CredentialRemovalDto {
+    pub origin: String,
+    #[serde(default)]
+    pub username: String,
+    pub at: u64,
+}
+
+impl From<&Credentials> for CredentialsDto {
+    fn from(c: &Credentials) -> Self {
+        Self {
+            items: c
+                .items()
+                .iter()
+                .map(|c| CredentialDto {
+                    origin: c.origin.clone(),
+                    username: c.username.clone(),
+                    password: c.password.clone(),
+                    updated_at: c.updated_at,
+                    never: c.never,
+                })
+                .collect(),
+            removed: c
+                .removals()
+                .iter()
+                .map(|r| CredentialRemovalDto {
+                    origin: r.origin.clone(),
+                    username: r.username.clone(),
+                    at: r.at,
+                })
+                .collect(),
+        }
+    }
+}
+
+impl From<CredentialsDto> for Credentials {
+    fn from(dto: CredentialsDto) -> Self {
+        Credentials::from_parts(
+            dto.items
+                .into_iter()
+                .map(|c| Credential {
+                    origin: c.origin,
+                    username: c.username,
+                    password: c.password,
+                    updated_at: c.updated_at,
+                    never: c.never,
+                })
+                .collect(),
+            dto.removed
+                .into_iter()
+                .map(|r| CredentialRemoval {
+                    origin: r.origin,
+                    username: r.username,
+                    at: r.at,
+                })
+                .collect(),
+        )
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SiteCookieDto {
+    pub domain: String,
+    pub name: String,
+    pub value: String,
+    #[serde(default = "root")]
+    pub path: String,
+    #[serde(default)]
+    pub secure: bool,
+    #[serde(default)]
+    pub http_only: bool,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub same_site: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires: Option<i64>,
+}
+
+fn root() -> String {
+    "/".into()
+}
+
+impl From<&SiteCookie> for SiteCookieDto {
+    fn from(c: &SiteCookie) -> Self {
+        Self {
+            domain: c.domain.clone(),
+            name: c.name.clone(),
+            value: c.value.clone(),
+            path: c.path.clone(),
+            secure: c.secure,
+            http_only: c.http_only,
+            same_site: c.same_site.clone(),
+            expires: c.expires,
+        }
+    }
+}
+
+impl From<SiteCookieDto> for SiteCookie {
+    fn from(c: SiteCookieDto) -> Self {
+        Self {
+            domain: c.domain,
+            name: c.name,
+            value: c.value,
+            path: c.path,
+            secure: c.secure,
+            http_only: c.http_only,
+            same_site: c.same_site,
+            expires: c.expires,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TabDto {
     pub url: String,
@@ -178,6 +310,10 @@ pub struct DeviceRecordDto {
     pub history: Vec<VisitDto>,
     pub tabs: Vec<TabDto>,
     pub settings: SettingsDto,
+    #[serde(default)]
+    pub credentials: CredentialsDto,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cookies: Vec<SiteCookieDto>,
 }
 
 impl From<&DeviceRecord> for DeviceRecordDto {
@@ -198,6 +334,8 @@ impl From<&DeviceRecord> for DeviceRecordDto {
                 })
                 .collect(),
             settings: (&r.settings).into(),
+            credentials: (&r.credentials).into(),
+            cookies: r.cookies.iter().map(SiteCookieDto::from).collect(),
         }
     }
 }
@@ -225,6 +363,8 @@ impl DeviceRecordDto {
                 })
                 .collect(),
             settings: self.settings.into_settings()?,
+            credentials: self.credentials.into(),
+            cookies: self.cookies.into_iter().map(SiteCookie::from).collect(),
         })
     }
 }

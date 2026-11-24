@@ -179,4 +179,18 @@
     <string name="tabs_private">Privés</string>
     <string name="private_tabs_intro">Les onglets privés ne laissent aucun historique, et leurs cookies et données des sites sont supprimés à la fermeture du dernier.</string>
     <string name="close_tab">Fermer l’onglet</string>
+    <string name="passwords">Mots de passe et connexions</string>
+    <string name="save_passwords">Proposer d’enregistrer les mots de passe saisis, et les remplir</string>
+    <string name="sync_cookies">Rester connecté aux sites sur mes appareils synchronisés</string>
+    <string name="sync_cookies_hint">La synchronisation partage vos mots de passe et les cookies des sites visités avec vos autres appareils, chiffrés de bout en bout. Certains sites (Google, banques…) peuvent quand même redemander la connexion.</string>
+    <string name="no_saved_passwords">Aucun mot de passe enregistré pour l’instant.</string>
+    <string name="password_save_offer">Enregistrer le mot de passe pour %1$s ?</string>
+    <string name="password_save_offer_for">Enregistrer le mot de passe de %1$s pour %2$s ?</string>
+    <string name="password_update_offer">Mettre à jour le mot de passe de %1$s pour %2$s ?</string>
+    <string name="password_update">Mettre à jour</string>
+    <string name="password_not_now">Plus tard</string>
+    <string name="password_never">Jamais</string>
+    <string name="password_never_saved">Jamais enregistré</string>
+    <string name="password_no_username">(sans identifiant)</string>
+    <string name="password_remove">Supprimer (sur vos appareils synchronisés aussi)</string>
 </resources>

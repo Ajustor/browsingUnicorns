@@ -197,6 +197,9 @@ impl MobileBrowser {
     /// A message of the page scripts of `from` (`BUBridge.call`). The
     /// answer comes back through `WebViewHost::post_to_page`.
     pub fn page_message(&self, from: PageTarget, message: String) -> String {
+        if self.credential_message(&from, &message) {
+            return String::new();
+        }
         let Some(source) = from.source() else {
             return String::new();
         };

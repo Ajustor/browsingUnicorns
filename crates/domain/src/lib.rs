@@ -9,6 +9,7 @@ use i18n as _;
 mod address;
 mod bookmarks;
 mod content_rules;
+mod credentials;
 mod extensions;
 mod history;
 mod omnibox;
@@ -26,6 +27,10 @@ pub use address::{AddressError, WebAddress};
 pub use bookmarks::{Bookmark, Bookmarks, Removal};
 pub use content_rules::{
     DomainType, NetworkRule, Request, ResourceType, RuleAction, RuleSet, UrlFilter, Verdict,
+};
+pub use credentials::{
+    Credential, CredentialRemoval, Credentials, Offer, SeenCookies, SiteCookie, cookies_to_import,
+    cookies_to_share,
 };
 pub use extensions::{Extension, ExtensionId, Extensions};
 pub use history::History;

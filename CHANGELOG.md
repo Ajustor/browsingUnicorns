@@ -4,6 +4,30 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [Unreleased]
+
+### Ajouté
+
+- Gestionnaire de mots de passe intégré, sur Windows, macOS, Linux et
+  Android : après une connexion, une barre propose d'enregistrer le mot de
+  passe (« Jamais » pour ce site, « Mettre à jour » s'il a changé) ; il est
+  rempli à la visite suivante, y compris dans les connexions en deux étapes
+  (identifiant puis mot de passe). Liste, copie et suppression dans
+  *Settings* > *Mots de passe*. Sur Windows le fichier est chiffré pour
+  l'utilisateur (DPAPI). Remplace l'enregistrement de WebView2.
+- Synchronisation des comptes : les mots de passe enregistrés passent d'un
+  appareil à l'autre (chiffrés de bout en bout, comme le reste), ainsi que
+  les cookies des sites visités, pour rester connecté sur les autres
+  appareils. Un cookie n'est importé qu'une fois : se déconnecter sur un
+  appareil n'est pas annulé par la synchro suivante. Désactivable
+  (« Rester connecté aux sites sur mes appareils synchronisés »).
+  Certains sites (Google, banques…) peuvent quand même redemander la
+  connexion.
+- Android : en faisant défiler la page vers le bas, la barre d'adresse se
+  réduit au nom du site et la barre du bas se cache ; elles reviennent en
+  remontant, au changement de page ou d'un appui sur le nom du site.
+- Android : tirer la page vers le bas depuis son haut la recharge.
+
 ## [0.19.0] - 2026-11-21
 
 ### Ajouté

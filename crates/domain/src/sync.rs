@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use crate::{Bookmarks, Settings, Timestamp, Visit, WebAddress};
+use crate::{Bookmarks, Credentials, Settings, SiteCookie, Timestamp, Visit, WebAddress};
 
 /// Identifies a device in a sync group. Random, chosen once per install.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -51,11 +51,19 @@ pub struct DeviceRecord {
     pub history: Vec<Visit>,
     pub tabs: Vec<RemoteTab>,
     pub settings: Settings,
+    /// The saved sign-ins (user names and passwords).
+    pub credentials: Credentials,
+    /// The sites' cookies, for the others to be signed in too (empty when
+    /// the device does not share them).
+    pub cookies: Vec<SiteCookie>,
 }
 
 impl DeviceRecord {
     /// Visits a record carries at most.
     pub const HISTORY_LIMIT: usize = 2_000;
+    /// What its cookies may weigh at most, roughly (bytes): the relay takes
+    /// records of 1 MiB at most.
+    pub const COOKIES_BUDGET: usize = 256 * 1024;
 }
 
 #[cfg(test)]

@@ -91,6 +91,21 @@ val HistoryIcon: ImageVector = ImageVector.Builder(
     fill = SolidColor(Color.Black),
 ).build()
 
+/** A key: saved passwords. */
+val KeyIcon: ImageVector = ImageVector.Builder(
+    name = "Key",
+    defaultWidth = 24.dp,
+    defaultHeight = 24.dp,
+    viewportWidth = 24f,
+    viewportHeight = 24f,
+).addPath(
+    pathData = addPathNodes(
+        "M12.65,10C11.83,7.67 9.61,6 7,6c-3.31,0 -6,2.69 -6,6s2.69,6 6,6c2.61,0 4.83,-1.67 5.65,-4H17v4h4v-4h2v-4H12.65z" +
+            "M7,14c-1.1,0 -2,-0.9 -2,-2s0.9,-2 2,-2 2,0.9 2,2 -0.9,2 -2,2z",
+    ),
+    fill = SolidColor(Color.Black),
+).build()
+
 /** The loading bar: violet to cyan. */
 val ProgressGradient = Brush.horizontalGradient(listOf(Color(0xFF8A5CFF), Unicorn.Cyan))
 

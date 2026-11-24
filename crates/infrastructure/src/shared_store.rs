@@ -2,7 +2,7 @@
 //! its own window runs in its own process).
 
 use application::ports::{Repository, RepositoryError};
-use domain::{Bookmarks, BrowsingHistory};
+use domain::{Bookmarks, BrowsingHistory, Credentials};
 
 /// What another window may have saved since this one loaded it, and how to
 /// take this window's value into it.
@@ -24,6 +24,14 @@ impl Shared for BrowsingHistory {
 }
 
 impl Shared for Bookmarks {
+    /// Removals are kept as dated tombstones: merging applies them.
+    fn absorb(&mut self, ours: &Self) -> bool {
+        self.merge(ours);
+        true
+    }
+}
+
+impl Shared for Credentials {
     /// Removals are kept as dated tombstones: merging applies them.
     fn absorb(&mut self, ours: &Self) -> bool {
         self.merge(ours);

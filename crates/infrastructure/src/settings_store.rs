@@ -29,6 +29,8 @@ struct SettingsFile {
     ask_where_to_save: bool,
     /// Offer to save the passwords typed in pages.
     save_passwords: bool,
+    /// Share the sites' cookies with the other devices of the sync group.
+    sync_cookies: bool,
     /// Zoom of the sites zoomed in or out.
     site_zoom: Vec<SiteZoomFile>,
 }
@@ -70,6 +72,7 @@ impl From<&Settings> for SettingsFile {
                 .unwrap_or_default(),
             ask_where_to_save: s.device.ask_where_to_save,
             save_passwords: s.device.save_passwords,
+            sync_cookies: s.device.sync_cookies,
             site_zoom: s
                 .device
                 .site_zoom
@@ -98,6 +101,7 @@ impl SettingsFile {
                     .then(|| PathBuf::from(self.download_dir)),
                 ask_where_to_save: self.ask_where_to_save,
                 save_passwords: self.save_passwords,
+                sync_cookies: self.sync_cookies,
                 site_zoom: self
                     .site_zoom
                     .into_iter()
@@ -171,6 +175,7 @@ mod tests {
                 download_dir: Some(PathBuf::from("D:/Download")),
                 ask_where_to_save: true,
                 save_passwords: true,
+                sync_cookies: false,
                 site_zoom: vec![("example.com".into(), 125), ("b.org".into(), 80)],
             },
         };

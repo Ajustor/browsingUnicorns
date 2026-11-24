@@ -19,14 +19,18 @@ pub struct Settings {
 }
 
 /// Preferences that belong to one device (paths, screen), not synced.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeviceSettings {
     /// Where downloads go (`None`: the system's Downloads folder).
     pub download_dir: Option<PathBuf>,
     /// Ask where to save each download.
     pub ask_where_to_save: bool,
-    /// The web view offers to save the passwords typed in pages.
+    /// The browser offers to save the passwords typed in pages, and fills
+    /// them in.
     pub save_passwords: bool,
+    /// The sites' cookies are shared with the other devices of the sync
+    /// group (to be signed in there too).
+    pub sync_cookies: bool,
     /// Zoom of the sites zoomed in or out, in percent, by host.
     pub site_zoom: Vec<(String, u32)>,
 }
@@ -39,6 +43,18 @@ pub enum LanguageChoice {
     Auto,
     En,
     Fr,
+}
+
+impl Default for DeviceSettings {
+    fn default() -> Self {
+        Self {
+            download_dir: None,
+            ask_where_to_save: false,
+            save_passwords: true,
+            sync_cookies: true,
+            site_zoom: Vec::new(),
+        }
+    }
 }
 
 impl DeviceSettings {

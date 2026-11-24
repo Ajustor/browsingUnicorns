@@ -45,6 +45,8 @@ pub struct SettingsView<'a> {
     pub language: LanguageChoice,
     /// The engine can save passwords and clear site data (WebView2).
     pub passwords: bool,
+    /// The saved sign-ins.
+    pub credentials: &'a domain::Credentials,
     pub clear_site_data: bool,
     /// The protected videos' data can be reset (Windows, the profile's
     /// window).
@@ -184,6 +186,16 @@ impl SettingsPanel {
             {
                 change(&|s| s.device.save_passwords = save);
             }
+            let mut cookies = settings.device.sync_cookies;
+            if ui
+                .checkbox(&mut cookies, i18n::passwords::sync_cookies())
+                .on_hover_text(i18n::passwords::sync_cookies_tip())
+                .changed()
+            {
+                change(&|s| s.device.sync_cookies = cookies);
+            }
+            ui.add_space(4.0);
+            super::passwords::list(ui, view.credentials, commands);
         }
 
         if !settings.device.site_zoom.is_empty() {

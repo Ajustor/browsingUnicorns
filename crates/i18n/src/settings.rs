@@ -37,8 +37,8 @@ messages! {
     fn passwords() { en: "Passwords", fr: "Mots de passe" }
     fn offer_to_save_passwords() { en: "Offer to save the passwords I type", fr: "Proposer d’enregistrer les mots de passe que je saisis" }
     fn offer_to_save_passwords_tip() {
-        en: "The web view keeps them for this profile and fills them in next time. A password manager extension (Bitwarden…) works either way.",
-        fr: "La vue web les garde pour ce profil et les remplit la fois suivante. Une extension de gestion de mots de passe (Bitwarden…) fonctionne dans tous les cas.",
+        en: "The browser keeps them for this profile, encrypted, fills them in next time and syncs them with your devices. A password manager extension (Bitwarden…) works either way.",
+        fr: "Le navigateur les garde pour ce profil, chiffrés, les remplit la fois suivante et les synchronise avec vos appareils. Une extension de gestion de mots de passe (Bitwarden…) fonctionne dans tous les cas.",
     }
 
     /// Section title.

@@ -191,4 +191,18 @@
     <string name="tabs_private">Private</string>
     <string name="private_tabs_intro">Private tabs leave no history, and their cookies and site data are deleted when the last one closes.</string>
     <string name="close_tab">Close tab</string>
+    <string name="passwords">Passwords and sign-ins</string>
+    <string name="save_passwords">Offer to save the passwords I type, and fill them in</string>
+    <string name="sync_cookies">Stay signed in to sites on my synced devices</string>
+    <string name="sync_cookies_hint">Sync shares your passwords and the cookies of the sites you visit with your other devices, end-to-end encrypted. Some sites (Google, banks…) may still ask you to sign in again.</string>
+    <string name="no_saved_passwords">No password saved yet.</string>
+    <string name="password_save_offer">Save the password for %1$s?</string>
+    <string name="password_save_offer_for">Save the password of %1$s for %2$s?</string>
+    <string name="password_update_offer">Update the saved password of %1$s for %2$s?</string>
+    <string name="password_update">Update</string>
+    <string name="password_not_now">Not now</string>
+    <string name="password_never">Never</string>
+    <string name="password_never_saved">Never saved</string>
+    <string name="password_no_username">(no user name)</string>
+    <string name="password_remove">Delete (on your synced devices too)</string>
 </resources>

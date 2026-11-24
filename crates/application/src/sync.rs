@@ -61,6 +61,8 @@ mod tests {
             history: vec![],
             tabs: vec![],
             settings: Settings::default(),
+            credentials: Default::default(),
+            cookies: vec![],
         }
     }
 

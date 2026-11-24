@@ -30,6 +30,7 @@ import androidx.webkit.ScriptHandler
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import uniffi.mobile.BackgroundPage
+import uniffi.mobile.CookieInfo
 import uniffi.mobile.Interception
 import uniffi.mobile.MobileBrowser
 import uniffi.mobile.PageTarget
@@ -185,8 +186,19 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
     /** The page scripts' bridge to the Rust core, for the WebView of [target]; guarded by a token. */
     private inner class Bridge(private val target: PageTarget) {
         @JavascriptInterface
-        fun call(message: String): String = runCatching { browser.pageMessage(target, message) }.getOrDefault("")
+        fun call(message: String): String {
+            val answer = runCatching { browser.pageMessage(target, message) }.getOrDefault("")
+            // A sign-in sent: the bar offering to save it shows.
+            if (message.contains("\"credentials.submit\"")) container.post { onChange() }
+            return answer
+        }
     }
+
+    private val siteCookies = SiteCookies(context)
+
+    override fun cookies(): List<CookieInfo>? = siteCookies.all()
+
+    override fun setCookies(cookies: List<CookieInfo>) = siteCookies.set(cookies)
 
     /** An extension's file, when [url] is one (`https://<id>.bu-ext.invalid/…`). */
     private fun extensionFile(url: String): WebResourceResponse? {
@@ -300,6 +312,83 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
      *  it; `null` when it left. */
     var onFullscreen: (View?, (() -> Unit)?) -> Unit = { _, _ -> }
 
+    /** The shown page scrolled from [oldY] to [y] (pixels). */
+    var onScrolled: (y: Int, oldY: Int) -> Unit = { _, _ -> }
+
+    /** The shown tab started loading another page. */
+    var onNavigation: () -> Unit = {}
+
+    /** The shown page is pulled down from its top by that many pixels (0: let go). */
+    var onPull: (Float) -> Unit = {}
+
+    /** The pull went far enough: the page reloads. */
+    var onPullRefresh: () -> Unit = {}
+
+    /** How far a page is pulled down to reload, in pixels. */
+    val pullDistance = 96f * context.resources.displayMetrics.density
+
+    /**
+     * A tab's WebView, which reports its scrolling (the bars fold away) and
+     * its pulls past the top (reload).
+     */
+    @SuppressLint("ViewConstructor")
+    private inner class PageView(private val tab: ULong) : WebView(context) {
+        /** The finger moves down. */
+        private var down = false
+        private var lastY = 0f
+
+        /** The page hit its top while the finger moved down. */
+        private var atTop = false
+        private var pullFrom = Float.NaN
+
+        override fun onScrollChanged(l: Int, t: Int, oldl: Int, oldt: Int) {
+            super.onScrollChanged(l, t, oldl, oldt)
+            if (visibility == View.VISIBLE) onScrolled(t, oldt)
+        }
+
+        // The page (or a scroller of it, through scroll chaining) could not
+        // scroll further up: what is pulled now pulls the page itself.
+        override fun onOverScrolled(scrollX: Int, scrollY: Int, clampedX: Boolean, clampedY: Boolean) {
+            super.onOverScrolled(scrollX, scrollY, clampedX, clampedY)
+            if (clampedY && scrollY == 0 && down) atTop = true
+        }
+
+        /** Follows the finger for the pull to refresh; never takes the touch. */
+        fun track(event: MotionEvent) {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    lastY = event.y
+                    down = false
+                    atTop = false
+                    pullFrom = Float.NaN
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (event.pointerCount > 1) return endPull(false)
+                    down = event.y > lastY
+                    lastY = event.y
+                    if (pullFrom.isNaN() && atTop && down && !canScrollVertically(-1)) pullFrom = event.y
+                    if (!pullFrom.isNaN()) {
+                        val pulled = event.y - pullFrom
+                        if (pulled < 0) endPull(false) else onPull(pulled)
+                    }
+                }
+                MotionEvent.ACTION_UP -> endPull(!pullFrom.isNaN() && event.y - pullFrom >= pullDistance)
+                MotionEvent.ACTION_CANCEL -> endPull(false)
+            }
+        }
+
+        private fun endPull(refresh: Boolean) {
+            if (pullFrom.isNaN()) return
+            pullFrom = Float.NaN
+            atTop = false
+            onPull(0f)
+            if (refresh) {
+                reload(tab)
+                onPullRefresh()
+            }
+        }
+    }
+
     /** Empties the cache the pages share. */
     fun clearCache() {
         views.values.firstOrNull()?.clearCache(true)
@@ -394,10 +483,11 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
     }
 
     @SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
-    private fun create(tab: ULong, private: Boolean): WebView = WebView(context).apply {
+    private fun create(tab: ULong, private: Boolean): WebView = PageView(tab).apply {
         if (private) usePrivateProfile(this)
         setOnTouchListener { _, event ->
             if (event.actionMasked == MotionEvent.ACTION_DOWN) onPageTouched()
+            track(event)
             false
         }
         settings.javaScriptEnabled = true
@@ -417,6 +507,7 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
                 if (!documentStart && !private) pageScripts.forEach { view.evaluateJavascript(it, null) }
                 pendingScriptlets.remove(tab)?.let { view.evaluateJavascript(it, null) }
                 browser.onLoadStarted(tab, url)
+                if (view.visibility == View.VISIBLE) onNavigation()
                 onChange()
             }
 

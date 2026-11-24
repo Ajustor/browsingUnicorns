@@ -14,6 +14,7 @@ mod language;
 mod library;
 mod omnibox;
 mod page_holes;
+mod passwords;
 mod profiles;
 mod settings_panel;
 mod shield;

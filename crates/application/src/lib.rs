@@ -12,7 +12,7 @@ pub mod profiles;
 pub mod sync;
 pub mod user_scripts;
 
-pub use browser::{Browser, Target};
+pub use browser::{Browser, CredentialAnswer, PendingCredential, Target};
 pub use error::BrowserError;
 pub use extensions::ExtensionManager;
 pub use profiles::{ProfileManager, ProfilesError};

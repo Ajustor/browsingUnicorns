@@ -19,6 +19,8 @@ use crate::extensions::{extension_dir, manifest};
 use crate::script_storage::new_token;
 use crate::user_scripts::read_code;
 
+pub mod credentials;
+
 const RUNTIME: &str = include_str!("runtime.js");
 
 /// Starts every injected script: platforms find theirs by it.
@@ -56,6 +58,8 @@ pub struct Sources<'a> {
     pub state_dir: Option<&'a Path>,
     /// Add the ad blocker's cosmetic filters (asked from the hub).
     pub blocker: bool,
+    /// Add the password manager's script (reports the sign-ins sent).
+    pub credentials: bool,
 }
 
 /// The owner the ad blocker's page script speaks as.
@@ -130,6 +134,9 @@ pub fn page_scripts(sources: &Sources<'_>) -> Vec<String> {
     let mut out = Vec::new();
     if sources.blocker {
         out.push(wrap(sources.token, sources.bridge, "blockerCosmetic();"));
+    }
+    if sources.credentials {
+        out.push(credentials::capture_script(sources.bridge));
     }
     for e in sources
         .extensions
@@ -279,6 +286,7 @@ mod tests {
             origins: Origins::CustomScheme,
             state_dir: None,
             blocker: false,
+            credentials: false,
         };
         let scripts = page_scripts(&sources(true));
         // `node --check` them: BU_DUMP_PAGE_SCRIPTS=<dir> cargo test …
@@ -306,6 +314,7 @@ mod tests {
         // The ad blocker's cosmetic filters come first.
         let with_blocker = page_scripts(&Sources {
             blocker: true,
+            credentials: false,
             ..sources(false)
         });
         assert_eq!(with_blocker.len(), 2);

@@ -213,6 +213,44 @@ fn free_name(dir: &std::path::Path, name: &std::ffi::OsStr) -> std::path::PathBu
         .expect("a free name")
 }
 
+/// A cookie as wry gives it (WebKit). Its domain lost its leading dot.
+#[cfg(not(windows))]
+fn from_wry_cookie(c: &wry::cookie::Cookie<'_>) -> domain::SiteCookie {
+    domain::SiteCookie {
+        domain: c.domain().unwrap_or_default().to_owned(),
+        name: c.name().to_owned(),
+        value: c.value().to_owned(),
+        path: c.path().unwrap_or("/").to_owned(),
+        secure: c.secure().unwrap_or(false),
+        http_only: c.http_only().unwrap_or(false),
+        same_site: c.same_site().map(|s| s.to_string()).unwrap_or_default(),
+        expires: c.expires_datetime().map(|t| t.unix_timestamp()),
+    }
+}
+
+#[cfg(not(windows))]
+fn to_wry_cookie(c: &domain::SiteCookie) -> wry::cookie::Cookie<'static> {
+    use wry::cookie::{Cookie, SameSite, time::OffsetDateTime};
+    let mut builder = Cookie::build((c.name.clone(), c.value.clone()))
+        .domain(c.domain.clone())
+        .path(c.path.clone())
+        .secure(c.secure)
+        .http_only(c.http_only);
+    builder = match c.same_site.as_str() {
+        "Strict" => builder.same_site(SameSite::Strict),
+        "None" => builder.same_site(SameSite::None),
+        "Lax" => builder.same_site(SameSite::Lax),
+        _ => builder,
+    };
+    if let Some(at) = c
+        .expires
+        .and_then(|e| OffsetDateTime::from_unix_timestamp(e).ok())
+    {
+        builder = builder.expires(at);
+    }
+    builder.build()
+}
+
 fn bounds(v: Viewport) -> Rect {
     Rect {
         position: PhysicalPosition::new(v.x, v.y).into(),
@@ -581,6 +619,8 @@ impl WryEngine {
             origins: Origins::desktop(),
             state_dir: Some(&self.files.state_dir),
             blocker: true,
+            // Nothing is saved from a private window.
+            credentials: !self.files.private && self.device.borrow().save_passwords,
         };
         self.page_scripts = page_scripts(&sources);
         for (tab, view) in &self.views {
@@ -889,14 +929,13 @@ impl WebEngine for WryEngine {
             }
             self.frames.insert(tab, frames);
         }
-        // This device's passwords and zoom by site.
+        // This device's zoom by site. The browser saves the passwords
+        // itself (and syncs them): not WebView2.
         #[cfg(windows)]
         {
-            let device = self.device.borrow();
-            if let Err(e) = crate::webview2_settings::save_passwords(&view, device.save_passwords) {
+            if let Err(e) = crate::webview2_settings::save_passwords(&view, false) {
                 log::warn!("passwords in tab {tab}: {e}");
             }
-            drop(device);
             let device = self.device.clone();
             if let Err(e) = crate::webview2_settings::follow_zoom(
                 &view,
@@ -1173,13 +1212,13 @@ impl WebEngine for WryEngine {
     }
 
     fn apply_device_settings(&mut self, settings: &domain::DeviceSettings) {
+        let passwords_changed = self.device.borrow().save_passwords != settings.save_passwords;
         *self.device.borrow_mut() = settings.clone();
+        if passwords_changed {
+            self.rebuild_page_scripts();
+        }
         #[cfg(windows)]
         for (tab, view) in &self.views {
-            if let Err(e) = crate::webview2_settings::save_passwords(view, settings.save_passwords)
-            {
-                log::warn!("passwords in tab {tab}: {e}");
-            }
             let host = self
                 .tab_pages
                 .get(tab)
@@ -1200,8 +1239,43 @@ impl WebEngine for WryEngine {
         let _ = (tab, muted);
     }
 
-    fn can_save_passwords(&self) -> bool {
-        cfg!(windows)
+    fn fill_credentials(&mut self, tab: TabId, origin: &str, username: &str, password: &str) {
+        let script = crate::page_scripts::credentials::fill_script(origin, username, password);
+        self.with_view(tab, "sign-in", |v| v.evaluate_script(&script));
+    }
+
+    fn site_cookies(&mut self) -> Option<Vec<domain::SiteCookie>> {
+        if self.files.private {
+            return None;
+        }
+        let view = self.views.values().next()?;
+        #[cfg(windows)]
+        let cookies = crate::webview2_cookies::all(view).map_err(|e| e.to_string());
+        #[cfg(not(windows))]
+        let cookies = view
+            .cookies()
+            .map(|all| all.iter().map(from_wry_cookie).collect())
+            .map_err(|e| e.to_string());
+        cookies.map_err(|e| log::warn!("cookies: {e}")).ok()
+    }
+
+    fn set_site_cookies(&mut self, cookies: &[domain::SiteCookie]) {
+        if self.files.private {
+            return;
+        }
+        let Some(view) = self.views.values().next() else {
+            return;
+        };
+        #[cfg(windows)]
+        if let Err(e) = crate::webview2_cookies::set(view, cookies) {
+            log::warn!("cookies: {e}");
+        }
+        #[cfg(not(windows))]
+        for c in cookies {
+            if let Err(e) = view.set_cookie(&to_wry_cookie(c)) {
+                log::warn!("cookie {} of {}: {e}", c.name, c.domain);
+            }
+        }
     }
 
     fn can_clear_site_data(&self) -> bool {

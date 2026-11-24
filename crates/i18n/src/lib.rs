@@ -231,6 +231,7 @@ pub mod history;
 pub mod library;
 pub mod notices;
 pub mod omnibox;
+pub mod passwords;
 pub mod profiles;
 pub mod settings;
 pub mod shield;

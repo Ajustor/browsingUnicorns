@@ -6,6 +6,11 @@ messages! {
     /// A change refused in a private window (saving, installing).
     fn not_in_private_window() { en: "Not available in a private window.", fr: "Indisponible dans une fenêtre privée." }
 
+    // Saved passwords.
+
+    /// The saved passwords' file could not be opened (another Windows user's).
+    fn cannot_unseal() { en: "cannot be opened by this user", fr: "illisible pour cet utilisateur" }
+
     // Extensions.
 
     /// A store (`Chrome Web Store`, `Edge Add-ons`) serving nothing for the id.

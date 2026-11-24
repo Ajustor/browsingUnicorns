@@ -185,6 +185,10 @@ impl BrowserApp {
                 self.browser.engine_mut().apply_device_settings(&device);
                 r
             }
+            Command::AnswerCredential(answer) => self.browser.answer_credential(answer),
+            Command::RemoveCredential(origin, username) => {
+                self.browser.remove_credential(&origin, &username)
+            }
             Command::ClearBrowsingData(what) => self.clear_browsing_data(what),
             Command::ResetDrm => {
                 let Some(drm) = &self.drm else { return };
@@ -512,6 +516,8 @@ impl BrowserApp {
             | Command::OpenPrivateWindow
             | Command::DetachTab(..)
             | Command::DefaultBrowser(_)
+            | Command::AnswerCredential(_)
+            | Command::RemoveCredential(..)
             | Command::ToggleExtensionPopup { .. } => unreachable!("handled by run"),
         }
     }
@@ -676,6 +682,17 @@ impl BrowserApp {
     fn drain_engine_events(&mut self) {
         while let Ok(event) = self.events.try_recv() {
             if let EngineEvent::PageMessage { from, body } = &event {
+                // The password manager's page script: a sign-in was sent.
+                if let Some((username, password)) =
+                    infrastructure::page_scripts::credentials::submitted(body)
+                {
+                    if let PageSource::Tab(tab) = from
+                        && !self.is_private()
+                    {
+                        self.browser.offer_credential(*tab, &username, &password);
+                    }
+                    continue;
+                }
                 let mut host = BrowserHub {
                     browser: &mut self.browser,
                     extensions: self.extensions.extensions(),
@@ -797,6 +814,8 @@ fn writes_profile(command: &Command) -> bool {
             | Command::SetUserScriptEnabled(..)
             | Command::RemoveUserScript(_)
             | Command::Profile(_)
+            | Command::AnswerCredential(_)
+            | Command::RemoveCredential(..)
     )
 }
 
@@ -886,6 +905,7 @@ impl BrowserApp {
         }
         self.updates.banner(ctx, commands);
         self.default_browser.banner(ctx, commands);
+        super::passwords::banner(ctx, self.browser.pending_credential(), commands);
         if self.library.open == Some(LibraryView::Profiles) && !self.is_private() {
             self.profiles.refresh(ctx);
         }
@@ -929,6 +949,7 @@ impl BrowserApp {
                     settings: self.browser.settings(),
                     language: self.language,
                     passwords: self.browser.engine().can_save_passwords(),
+                    credentials: self.browser.credentials(),
                     clear_site_data: self.browser.engine().can_clear_site_data(),
                     reset_drm: self.drm.is_some(),
                     default_download_dir: infrastructure::downloads_dir(),

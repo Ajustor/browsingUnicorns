@@ -1,11 +1,17 @@
 package io.github.ajustor.browsingunicorns.ui
 
 import android.view.ViewGroup
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -14,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -54,6 +61,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
@@ -70,6 +79,7 @@ import io.github.ajustor.browsingunicorns.R
 import io.github.ajustor.browsingunicorns.BrowserController
 import io.github.ajustor.browsingunicorns.UpdateState
 import io.github.ajustor.browsingunicorns.Screen
+import uniffi.mobile.CredentialChoice
 import uniffi.mobile.SuggestionInfo
 
 @Composable
@@ -109,8 +119,10 @@ fun App(c: BrowserController) {
 private fun BrowserScreen(c: BrowserController) {
     Column(Modifier.fillMaxSize()) {
         val top = if (c.activePrivate) PrivateGradient else UnicornGradient
-        Box(Modifier.fillMaxWidth().background(top).statusBarsPadding()) {
-            AddressBar(c)
+        // Reading (the page scrolled down): the address bar shrinks to the
+        // site's name, the bottom bar hides; scrolling up brings them back.
+        Box(Modifier.fillMaxWidth().background(top).statusBarsPadding().animateContentSize(tween(150))) {
+            if (c.barsCollapsed) CollapsedAddressBar(c) else AddressBar(c)
         }
         if (c.progress < 100) {
             Box(Modifier.fillMaxWidth().height(3.dp).background(Unicorn.Night)) {
@@ -119,17 +131,125 @@ private fun BrowserScreen(c: BrowserController) {
                 )
             }
         }
-        AndroidView(
-            factory = {
-                // Back from another screen: the container is re-attached here.
-                (c.views.container.parent as? ViewGroup)?.removeView(c.views.container)
-                c.views.container
-            },
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-        )
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            AndroidView(
+                factory = {
+                    // Back from another screen: the container is re-attached here.
+                    (c.views.container.parent as? ViewGroup)?.removeView(c.views.container)
+                    c.views.container
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
+            PullIndicator(c.pull, c.views.pullDistance)
+        }
+        CredentialBanner(c)
         StoreBanner(c)
         UpdateBanner(c.updates)
-        BottomBar(c)
+        AnimatedVisibility(
+            visible = !c.barsCollapsed,
+            enter = expandVertically(tween(150)),
+            exit = shrinkVertically(tween(150)),
+        ) {
+            BottomBar(c)
+        }
+        if (c.barsCollapsed) {
+            // The page stops above the system's navigation bar.
+            Box(Modifier.fillMaxWidth().background(if (c.activePrivate) Private.Bar else Unicorn.Night).navigationBarsPadding())
+        }
+    }
+}
+
+/** The address bar folded while reading: the site's name; a tap unfolds it. */
+@Composable
+private fun CollapsedAddressBar(c: BrowserController) {
+    val url = c.state.activeUrl ?: ""
+    val host = android.net.Uri.parse(url).host?.removePrefix("www.") ?: url
+    Row(
+        Modifier.fillMaxWidth().clickable { c.expandBars() }.padding(vertical = 4.dp),
+        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (c.state.activeSecure) {
+            Icon(
+                Icons.Filled.Lock,
+                contentDescription = stringResource(R.string.site_secure),
+                tint = Unicorn.OnNight,
+                modifier = Modifier.size(12.dp),
+            )
+        }
+        Text(
+            host,
+            color = Unicorn.OnNight,
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(start = 4.dp),
+        )
+    }
+}
+
+/** The page pulled down past its top: a reload arrow comes down with it,
+ *  turning; far enough, it lights up (let go to reload). */
+@Composable
+private fun BoxScope.PullIndicator(pulled: Float, distance: Float) {
+    if (pulled <= 0f) return
+    val progress = (pulled / distance).coerceIn(0f, 1f)
+    val ready = pulled >= distance
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val offset = with(density) { (pulled.coerceAtMost(distance * 1.2f) * 0.6f).toDp() }
+    Surface(
+        shape = androidx.compose.foundation.shape.CircleShape,
+        color = if (ready) Unicorn.Cyan else Unicorn.Night,
+        contentColor = if (ready) Unicorn.Night else Unicorn.OnNight,
+        shadowElevation = 4.dp,
+        modifier = Modifier.align(Alignment.TopCenter).offset(y = offset - 24.dp).size(40.dp)
+            .alpha(0.4f + 0.6f * progress),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                Icons.Filled.Refresh,
+                contentDescription = stringResource(R.string.reload),
+                modifier = Modifier.size(22.dp).rotate(progress * 270f),
+            )
+        }
+    }
+}
+
+/** A sign-in was typed: save its password (synced), not now, or never for this site. */
+@Composable
+private fun CredentialBanner(c: BrowserController) {
+    val offer = c.credentialOffer ?: return
+    val site = android.net.Uri.parse(offer.origin).host ?: offer.origin
+    Surface(tonalElevation = 6.dp, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(start = 16.dp, end = 4.dp, top = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(KeyIcon, contentDescription = null, modifier = Modifier.size(18.dp))
+                Text(
+                    when {
+                        offer.update -> stringResource(R.string.password_update_offer, offer.username, site)
+                        offer.username.isEmpty() -> stringResource(R.string.password_save_offer, site)
+                        else -> stringResource(R.string.password_save_offer_for, offer.username, site)
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.End) {
+                if (!offer.update) {
+                    TextButton(onClick = { c.answerCredential(CredentialChoice.NEVER) }) {
+                        Text(stringResource(R.string.password_never))
+                    }
+                }
+                TextButton(onClick = { c.answerCredential(CredentialChoice.NOT_NOW) }) {
+                    Text(stringResource(R.string.password_not_now))
+                }
+                TextButton(onClick = { c.answerCredential(CredentialChoice.SAVE) }) {
+                    Text(stringResource(if (offer.update) R.string.password_update else R.string.save))
+                }
+            }
+        }
     }
 }
 

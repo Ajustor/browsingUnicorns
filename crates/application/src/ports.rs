@@ -4,9 +4,9 @@ use std::fmt;
 use std::path::PathBuf;
 
 use domain::{
-    Bookmarks, BrowsingHistory, DeviceId, DeviceRecord, Extension, ExtensionId, Extensions,
-    ProfileId, SessionSnapshot, Settings, TabId, Timestamp, UserScript, UserScriptId, UserScripts,
-    WebAddress,
+    Bookmarks, BrowsingHistory, Credentials, DeviceId, DeviceRecord, Extension, ExtensionId,
+    Extensions, ProfileId, SeenCookies, SessionSnapshot, Settings, SiteCookie, TabId, Timestamp,
+    UserScript, UserScriptId, UserScripts, WebAddress,
 };
 
 /// Where pages are drawn, in physical pixels relative to the window's client
@@ -91,9 +91,10 @@ pub trait WebEngine {
     /// Applies this device's preferences: download folder, passwords,
     /// zoom by site.
     fn apply_device_settings(&mut self, _settings: &domain::DeviceSettings) {}
-    /// Whether the engine can save the passwords typed in pages.
+    /// Whether the browser can save the passwords typed in pages (it needs
+    /// [`Self::fill_credentials`] and the pages to report their sign-ins).
     fn can_save_passwords(&self) -> bool {
-        false
+        true
     }
     /// Whether [`Self::clear_site_data`] does something.
     fn can_clear_site_data(&self) -> bool {
@@ -103,6 +104,16 @@ pub trait WebEngine {
     fn clear_site_data(&mut self, _cookies: bool, _cache: bool) {}
     /// Mutes `tab`'s page, or lets it play sound again.
     fn set_muted(&mut self, _tab: TabId, _muted: bool) {}
+    /// Fills the sign-in form of `tab`'s page with `username` and
+    /// `password`, if the page is still at `origin`.
+    fn fill_credentials(&mut self, _tab: TabId, _origin: &str, _username: &str, _password: &str) {}
+    /// Every cookie of the (non-private) web views; `None` where the engine
+    /// can't tell.
+    fn site_cookies(&mut self) -> Option<Vec<SiteCookie>> {
+        None
+    }
+    /// Sets `cookies` in the (non-private) web views.
+    fn set_site_cookies(&mut self, _cookies: &[SiteCookie]) {}
 }
 
 /// A download under way: how much of `file` arrived, of `total` when known.
@@ -229,6 +240,10 @@ pub struct Profile {
     pub history: Box<dyn Repository<BrowsingHistory>>,
     pub bookmarks: Box<dyn Repository<Bookmarks>>,
     pub session: Box<dyn Repository<SessionSnapshot>>,
+    /// The saved sign-ins.
+    pub credentials: Box<dyn Repository<Credentials>>,
+    /// The cookies already shared with or taken from the other devices.
+    pub seen_cookies: Box<dyn Repository<SeenCookies>>,
     pub clock: Box<dyn Clock>,
 }
 

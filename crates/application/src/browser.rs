@@ -1,6 +1,9 @@
+use std::collections::HashMap;
+
 use domain::{
-    Bookmarks, BrowsingHistory, DeviceId, DeviceRecord, RemoteTab, Session, SessionSnapshot,
-    Settings, Suggestion, TabId, Timestamp, WebAddress, resolve_omnibox, suggest,
+    Bookmarks, BrowsingHistory, Credentials, DeviceId, DeviceRecord, Offer, RemoteTab, SeenCookies,
+    Session, SessionSnapshot, Settings, SiteCookie, Suggestion, TabId, Timestamp, WebAddress,
+    cookies_to_import, cookies_to_share, resolve_omnibox, suggest,
 };
 
 use crate::BrowserError;
@@ -14,6 +17,30 @@ pub enum Target {
     ActiveTab,
     NewTab,
 }
+
+/// A sign-in typed in a page, that the user is asked to save.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingCredential {
+    pub tab: TabId,
+    pub origin: String,
+    pub username: String,
+    pub password: String,
+    /// It changes the password of a saved user name.
+    pub update: bool,
+}
+
+/// The user's answer to a [`PendingCredential`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CredentialAnswer {
+    Save,
+    NotNow,
+    /// Never for this site.
+    Never,
+}
+
+/// A user name typed alone (the first step of a two-step sign-in) is kept
+/// this long for the password typed next.
+const USERNAME_KEPT_FOR: Timestamp = 10 * 60;
 
 /// The browser window's use cases.
 pub struct Browser<E: WebEngine> {
@@ -30,6 +57,11 @@ pub struct Browser<E: WebEngine> {
     unsynced: bool,
     /// The tabs closed, last closed last: their address and where they were.
     closed: Vec<(WebAddress, usize)>,
+    credentials: Credentials,
+    pending_credential: Option<PendingCredential>,
+    /// By tab: the origin, user name and time of a user name typed alone.
+    typed_usernames: HashMap<TabId, (String, String, Timestamp)>,
+    seen_cookies: SeenCookies,
 }
 
 /// How many closed tabs can be reopened.
@@ -51,6 +83,10 @@ impl<E: WebEngine> Browser<E> {
             remote_devices: Vec::new(),
             unsynced: false,
             closed: Vec::new(),
+            credentials: Credentials::default(),
+            pending_credential: None,
+            typed_usernames: HashMap::new(),
+            seen_cookies: SeenCookies::default(),
         }
     }
 
@@ -64,6 +100,14 @@ impl<E: WebEngine> Browser<E> {
         }
         match self.profile.bookmarks.load() {
             Ok(bookmarks) => self.bookmarks = bookmarks,
+            Err(e) => errors.push(e.into()),
+        }
+        match self.profile.credentials.load() {
+            Ok(credentials) => self.credentials = credentials,
+            Err(e) => errors.push(e.into()),
+        }
+        match self.profile.seen_cookies.load() {
+            Ok(seen) => self.seen_cookies = seen,
             Err(e) => errors.push(e.into()),
         }
         errors
@@ -219,6 +263,7 @@ impl<E: WebEngine> Browser<E> {
     /// This device's state for the other devices.
     pub fn sync_record(&mut self, device: DeviceId, name: &str) -> DeviceRecord {
         self.unsynced = false;
+        let cookies = self.cookies_to_share();
         DeviceRecord {
             device,
             name: name.to_owned(),
@@ -238,6 +283,172 @@ impl<E: WebEngine> Browser<E> {
                 })
                 .collect(),
             settings: self.settings.clone(),
+            credentials: self.credentials.clone(),
+            cookies,
+        }
+    }
+
+    /// The engine's cookies of the sites recently visited, remembered as
+    /// seen: once deleted here (signed out), the others' copies of them
+    /// don't come back.
+    fn cookies_to_share(&mut self) -> Vec<SiteCookie> {
+        if !self.settings.device.sync_cookies {
+            return Vec::new();
+        }
+        let Some(cookies) = self.engine.site_cookies() else {
+            return Vec::new();
+        };
+        let mut hosts: Vec<String> = Vec::new();
+        for visit in self.history.visits().iter().rev() {
+            if let Some(host) = visit.address.host() {
+                let host = host.to_ascii_lowercase();
+                if !hosts.contains(&host) {
+                    hosts.push(host);
+                }
+            }
+        }
+        let shared = cookies_to_share(cookies, &hosts, self.now(), DeviceRecord::COOKIES_BUDGET);
+        if self
+            .seen_cookies
+            .add(shared.iter().map(SiteCookie::fingerprint))
+        {
+            // Best effort: at worst, a cookie deleted here comes back once.
+            let _ = self.profile.seen_cookies.save(&self.seen_cookies);
+        }
+        shared
+    }
+
+    /// Sets the other devices' cookies that this one never had.
+    fn import_cookies(&mut self, records: &[DeviceRecord]) -> Result<(), BrowserError> {
+        if !self.settings.device.sync_cookies || records.iter().all(|r| r.cookies.is_empty()) {
+            return Ok(());
+        }
+        let Some(local) = self.engine.site_cookies() else {
+            return Ok(());
+        };
+        let mut newest_first: Vec<_> = records.iter().collect();
+        newest_first.sort_by_key(|r| std::cmp::Reverse(r.updated_at));
+        let import = cookies_to_import(
+            &local,
+            newest_first.iter().flat_map(|r| &r.cookies),
+            self.seen_cookies.set(),
+            self.now(),
+        );
+        if import.is_empty() {
+            return Ok(());
+        }
+        self.engine.set_site_cookies(&import);
+        self.seen_cookies
+            .add(import.iter().map(SiteCookie::fingerprint));
+        self.profile.seen_cookies.save(&self.seen_cookies)?;
+        Ok(())
+    }
+
+    /// The saved sign-ins.
+    pub fn credentials(&self) -> &Credentials {
+        &self.credentials
+    }
+
+    /// The sign-in the user is asked to save, if any.
+    pub fn pending_credential(&self) -> Option<&PendingCredential> {
+        self.pending_credential.as_ref()
+    }
+
+    /// A page of `tab` sent a sign-in form. With `password` empty, the first
+    /// step of a two-step one (the user name only), kept for the next step.
+    /// Asks to save it when it is new (see [`Self::pending_credential`]).
+    pub fn offer_credential(&mut self, tab: TabId, username: &str, password: &str) {
+        if !self.settings.device.save_passwords {
+            return;
+        }
+        let Some(t) = self.session.tab(tab) else {
+            return;
+        };
+        if t.is_private() {
+            return;
+        }
+        let Some(origin) = t.address().and_then(WebAddress::origin) else {
+            return;
+        };
+        let now = self.now();
+        let username = username.trim();
+        if password.is_empty() {
+            if !username.is_empty() {
+                self.typed_usernames
+                    .insert(tab, (origin, username.to_owned(), now));
+            }
+            return;
+        }
+        let username = match self.typed_usernames.get(&tab) {
+            Some((o, typed, at))
+                if username.is_empty()
+                    && *o == origin
+                    && now.saturating_sub(*at) <= USERNAME_KEPT_FOR =>
+            {
+                typed.clone()
+            }
+            _ => username.to_owned(),
+        };
+        let update = match self.credentials.offer(&origin, &username, password) {
+            Offer::Nothing => return,
+            Offer::Save => false,
+            Offer::Update => true,
+        };
+        self.pending_credential = Some(PendingCredential {
+            tab,
+            origin,
+            username,
+            password: password.to_owned(),
+            update,
+        });
+    }
+
+    /// What the user answered to [`Self::pending_credential`].
+    pub fn answer_credential(&mut self, answer: CredentialAnswer) -> Result<(), BrowserError> {
+        let Some(p) = self.pending_credential.take() else {
+            return Ok(());
+        };
+        self.typed_usernames.remove(&p.tab);
+        let now = self.now();
+        match answer {
+            CredentialAnswer::NotNow => return Ok(()),
+            CredentialAnswer::Save => {
+                self.credentials
+                    .save(&p.origin, &p.username, &p.password, now)
+            }
+            CredentialAnswer::Never => self.credentials.never_for(&p.origin, now),
+        }
+        self.save_credentials()
+    }
+
+    /// Deletes a saved sign-in (with an empty `username`, the "never for
+    /// this site" entry of `origin`).
+    pub fn remove_credential(&mut self, origin: &str, username: &str) -> Result<(), BrowserError> {
+        if self.credentials.remove(origin, username, self.now()) {
+            self.save_credentials()?;
+        }
+        Ok(())
+    }
+
+    fn save_credentials(&mut self) -> Result<(), BrowserError> {
+        self.unsynced = true;
+        self.profile.credentials.save(&self.credentials)?;
+        Ok(())
+    }
+
+    /// Fills `tab`'s sign-in form with the latest sign-in saved for the
+    /// origin of `address`.
+    fn fill_credentials(&mut self, tab: TabId, address: &WebAddress) {
+        if !self.settings.device.save_passwords {
+            return;
+        }
+        let Some(origin) = address.origin() else {
+            return;
+        };
+        if let Some(c) = self.credentials.for_origin(&origin).first() {
+            let (username, password) = (c.username.clone(), c.password.clone());
+            self.engine
+                .fill_credentials(tab, &origin, &username, &password);
         }
     }
 
@@ -246,10 +457,12 @@ impl<E: WebEngine> Browser<E> {
     pub fn apply_remote(&mut self, records: &[DeviceRecord]) -> Result<(), BrowserError> {
         let mut bookmarks_changed = false;
         let mut settings_changed = false;
+        let mut credentials_changed = false;
         for r in records {
             bookmarks_changed |= self.bookmarks.merge(&r.bookmarks);
             self.history_dirty |= self.history.merge(&r.history);
             settings_changed |= self.settings.merge(&r.settings);
+            credentials_changed |= self.credentials.merge(&r.credentials);
         }
         self.remote_devices = records
             .iter()
@@ -267,7 +480,10 @@ impl<E: WebEngine> Browser<E> {
         if settings_changed {
             self.profile.settings.save(&self.settings)?;
         }
-        Ok(())
+        if credentials_changed {
+            self.profile.credentials.save(&self.credentials)?;
+        }
+        self.import_cookies(records)
     }
 
     /// Replaces the settings (they win over older ones on other devices).
@@ -387,6 +603,7 @@ impl<E: WebEngine> Browser<E> {
             }
             self.closed.push((address.clone(), index));
         }
+        self.typed_usernames.remove(&id);
         if self.session.close_tab(id) {
             self.engine.close_view(id);
             self.engine.show(self.session.active_id());
@@ -514,6 +731,9 @@ impl<E: WebEngine> Browser<E> {
                 }
             }
             EngineEvent::LoadFinished { tab, address } => {
+                if self.session.tab(tab).is_some_and(|t| !t.is_private()) {
+                    self.fill_credentials(tab, &address);
+                }
                 if let Some(t) = self.session.tab_mut(tab) {
                     t.load_finished(address.clone());
                     let title = t.title().to_owned();
@@ -581,12 +801,15 @@ mod tests {
         Forward(u64),
         Reload(u64),
         Viewport(Viewport),
+        Fill(u64, String, String),
+        SetCookies(Vec<String>),
     }
 
     #[derive(Default)]
     struct FakeEngine {
         calls: Vec<Call>,
         fail_open: bool,
+        cookies: Option<Vec<SiteCookie>>,
     }
 
     impl WebEngine for FakeEngine {
@@ -626,6 +849,21 @@ mod tests {
         }
         fn set_viewport(&mut self, viewport: Viewport) {
             self.calls.push(Call::Viewport(viewport));
+        }
+        fn fill_credentials(&mut self, tab: TabId, origin: &str, username: &str, _: &str) {
+            self.calls
+                .push(Call::Fill(tab.get(), origin.into(), username.into()));
+        }
+        fn site_cookies(&mut self) -> Option<Vec<SiteCookie>> {
+            self.cookies.clone()
+        }
+        fn set_site_cookies(&mut self, cookies: &[SiteCookie]) {
+            self.calls.push(Call::SetCookies(
+                cookies.iter().map(|c| c.value.clone()).collect(),
+            ));
+            if let Some(all) = &mut self.cookies {
+                all.extend_from_slice(cookies);
+            }
         }
     }
 
@@ -669,6 +907,8 @@ mod tests {
         history: Cell<BrowsingHistory>,
         bookmarks: Cell<Bookmarks>,
         session: Cell<SessionSnapshot>,
+        credentials: Cell<Credentials>,
+        seen_cookies: Cell<SeenCookies>,
     }
 
     impl Store {
@@ -678,6 +918,8 @@ mod tests {
                 history: Box::new(MemoryRepository(self.history.clone())),
                 bookmarks: Box::new(MemoryRepository(self.bookmarks.clone())),
                 session: Box::new(MemoryRepository(self.session.clone())),
+                credentials: Box::new(MemoryRepository(self.credentials.clone())),
+                seen_cookies: Box::new(MemoryRepository(self.seen_cookies.clone())),
                 clock: Box::new(FixedClock),
             }
         }
@@ -758,10 +1000,12 @@ mod tests {
                 history: Box::new(FailingRepository),
                 bookmarks: Box::new(FailingRepository),
                 session: Box::new(FailingRepository),
+                credentials: Box::new(FailingRepository),
+                seen_cookies: Box::new(FailingRepository),
                 clock: Box::new(FixedClock),
             },
         );
-        assert_eq!(b.load_profile().len(), 2);
+        assert_eq!(b.load_profile().len(), 4);
         assert!(b.history().is_empty());
         // An unreadable session falls back to the home page.
         assert_eq!(b.restore_session().unwrap(), 0);
@@ -843,6 +1087,131 @@ mod tests {
         assert_eq!(store.bookmarks.lock().unwrap().as_ref().unwrap().len(), 1);
         assert!(store.settings.lock().unwrap().is_some());
         assert!(b.has_unsaved_changes());
+    }
+
+    fn signed_in_browser() -> (Store, Browser<FakeEngine>, TabId) {
+        let store = Store::default();
+        let mut settings = Settings::default();
+        settings.device.save_passwords = true;
+        let mut b = Browser::new(FakeEngine::default(), settings, store.profile());
+        let id = b.open_tab(None).unwrap();
+        finish(&mut b, id, "https://a.com/login");
+        (store, b, id)
+    }
+
+    #[test]
+    fn typed_sign_ins_are_offered_saved_and_filled_in() {
+        let (store, mut b, id) = signed_in_browser();
+        b.offer_credential(id, "me", "");
+        assert!(b.pending_credential().is_none(), "the user name alone");
+        b.offer_credential(id, "", "secret");
+        let pending = b.pending_credential().unwrap();
+        assert_eq!(pending.origin, "https://a.com");
+        assert_eq!(pending.username, "me", "from the first step");
+        assert!(!pending.update);
+        b.answer_credential(CredentialAnswer::Save).unwrap();
+        assert!(b.pending_credential().is_none());
+        assert!(b.has_unsynced_changes());
+        let saved = store.credentials.lock().unwrap().clone().unwrap();
+        assert_eq!(saved.for_origin("https://a.com")[0].password, "secret");
+
+        // The same again: nothing to ask. Another password: an update.
+        b.offer_credential(id, "me", "secret");
+        assert!(b.pending_credential().is_none());
+        b.offer_credential(id, "me", "new");
+        assert!(b.pending_credential().unwrap().update);
+        b.answer_credential(CredentialAnswer::NotNow).unwrap();
+
+        take_calls(&mut b);
+        finish(&mut b, id, "https://a.com/again");
+        assert!(take_calls(&mut b).contains(&Call::Fill(
+            id.get(),
+            "https://a.com".into(),
+            "me".into()
+        )));
+    }
+
+    #[test]
+    fn never_means_never_and_the_setting_turns_it_all_off() {
+        let (_, mut b, id) = signed_in_browser();
+        b.offer_credential(id, "me", "pw");
+        b.answer_credential(CredentialAnswer::Never).unwrap();
+        b.offer_credential(id, "me", "pw");
+        assert!(b.pending_credential().is_none());
+        b.remove_credential("https://a.com", "").unwrap();
+        b.offer_credential(id, "me", "pw");
+        assert!(b.pending_credential().is_some());
+
+        let mut settings = Settings::default();
+        settings.device.save_passwords = false;
+        let mut off = Browser::new(FakeEngine::default(), settings, Store::default().profile());
+        let id = off.open_tab(None).unwrap();
+        finish(&mut off, id, "https://a.com/");
+        off.offer_credential(id, "me", "pw");
+        assert!(off.pending_credential().is_none());
+    }
+
+    fn cookie(domain: &str, value: &str) -> SiteCookie {
+        SiteCookie {
+            domain: domain.into(),
+            name: "sid".into(),
+            value: value.into(),
+            path: "/".into(),
+            secure: true,
+            http_only: true,
+            same_site: String::new(),
+            expires: None,
+        }
+    }
+
+    #[test]
+    fn cookies_go_to_the_others_and_come_back_only_once() {
+        let mut settings = Settings::default();
+        settings.device.sync_cookies = true;
+        let store = Store::default();
+        let mut b = Browser::new(FakeEngine::default(), settings.clone(), store.profile());
+        b.engine_mut().cookies = Some(vec![cookie("a.com", "mine"), cookie("ads.net", "x")]);
+        let id = b.open_tab(None).unwrap();
+        finish(&mut b, id, "https://a.com/");
+        let record = b.sync_record(device("desktop"), "Desktop");
+        assert_eq!(
+            record.cookies,
+            vec![cookie("a.com", "mine")],
+            "visited sites only"
+        );
+
+        let mut phone = Browser::new(FakeEngine::default(), settings, Store::default().profile());
+        phone.engine_mut().cookies = Some(vec![]);
+        phone.apply_remote(std::slice::from_ref(&record)).unwrap();
+        assert_eq!(
+            take_calls(&mut phone),
+            vec![Call::SetCookies(vec!["mine".into()])]
+        );
+        // Signed out on the phone: the desktop's copy does not come back.
+        phone.engine_mut().cookies = Some(vec![]);
+        phone.apply_remote(std::slice::from_ref(&record)).unwrap();
+        assert!(take_calls(&mut phone).is_empty());
+
+        // Sync of cookies off: nothing shared.
+        b.update_device_settings(domain::DeviceSettings {
+            sync_cookies: false,
+            ..Default::default()
+        })
+        .unwrap();
+        assert!(b.sync_record(device("desktop"), "D").cookies.is_empty());
+    }
+
+    #[test]
+    fn credentials_travel_in_the_records() {
+        let (_, mut b, id) = signed_in_browser();
+        b.offer_credential(id, "me", "pw");
+        b.answer_credential(CredentialAnswer::Save).unwrap();
+        let record = b.sync_record(device("desktop"), "Desktop");
+        let store = Store::default();
+        let mut phone = browser_with(&store);
+        phone.apply_remote(std::slice::from_ref(&record)).unwrap();
+        assert_eq!(phone.credentials().saved().len(), 1);
+        assert!(store.credentials.lock().unwrap().is_some());
     }
 
     #[test]
