@@ -106,6 +106,20 @@ function matches(entry, href) {
   return entry.match.some((r) => r.test(href)) && !entry.exclude.some((r) => r.test(href));
 }
 
+// Calls `f` once the document has its root element: Chrome runs
+// "document_start" scripts just after it is created, the browser's page
+// scripts may run just before (scripts then find no `document.documentElement`).
+// The observer's callback comes before the page's first script runs.
+function whenRoot(f) {
+  if (document.documentElement) return f();
+  new MutationObserver((_, observer) => {
+    if (document.documentElement) {
+      observer.disconnect();
+      f();
+    }
+  }).observe(document, { childList: true });
+}
+
 function at(runAt, fn) {
   const run = () => {
     try {
@@ -114,7 +128,7 @@ function at(runAt, fn) {
       console.error("[Browsing Unicorns]", e);
     }
   };
-  if (runAt === "document_start") return run();
+  if (runAt === "document_start") return whenRoot(run);
   if (runAt === "document_end") {
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", run, { once: true });
     else run();
@@ -129,15 +143,7 @@ function at(runAt, fn) {
 function addStyle(css) {
   const style = document.createElement("style");
   style.textContent = css;
-  const attach = () => (document.head || document.documentElement).appendChild(style);
-  if (document.documentElement) attach();
-  else
-    new MutationObserver((_, observer) => {
-      if (document.documentElement) {
-        observer.disconnect();
-        attach();
-      }
-    }).observe(document, { childList: true });
+  whenRoot(() => (document.head || document.documentElement).appendChild(style));
   return style;
 }
 
