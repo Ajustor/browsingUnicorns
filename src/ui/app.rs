@@ -963,7 +963,13 @@ impl BrowserApp {
         }
         self.updates.banner(ctx, commands);
         self.default_browser.banner(ctx, commands);
-        super::passwords::banner(ctx, self.browser.pending_credential(), commands);
+        // Asked in the tab where it was typed only.
+        let active = self.browser.session().active().map(|t| t.id());
+        let pending = self
+            .browser
+            .pending_credential()
+            .filter(|p| Some(p.tab) == active);
+        super::passwords::banner(ctx, pending, commands);
         if self.library.open == Some(LibraryView::Profiles) && !self.is_private() {
             self.profiles.refresh(ctx);
         }
