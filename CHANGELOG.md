@@ -4,6 +4,20 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.21.1] - 2026-11-24
+
+### Corrigé
+
+- Les cadres qu'une extension insère dans une page (menu de
+  remplissage, fenêtre de connexion…) étaient bloqués par les sites
+  dont la politique de sécurité (CSP) n'autorise que leurs propres
+  cadres, comme la page de connexion d'arte.tv (« Ce contenu a été
+  bloqué »). Comme dans Chrome, les pages des extensions sont désormais
+  admises (Windows).
+- La proposition d'enregistrer un mot de passe ne s'affiche plus que
+  dans l'onglet où il a été saisi, au lieu de suivre d'un onglet à
+  l'autre.
+
 ## [0.21.0] - 2026-11-24
 
 ### Ajouté
