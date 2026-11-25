@@ -63,6 +63,23 @@ impl Chrome {
     }
 }
 
+/// A tab group's colour: its label, the line under its tabs. Light enough
+/// for [`NIGHT_DEEP`] text on it.
+pub fn group_color(color: domain::GroupColor) -> Color32 {
+    use domain::GroupColor as G;
+    match color {
+        G::Grey => rgb(0xbdc1c6),
+        G::Blue => rgb(0x8ab4f8),
+        G::Red => rgb(0xf28b82),
+        G::Yellow => rgb(0xfdd663),
+        G::Green => rgb(0x81c995),
+        G::Pink => rgb(0xff8bcb),
+        G::Purple => rgb(0xc58af9),
+        G::Cyan => rgb(0x78d9ec),
+        G::Orange => rgb(0xfcad70),
+    }
+}
+
 /// Side panel and banners, dark theme.
 pub mod dark {
     use super::{Color32, rgb};
@@ -304,6 +321,9 @@ mod tests {
         assert!(contrast(dark::TEXT, dark::PANEL) >= 4.5);
         assert!(contrast(light::TEXT, light::PANEL) >= 4.5);
         assert!(contrast(Color32::WHITE, light::ACCENT) >= 4.5);
+        for color in domain::GroupColor::ALL {
+            assert!(contrast(NIGHT_DEEP, group_color(color)) >= 4.5);
+        }
         for chrome in [NORMAL, PRIVATE] {
             assert!(contrast(CHROME_TEXT, chrome.night) >= 4.5);
             assert!(contrast(CHROME_TEXT, chrome.hover) >= 4.5);

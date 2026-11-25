@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use application::Browser;
 use application::ports::{EngineEvent, PageSource, Viewport, WebEngine as _};
-use domain::TabId;
+use domain::{GroupId, TabId};
 use egui::{CentralPanel, Frame, TopBottomPanel, ViewportCommand};
 use infrastructure::{PrivateDataDir, WryEngine};
 use updater::ExitAction;
@@ -21,6 +21,7 @@ use super::shield::{Shield, ShieldView};
 use super::site_info::SiteInfo;
 use super::sync::SyncRunner;
 use super::sync_panel::SyncView;
+use super::tab_search::TabSearch;
 use super::toolbar::ShieldButton;
 use super::updates::{Notice, Updates};
 use super::user_scripts::UserScriptsRunner;
@@ -50,6 +51,9 @@ pub struct BrowserApp {
     profiles: ProfilesRunner,
     exit_slot: ExitSlot,
     omnibox: Omnibox,
+    tab_search: TabSearch,
+    /// A new group whose name is being typed in its label.
+    naming_group: Option<GroupId>,
     library: Library,
     notice: Option<Notice>,
     downloads: super::downloads::Downloads,
@@ -126,6 +130,8 @@ impl BrowserApp {
             profiles,
             exit_slot,
             omnibox: Omnibox::default(),
+            tab_search: TabSearch::default(),
+            naming_group: None,
             page_fullscreen: None,
             favicons: Default::default(),
             window_fullscreen: None,
@@ -484,6 +490,27 @@ impl BrowserApp {
             Command::CloseActiveTab => self.browser.close_active_tab(),
             Command::Activate(id) => self.browser.activate(id),
             Command::MoveTab(id, to) => self.browser.move_tab(id, to),
+            Command::SetPinned(id, pinned) => self.browser.set_pinned(id, pinned),
+            Command::NewGroup(id) => {
+                if let Some(group) = self.browser.new_group(id) {
+                    // Named at once, as in other browsers.
+                    self.tab_search.close();
+                    self.naming_group = Some(group);
+                }
+            }
+            Command::AddToGroup(id, group) => self.browser.add_to_group(id, group),
+            Command::RemoveFromGroup(id) => self.browser.remove_from_group(id),
+            Command::RenameGroup(group, name) => self.browser.rename_group(group, &name),
+            Command::SetGroupColor(group, color) => self.browser.set_group_color(group, color),
+            Command::SetGroupCollapsed(group, collapsed) => {
+                self.browser.set_group_collapsed(group, collapsed);
+            }
+            Command::Ungroup(group) => self.browser.ungroup(group),
+            Command::CloseGroup(group) => self.browser.close_group(group),
+            Command::ToggleTabSearch => {
+                self.browser.engine().focus_window();
+                self.tab_search.toggle();
+            }
             Command::CycleTabs(offset) => self.browser.cycle_tabs(offset),
             Command::Back => self.browser.go_back(),
             Command::Forward => self.browser.go_forward(),
@@ -881,7 +908,13 @@ impl BrowserApp {
     /// The tab strip, the toolbar, the bars and the side panel.
     fn show_chrome(&mut self, ctx: &egui::Context, commands: &mut Vec<Command>) {
         let chrome = super::theme::Chrome::of(self.is_private());
-        TopBottomPanel::top("tabs")
+        // A group gone (closed, ungrouped) is no longer named.
+        if let Some(group) = self.naming_group
+            && self.browser.session().group(group).is_none()
+        {
+            self.naming_group = None;
+        }
+        let strip = TopBottomPanel::top("tabs")
             .frame(egui::Frame::NONE.inner_margin(egui::Margin {
                 left: 8,
                 right: 8,
@@ -898,9 +931,12 @@ impl BrowserApp {
                     &self.favicons,
                     &chrome,
                     self.is_private(),
+                    &mut self.naming_group,
                     commands,
                 );
-            });
+            })
+            .response
+            .rect;
         let actions = if infrastructure::builtin_extensions() {
             self.bar.actions(ctx, self.extensions.extensions())
         } else {
@@ -941,6 +977,14 @@ impl BrowserApp {
             self.omnibox.set_suggestions(query, found);
         }
         self.omnibox.show_suggestions(ctx, &chrome, commands);
+        self.tab_search.show(
+            ctx,
+            strip.bottom() + 6.0,
+            self.browser.session(),
+            &self.favicons,
+            &chrome,
+            commands,
+        );
         self.site_info_bar(ctx);
         self.shield_bar(ctx, commands);
         if !self.browser.bookmarks().is_empty() {

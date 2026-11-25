@@ -2,7 +2,8 @@ use std::path::{Path, PathBuf};
 
 use application::ports::{Repository, RepositoryError};
 use domain::{
-    Bookmarks, BrowsingHistory, Extension, ExtensionId, Extensions, SessionSnapshot, WebAddress,
+    Bookmarks, BrowsingHistory, Extension, ExtensionId, Extensions, GroupColor, SavedGroup,
+    SessionSnapshot, WebAddress,
 };
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -79,18 +80,60 @@ impl Repository<Bookmarks> for JsonRepository {
 struct SessionFile {
     tabs: Vec<String>,
     active: Option<usize>,
+    /// The first `pinned` tabs are pinned.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pinned: usize,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    groups: Vec<GroupDto>,
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
+}
+
+#[derive(Serialize, Deserialize)]
+struct GroupDto {
+    #[serde(default)]
+    name: String,
+    color: String,
+    #[serde(default)]
+    collapsed: bool,
+    /// Index of its first tab, and how many it has.
+    first: usize,
+    len: usize,
 }
 
 impl Repository<SessionSnapshot> for JsonRepository {
     fn load(&self) -> Result<SessionSnapshot, RepositoryError> {
         let file: SessionFile = self.load_file()?;
         let mut snapshot = SessionSnapshot::default();
+        // Where each tab of the file lands, its invalid ones left out.
+        let mut kept = Vec::with_capacity(file.tabs.len());
         for (i, url) in file.tabs.iter().enumerate() {
+            kept.push(snapshot.tabs.len());
             if let Some(address) = parse(url) {
                 if file.active == Some(i) {
                     snapshot.active = Some(snapshot.tabs.len());
                 }
+                if i < file.pinned {
+                    snapshot.pinned += 1;
+                }
                 snapshot.tabs.push(address);
+            }
+        }
+        kept.push(snapshot.tabs.len());
+        for group in file.groups {
+            let end = group.first.saturating_add(group.len).min(file.tabs.len());
+            let Some((&start, &end)) = kept.get(group.first).zip(kept.get(end)) else {
+                continue;
+            };
+            if start < end {
+                snapshot.groups.push(SavedGroup {
+                    name: group.name,
+                    color: GroupColor::parse(&group.color),
+                    collapsed: group.collapsed,
+                    tabs: start..end,
+                });
             }
         }
         Ok(snapshot)
@@ -100,6 +143,18 @@ impl Repository<SessionSnapshot> for JsonRepository {
         self.save_file(&SessionFile {
             tabs: snapshot.tabs.iter().map(ToString::to_string).collect(),
             active: snapshot.active,
+            pinned: snapshot.pinned,
+            groups: snapshot
+                .groups
+                .iter()
+                .map(|g| GroupDto {
+                    name: g.name.clone(),
+                    color: g.color.as_str().to_owned(),
+                    collapsed: g.collapsed,
+                    first: g.tabs.start,
+                    len: g.tabs.len(),
+                })
+                .collect(),
         })
     }
 }
@@ -223,6 +278,48 @@ mod tests {
             vec![addr("https://a.com/"), addr("https://b.com/")]
         );
         assert_eq!(snapshot.active, Some(1));
+    }
+
+    #[test]
+    fn pinned_tabs_and_groups_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let r = repo(&dir, "session.json");
+        let snapshot = SessionSnapshot {
+            tabs: ["a", "b", "c", "d"]
+                .iter()
+                .map(|p| addr(&format!("https://{p}.com/")))
+                .collect(),
+            active: Some(3),
+            pinned: 1,
+            groups: vec![SavedGroup {
+                name: "Work".into(),
+                color: GroupColor::Green,
+                collapsed: true,
+                tabs: 1..3,
+            }],
+        };
+        r.save(&snapshot).unwrap();
+        assert_eq!(Repository::<SessionSnapshot>::load(&r).unwrap(), snapshot);
+    }
+
+    #[test]
+    fn groups_follow_the_invalid_tabs_left_out() {
+        let dir = tempfile::tempdir().unwrap();
+        let r = repo(&dir, "session.json");
+        files::write(
+            r.path(),
+            r#"{"tabs":["https://a.com/","javascript:x","https://b.com/","https://c.com/"],
+                "active":null,"pinned":2,
+                "groups":[{"name":"G","color":"blue","first":1,"len":2},
+                          {"color":"red","first":1,"len":1}]}"#,
+        )
+        .unwrap();
+        let snapshot: SessionSnapshot = r.load().unwrap();
+        assert_eq!(snapshot.tabs.len(), 3);
+        assert_eq!(snapshot.pinned, 1);
+        assert_eq!(snapshot.groups.len(), 1, "a group left without tabs");
+        assert_eq!(snapshot.groups[0].tabs, 1..2);
+        assert_eq!(snapshot.groups[0].color, GroupColor::Blue);
     }
 
     #[test]

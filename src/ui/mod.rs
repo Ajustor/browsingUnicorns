@@ -23,6 +23,7 @@ mod site_info;
 mod sync;
 mod sync_panel;
 mod system_font;
+mod tab_search;
 mod tab_strip;
 pub mod theme;
 mod toolbar;

@@ -1,9 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
 use domain::{
-    Bookmarks, BrowsingHistory, Credentials, DeviceId, DeviceRecord, Offer, RemoteTab, SeenCookies,
-    Session, SessionSnapshot, Settings, SiteCookie, Suggestion, TabId, Timestamp, Visit,
-    WebAddress, cookies_to_import, cookies_to_share, resolve_omnibox, suggest,
+    Bookmarks, BrowsingHistory, Credentials, DeviceId, DeviceRecord, GroupColor, GroupId, Offer,
+    RemoteTab, SeenCookies, Session, SessionSnapshot, Settings, SiteCookie, Suggestion, TabId,
+    Timestamp, Visit, WebAddress, cookies_to_import, cookies_to_share, resolve_omnibox, suggest,
 };
 
 use crate::BrowserError;
@@ -122,6 +122,7 @@ impl<E: WebEngine> Browser<E> {
         for address in &snapshot.tabs {
             ids.push(self.open_tab(Some(address.clone()))?);
         }
+        self.session.restore_layout(&ids, &snapshot);
         match snapshot.active.and_then(|i| ids.get(i)) {
             Some(&id) => self.activate(id),
             None if ids.is_empty() => {
@@ -602,6 +603,56 @@ impl<E: WebEngine> Browser<E> {
     /// Moves tab `id` to index `to` of the tab strip.
     pub fn move_tab(&mut self, id: TabId, to: usize) {
         self.session.move_tab(id, to);
+    }
+
+    /// Pins tab `id` (first, small, out of its group) or unpins it.
+    pub fn set_pinned(&mut self, id: TabId, pinned: bool) {
+        self.session.set_pinned(id, pinned);
+    }
+
+    /// Puts tab `id` in a new group of its own.
+    pub fn new_group(&mut self, id: TabId) -> Option<GroupId> {
+        self.session.new_group(id)
+    }
+
+    /// Moves tab `id` to the end of `group`.
+    pub fn add_to_group(&mut self, id: TabId, group: GroupId) {
+        self.session.add_to_group(id, group);
+    }
+
+    /// Takes tab `id` out of its group.
+    pub fn remove_from_group(&mut self, id: TabId) {
+        self.session.remove_from_group(id);
+    }
+
+    /// Takes all the tabs of `group` out of it.
+    pub fn ungroup(&mut self, group: GroupId) {
+        self.session.ungroup(group);
+    }
+
+    pub fn rename_group(&mut self, group: GroupId, name: &str) {
+        self.session.rename_group(group, name);
+    }
+
+    pub fn set_group_color(&mut self, group: GroupId, color: GroupColor) {
+        self.session.set_group_color(group, color);
+    }
+
+    /// Collapses or expands `group`; collapsed with the active tab, another
+    /// one is shown.
+    pub fn set_group_collapsed(&mut self, group: GroupId, collapsed: bool) {
+        let before = self.session.active_id();
+        self.session.set_group_collapsed(group, collapsed);
+        if self.session.active_id() != before {
+            self.engine.show(self.session.active_id());
+        }
+    }
+
+    /// Closes every tab of `group`.
+    pub fn close_group(&mut self, group: GroupId) {
+        for id in self.session.group_tabs(group) {
+            self.close_tab(id);
+        }
     }
 
     /// What the address bar proposes for `input`: past searches and pages

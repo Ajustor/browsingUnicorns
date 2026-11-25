@@ -1,5 +1,5 @@
 use application::Target;
-use domain::{ExtensionId, TabId, UserScriptId, WebAddress};
+use domain::{ExtensionId, GroupColor, GroupId, TabId, UserScriptId, WebAddress};
 
 use super::library::LibraryView;
 use super::profiles::ProfileCommand;
@@ -57,6 +57,21 @@ pub enum Command {
     Activate(TabId),
     /// Moves a tab to that index of the tab strip.
     MoveTab(TabId, usize),
+    /// Pins a tab, or unpins it.
+    SetPinned(TabId, bool),
+    /// Puts a tab in a new group of its own.
+    NewGroup(TabId),
+    AddToGroup(TabId, GroupId),
+    RemoveFromGroup(TabId),
+    RenameGroup(GroupId, String),
+    SetGroupColor(GroupId, GroupColor),
+    SetGroupCollapsed(GroupId, bool),
+    /// Takes every tab out of a group.
+    Ungroup(GroupId),
+    /// Closes every tab of a group.
+    CloseGroup(GroupId),
+    /// Shows the search of the open tabs, or hides it.
+    ToggleTabSearch,
     /// Moves a tab to a new window: x, y, width, height on the screen.
     DetachTab(TabId, [f32; 4]),
     CycleTabs(isize),

@@ -27,6 +27,11 @@ const SHORTCUTS: &[(Modifiers, Key, Command)] = &[
         Command::CycleTabs(-1),
     ),
     (Modifiers::COMMAND, Key::Tab, Command::CycleTabs(1)),
+    (
+        Modifiers::COMMAND.plus(Modifiers::SHIFT),
+        Key::A,
+        Command::ToggleTabSearch,
+    ),
     (Modifiers::COMMAND, Key::L, Command::FocusOmnibox),
     (Modifiers::NONE, Key::F6, Command::FocusOmnibox),
     // Before Ctrl+R and F5, which match with Shift or Ctrl held too.
@@ -148,6 +153,10 @@ mod tests {
         assert!(matches!(
             from_page(&press("N", true, true, false)),
             Some(Command::OpenPrivateWindow)
+        ));
+        assert!(matches!(
+            from_page(&press("A", true, true, false)),
+            Some(Command::ToggleTabSearch)
         ));
         // A page's own keys stay with it.
         assert!(from_page(&press("C", true, false, false)).is_none());

@@ -1,7 +1,7 @@
 use egui::{Button, Color32, RichText, ScrollArea, Sense, Spinner};
 use egui_phosphor::regular as icon;
 
-use domain::Session;
+use domain::{GroupId, Session, Tab, TabGroup};
 
 use super::command::Command;
 
@@ -31,14 +31,20 @@ pub fn area(ui: &egui::Ui) -> egui::Rect {
 }
 
 /// The tab strip, which is also the window's title bar: its empty space
-/// moves the window (double click: maximize), and it ends with the window's
-/// buttons (but on macOS, where the system draws them on its left).
+/// moves the window (double click: maximize), and it ends with the tab
+/// search and the window's buttons (but on macOS, where the system draws
+/// them on its left).
+///
+/// Pinned tabs come first, small; a group's tabs follow its label, a line
+/// of its colour under them. `naming` is a group whose name is being typed
+/// in its label (a new one).
 pub fn show(
     ui: &mut egui::Ui,
     session: &Session,
     favicons: &super::favicons::Favicons,
     chrome: &super::theme::Chrome,
     private: bool,
+    naming: &mut Option<GroupId>,
     commands: &mut Vec<Command>,
 ) {
     title_bar(ui);
@@ -51,9 +57,9 @@ pub fn show(
             private_pill(ui, chrome);
         }
         let controls = if cfg!(target_os = "macos") {
-            0.0
+            SEARCH_BUTTON
         } else {
-            WINDOW_BUTTONS
+            WINDOW_BUTTONS + SEARCH_BUTTON
         };
         // As wide as the tabs: the + follows the last one (room kept for it
         // when they overflow). No scroll bar, which got in the way of the
@@ -78,11 +84,37 @@ pub fn show(
                         d.insert_temp(shown, session.active_id());
                         changed
                     });
+                    let mut label_of = None;
                     for (index, tab) in session.tabs().iter().enumerate() {
                         let active = session.active_id() == Some(tab.id());
+                        let group = tab.group().and_then(|g| session.group(g));
+                        if group.map(TabGroup::id) != label_of {
+                            label_of = group.map(TabGroup::id);
+                            if let Some(group) = group {
+                                group_label(ui, session, group, naming, commands);
+                            }
+                        }
+                        // A collapsed group's tabs take no room (but the
+                        // active one): dropped there, a tab goes after them.
+                        if group.is_some_and(|g| g.collapsed) && !active {
+                            let x = ui.cursor().left();
+                            rects.push(egui::Rect::from_x_y_ranges(x..=x, ui.min_rect().y_range()));
+                            continue;
+                        }
                         let icon = favicons.get(tab.id());
-                        let response =
-                            tab_button(ui, tab, icon, favicons, active, chrome, commands);
+                        let response = if tab.is_pinned() {
+                            pinned_button(ui, tab, icon, active, chrome, session, commands)
+                        } else {
+                            tab_button(ui, tab, icon, favicons, active, chrome, session, commands)
+                        };
+                        if let Some(group) = group {
+                            let r = response.rect;
+                            ui.painter().hline(
+                                r.x_range().shrink(4.0),
+                                r.bottom() - 1.5,
+                                egui::Stroke::new(3.0_f32, super::theme::group_color(group.color)),
+                            );
+                        }
                         if active && newly_active {
                             response.scroll_to_me(None);
                         }
@@ -92,7 +124,15 @@ pub fn show(
                         rects.push(response.rect);
                     }
                     if let Some((from, id, dropped)) = dragged {
-                        drag_tab(ui, &rects, from, id, dropped, commands);
+                        // Pinned tabs stay among themselves, the others
+                        // after them.
+                        let pinned = session.pinned_count();
+                        let zone = if from < pinned {
+                            0..=pinned
+                        } else {
+                            pinned..=rects.len()
+                        };
+                        drag_tab(ui, &rects, from, id, dropped, zone, commands);
                     }
                 })
                 .response
@@ -112,49 +152,50 @@ pub fn show(
         if plus.secondary_clicked() {
             commands.push(Command::ReopenClosedTab);
         }
-        if !cfg!(target_os = "macos") {
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if !cfg!(target_os = "macos") {
                 window_buttons(ui);
-            });
-        }
+            }
+            ui.add_space(6.0);
+            let search = super::theme::hover_fill(ui, |ui| {
+                ui.add(
+                    Button::new(
+                        RichText::new(icon::MAGNIFYING_GLASS)
+                            .color(Color32::WHITE)
+                            .size(15.0),
+                    )
+                    .frame(false),
+                )
+            })
+            .on_hover_text(i18n::tabs::search_tabs());
+            if search.clicked() {
+                commands.push(Command::ToggleTabSearch);
+            }
+        });
     });
 
+    #[allow(clippy::too_many_arguments)]
     fn tab_button(
         ui: &mut egui::Ui,
-        tab: &domain::Tab,
+        tab: &Tab,
         icon: Option<&egui::TextureHandle>,
         favicons: &super::favicons::Favicons,
         active: bool,
         chrome: &super::theme::Chrome,
+        session: &Session,
         commands: &mut Vec<Command>,
     ) -> egui::Response {
-        let (fill, text) = if active {
-            (chrome.night, Color32::WHITE)
-        } else {
-            (Color32::TRANSPARENT, super::theme::TAB_TEXT)
-        };
-        let frame = egui::Frame::NONE
-            .fill(fill)
-            .corner_radius(egui::CornerRadius {
-                nw: 10,
-                ne: 10,
-                sw: 0,
-                se: 0,
-            })
-            .inner_margin(egui::Margin {
-                left: 12,
-                right: 8,
-                top: 7,
-                bottom: 7,
-            });
+        let text = tab_text(active);
         // The whole tab is clickable, and dragged to move it; sensed before
         // its content, so the title and the close button inside it get
         // their own clicks.
         let response = ui
             .scope_builder(
-                egui::UiBuilder::new().sense(Sense::click_and_drag()),
+                egui::UiBuilder::new()
+                    .id_salt(tab.id())
+                    .sense(Sense::click_and_drag()),
                 |ui| {
-                    frame.show(ui, |ui| {
+                    tab_frame(active, chrome, 12).show(ui, |ui| {
                         ui.set_min_width(110.0);
                         ui.set_max_width(190.0);
                         ui.horizontal(|ui| {
@@ -204,6 +245,7 @@ pub fn show(
                             if label.middle_clicked() {
                                 commands.push(Command::CloseTab(tab.id()));
                             }
+                            label.context_menu(|ui| tab_menu(ui, tab, session, commands));
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
@@ -228,18 +270,68 @@ pub fn show(
                 },
             )
             .response;
+        tab_response(ui, &response, tab, active, session, commands);
+        response
+    }
+
+    /// A pinned tab: its icon alone, no close button.
+    fn pinned_button(
+        ui: &mut egui::Ui,
+        tab: &Tab,
+        icon: Option<&egui::TextureHandle>,
+        active: bool,
+        chrome: &super::theme::Chrome,
+        session: &Session,
+        commands: &mut Vec<Command>,
+    ) -> egui::Response {
+        let text = tab_text(active);
+        let response = ui
+            .scope_builder(
+                egui::UiBuilder::new()
+                    .id_salt(tab.id())
+                    .sense(Sense::click_and_drag()),
+                |ui| {
+                    tab_frame(active, chrome, 11).show(ui, |ui| {
+                        ui.set_width(16.0);
+                        ui.vertical_centered(|ui| {
+                            if tab.is_loading() {
+                                ui.add(Spinner::new().size(14.0).color(text));
+                            } else if let Some(icon) = icon {
+                                ui.add(
+                                    egui::Image::new(icon)
+                                        .fit_to_exact_size(egui::vec2(16.0, 16.0)),
+                                );
+                            } else {
+                                ui.add(
+                                    egui::Label::new(
+                                        RichText::new(icon::GLOBE).color(text).size(15.0),
+                                    )
+                                    .selectable(false),
+                                );
+                            }
+                        });
+                    })
+                },
+            )
+            .response
+            .on_hover_text(tab.display_title());
+        tab_response(ui, &response, tab, active, session, commands);
+        response
+    }
+
+    /// What a whole tab does: hover, click, middle click, menu.
+    fn tab_response(
+        ui: &egui::Ui,
+        response: &egui::Response,
+        tab: &Tab,
+        active: bool,
+        session: &Session,
+        commands: &mut Vec<Command>,
+    ) {
         // Over the title or the close button too, which sit on top of it.
         if !active && response.contains_pointer() {
-            ui.painter().rect_filled(
-                response.rect,
-                egui::CornerRadius {
-                    nw: 10,
-                    ne: 10,
-                    sw: 0,
-                    se: 0,
-                },
-                Color32::from_white_alpha(28),
-            );
+            ui.painter()
+                .rect_filled(response.rect, TAB_CORNERS, Color32::from_white_alpha(28));
         }
         if response.clicked() {
             commands.push(Command::Activate(tab.id()));
@@ -247,7 +339,295 @@ pub fn show(
         if response.middle_clicked() {
             commands.push(Command::CloseTab(tab.id()));
         }
-        response
+        response.context_menu(|ui| tab_menu(ui, tab, session, commands));
+    }
+}
+
+const TAB_CORNERS: egui::CornerRadius = egui::CornerRadius {
+    nw: 10,
+    ne: 10,
+    sw: 0,
+    se: 0,
+};
+
+/// Room for the tab search's button, right of the tabs.
+const SEARCH_BUTTON: f32 = 34.0;
+
+fn tab_text(active: bool) -> Color32 {
+    if active {
+        Color32::WHITE
+    } else {
+        super::theme::TAB_TEXT
+    }
+}
+
+fn tab_frame(active: bool, chrome: &super::theme::Chrome, left: i8) -> egui::Frame {
+    let fill = if active {
+        chrome.night
+    } else {
+        Color32::TRANSPARENT
+    };
+    egui::Frame::NONE
+        .fill(fill)
+        .corner_radius(TAB_CORNERS)
+        .inner_margin(egui::Margin {
+            left,
+            right: if left == 12 { 8 } else { left },
+            top: 7,
+            bottom: 7,
+        })
+}
+
+/// A tab's menu (right click): pin, groups, close.
+fn tab_menu(ui: &mut egui::Ui, tab: &Tab, session: &Session, commands: &mut Vec<Command>) {
+    let item = |ui: &mut egui::Ui,
+                glyph: &str,
+                text: &str,
+                command: Command,
+                commands: &mut Vec<Command>| {
+        if ui.button(format!("{glyph}  {text}")).clicked() {
+            commands.push(command);
+            ui.close_menu();
+        }
+    };
+    if tab.is_pinned() {
+        item(
+            ui,
+            icon::PUSH_PIN_SLASH,
+            i18n::tabs::unpin_tab(),
+            Command::SetPinned(tab.id(), false),
+            commands,
+        );
+    } else {
+        item(
+            ui,
+            icon::PUSH_PIN,
+            i18n::tabs::pin_tab(),
+            Command::SetPinned(tab.id(), true),
+            commands,
+        );
+    }
+    ui.separator();
+    item(
+        ui,
+        icon::PLUS_SQUARE,
+        i18n::tabs::add_to_new_group(),
+        Command::NewGroup(tab.id()),
+        commands,
+    );
+    let others: Vec<&TabGroup> = session
+        .groups()
+        .iter()
+        .filter(|g| Some(g.id()) != tab.group())
+        .collect();
+    if !others.is_empty() {
+        ui.menu_button(
+            format!("{}  {}", icon::SQUARES_FOUR, i18n::tabs::add_to_group()),
+            |ui| {
+                for group in others {
+                    // A dot of its colour, then its name.
+                    let mut job = egui::text::LayoutJob::default();
+                    job.append(
+                        icon::CIRCLE,
+                        0.0,
+                        egui::TextFormat::simple(
+                            egui::FontId::proportional(13.0),
+                            super::theme::group_color(group.color),
+                        ),
+                    );
+                    job.append(
+                        &format!("  {}", group_title(session, group)),
+                        0.0,
+                        egui::TextFormat::simple(
+                            egui::FontId::proportional(14.0),
+                            ui.visuals().text_color(),
+                        ),
+                    );
+                    if ui.button(job).clicked() {
+                        commands.push(Command::AddToGroup(tab.id(), group.id()));
+                        ui.close_menu();
+                    }
+                }
+            },
+        );
+    }
+    if tab.group().is_some() {
+        item(
+            ui,
+            icon::SQUARE_SPLIT_HORIZONTAL,
+            i18n::tabs::remove_from_group(),
+            Command::RemoveFromGroup(tab.id()),
+            commands,
+        );
+    }
+    ui.separator();
+    item(
+        ui,
+        icon::X,
+        i18n::tabs::close(),
+        Command::CloseTab(tab.id()),
+        commands,
+    );
+}
+
+/// A group's name, else what stands for it in the menus.
+fn group_title(session: &Session, group: &TabGroup) -> String {
+    if group.name.is_empty() {
+        i18n::tabs::unnamed_group(session.group_tabs(group.id()).len())
+    } else {
+        group.name.clone()
+    }
+}
+
+/// The label before a group's tabs, in its colour: clicked, it collapses or
+/// expands the group; right-clicked, its menu (name, colour, ungroup,
+/// close). While `naming` it, its name is typed in it.
+fn group_label(
+    ui: &mut egui::Ui,
+    session: &Session,
+    group: &TabGroup,
+    naming: &mut Option<GroupId>,
+    commands: &mut Vec<Command>,
+) {
+    let color = super::theme::group_color(group.color);
+    let ink = super::theme::NIGHT_DEEP;
+    ui.add_space(4.0);
+    if *naming == Some(group.id()) {
+        let buffer = ui.id().with(("naming", group.id()));
+        let started = ui.data(|d| d.get_temp::<String>(buffer));
+        let mut name = started.clone().unwrap_or_else(|| group.name.clone());
+        let field = egui::Frame::NONE
+            .fill(color)
+            .corner_radius(egui::CornerRadius::same(6))
+            .inner_margin(egui::Margin::symmetric(6, 2))
+            .show(ui, |ui| {
+                let style = ui.visuals_mut();
+                style.override_text_color = Some(ink);
+                style.extreme_bg_color = Color32::TRANSPARENT;
+                style.widgets.inactive.bg_stroke = egui::Stroke::NONE;
+                style.widgets.hovered.bg_stroke = egui::Stroke::NONE;
+                style.widgets.active.bg_stroke = egui::Stroke::NONE;
+                style.selection.stroke = egui::Stroke::NONE;
+                ui.add(
+                    egui::TextEdit::singleline(&mut name)
+                        .desired_width(110.0)
+                        .frame(false)
+                        .hint_text(
+                            RichText::new(i18n::tabs::group_name()).color(ink.gamma_multiply(0.6)),
+                        ),
+                )
+            })
+            .inner;
+        if started.is_none() {
+            field.request_focus();
+        }
+        if field.lost_focus() {
+            commands.push(Command::RenameGroup(group.id(), name));
+            ui.data_mut(|d| d.remove::<String>(buffer));
+            *naming = None;
+        } else {
+            ui.data_mut(|d| d.insert_temp(buffer, name));
+        }
+        ui.add_space(2.0);
+        return;
+    }
+    let collapsed_count = group
+        .collapsed
+        .then(|| session.group_tabs(group.id()).len());
+    let text = match (group.name.is_empty(), collapsed_count) {
+        (true, None) => String::new(),
+        (true, Some(n)) => format!("+{n}"),
+        (false, None) => truncate(&group.name, TITLE_CHARS),
+        (false, Some(n)) => format!("{} · {n}", truncate(&group.name, TITLE_CHARS)),
+    };
+    // A pill as tall as a line of text (a dot without a name), centred on
+    // the tabs.
+    let galley = (!text.is_empty()).then(|| {
+        ui.painter()
+            .layout_no_wrap(text, egui::FontId::proportional(13.0), ink)
+    });
+    let size = match &galley {
+        Some(g) => egui::vec2(g.size().x + 16.0, 20.0),
+        None => egui::vec2(12.0, 12.0),
+    };
+    // Its own id, the same while the tabs around it come and go.
+    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+    let response = ui.interact(
+        rect,
+        ui.id().with(("group label", group.id())),
+        Sense::click(),
+    );
+    let corners = if galley.is_some() { 6 } else { 255 };
+    ui.painter()
+        .rect_filled(rect, egui::CornerRadius::same(corners), color);
+    if let Some(galley) = galley {
+        let at = rect.center() - galley.size() / 2.0;
+        ui.painter().galley(at, galley, ink);
+    }
+    let response = response.on_hover_text(i18n::tabs::group_tip());
+    if response.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    if response.clicked() {
+        commands.push(Command::SetGroupCollapsed(group.id(), !group.collapsed));
+    }
+    response.context_menu(|ui| group_menu(ui, group, commands));
+    ui.add_space(2.0);
+}
+
+/// A group's menu: its name, its colour, ungroup, close.
+fn group_menu(ui: &mut egui::Ui, group: &TabGroup, commands: &mut Vec<Command>) {
+    let mut name = group.name.clone();
+    let field = ui.add(
+        egui::TextEdit::singleline(&mut name)
+            .desired_width(180.0)
+            .hint_text(i18n::tabs::group_name()),
+    );
+    if field.changed() {
+        commands.push(Command::RenameGroup(group.id(), name));
+    }
+    if field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+        ui.close_menu();
+    }
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
+        for color in domain::GroupColor::ALL {
+            let (rect, swatch) = ui.allocate_exact_size(egui::vec2(20.0, 20.0), Sense::click());
+            let fill = super::theme::group_color(color);
+            ui.painter().circle_filled(rect.center(), 8.0, fill);
+            if color == group.color {
+                ui.painter().circle_stroke(
+                    rect.center(),
+                    9.5,
+                    egui::Stroke::new(2.0_f32, ui.visuals().strong_text_color()),
+                );
+            }
+            if swatch.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            if swatch.clicked() {
+                commands.push(Command::SetGroupColor(group.id(), color));
+            }
+        }
+    });
+    ui.separator();
+    if ui
+        .button(format!(
+            "{}  {}",
+            icon::SQUARE_SPLIT_HORIZONTAL,
+            i18n::tabs::ungroup()
+        ))
+        .clicked()
+    {
+        commands.push(Command::Ungroup(group.id()));
+        ui.close_menu();
+    }
+    if ui
+        .button(format!("{}  {}", icon::X, i18n::tabs::close_group()))
+        .clicked()
+    {
+        commands.push(Command::CloseGroup(group.id()));
+        ui.close_menu();
     }
 }
 
@@ -359,6 +739,7 @@ fn drag_tab(
     from: usize,
     id: domain::TabId,
     dropped: bool,
+    zone: std::ops::RangeInclusive<usize>,
     commands: &mut Vec<Command>,
 ) {
     let ctx = ui.ctx();
@@ -376,7 +757,7 @@ fn drag_tab(
         }
         return;
     }
-    let (slot, to) = drop_slot(rects, from, pointer.x);
+    let (slot, to) = drop_slot(rects, from, pointer.x, zone);
     if to == from {
         return;
     }
@@ -414,9 +795,18 @@ fn new_window_at(ctx: &egui::Context, pointer: egui::Pos2) -> [f32; 4] {
 }
 
 /// Where a tab dragged from index `from` to `x` goes: the gap it is over
-/// (before tab `slot`), and its index once moved there.
-fn drop_slot(rects: &[egui::Rect], from: usize, x: f32) -> (usize, usize) {
-    let slot = rects.iter().filter(|r| r.center().x < x).count();
+/// (before tab `slot`, kept in `zone`), and its index once moved there.
+fn drop_slot(
+    rects: &[egui::Rect],
+    from: usize,
+    x: f32,
+    zone: std::ops::RangeInclusive<usize>,
+) -> (usize, usize) {
+    let slot = rects
+        .iter()
+        .filter(|r| r.center().x < x)
+        .count()
+        .clamp(*zone.start(), *zone.end());
     let to = if slot > from { slot - 1 } else { slot };
     (slot, to)
 }
@@ -465,13 +855,17 @@ mod tests {
                 egui::Rect::from_min_max(egui::pos2(left, 0.0), egui::pos2(left + 100.0, 30.0))
             })
             .collect();
+        let all = 0..=3;
         // Tab 0 over the second half of tab 2: after it.
-        assert_eq!(drop_slot(&rects, 0, 280.0), (3, 2));
+        assert_eq!(drop_slot(&rects, 0, 280.0, all.clone()), (3, 2));
         // Tab 2 over the first half of tab 0: before it.
-        assert_eq!(drop_slot(&rects, 2, 20.0), (0, 0));
+        assert_eq!(drop_slot(&rects, 2, 20.0, all.clone()), (0, 0));
         // Over itself: it stays.
-        assert_eq!(drop_slot(&rects, 1, 120.0).1, 1);
-        assert_eq!(drop_slot(&rects, 1, 180.0).1, 1);
+        assert_eq!(drop_slot(&rects, 1, 120.0, all.clone()).1, 1);
+        assert_eq!(drop_slot(&rects, 1, 180.0, all).1, 1);
+        // Tab 0 pinned, the others not: they stay apart.
+        assert_eq!(drop_slot(&rects, 0, 280.0, 0..=1), (1, 0));
+        assert_eq!(drop_slot(&rects, 2, 20.0, 1..=3), (1, 1));
     }
 
     #[test]

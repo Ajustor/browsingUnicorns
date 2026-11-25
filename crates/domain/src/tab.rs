@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::{History, WebAddress};
+use crate::{GroupId, History, WebAddress};
 
 /// Identifies a tab for the whole life of the browser (never reused).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -39,6 +39,9 @@ pub struct Tab {
     private: bool,
     /// The tab whose page opened this one (a link opened in a new tab).
     pub(crate) opener: Option<TabId>,
+    /// Kept first in the tab strip, small, out of any group.
+    pub(crate) pinned: bool,
+    pub(crate) group: Option<GroupId>,
 }
 
 impl Tab {
@@ -50,6 +53,8 @@ impl Tab {
             load_state: LoadState::Idle,
             private: false,
             opener: None,
+            pinned: false,
+            group: None,
         }
     }
 
@@ -72,6 +77,15 @@ impl Tab {
     /// The tab whose page opened this one, if any.
     pub fn opener(&self) -> Option<TabId> {
         self.opener
+    }
+
+    pub fn is_pinned(&self) -> bool {
+        self.pinned
+    }
+
+    /// The group it belongs to, if any.
+    pub fn group(&self) -> Option<GroupId> {
+        self.group
     }
 
     pub fn address(&self) -> Option<&WebAddress> {

@@ -17,6 +17,13 @@ binaire reste petit et le moteur profite des mises à jour de sécurité de l'OS
   long puis glisser sur Android) ; glissé hors de la fenêtre, un onglet
   part dans une fenêtre à lui. Un lien ouvert dans un nouvel onglet
   s'ouvre en arrière-plan, juste après sa page, qui reste affichée
+- 📌 Onglets épinglés et groupes d'onglets (bureau, clic droit sur un
+  onglet) : épinglés en tête, réduits à leur icône ; groupes nommés et
+  colorés, repliés d'un clic sur leur étiquette (clic droit : nom, couleur,
+  dissocier, fermer) ; gardés d'une session à l'autre
+- 🔎 Recherche dans les onglets ouverts (Ctrl+Shift+A, loupe de la barre
+  d'onglets) : lettres dans l'ordre, comme « aller au fichier » d'un
+  éditeur, sur le titre et l'adresse ; ↑↓ puis Entrée
 - 🪟 La barre d'onglets sert de barre de titre (boutons de fenêtre, double-clic
   pour agrandir, redimensionnement par les bords)
 - 🔎 Barre d'adresse unique : une adresse complète, un nom d'hôte
@@ -67,7 +74,7 @@ binaire reste petit et le moteur profite des mises à jour de sécurité de l'OS
   haut-parleur (clic : couper le son) sur les onglets
 - 🕘 Historique avec recherche (Ctrl+H) ; favoris (Ctrl+Shift+O) dans le même
   panneau latéral
-- ♻️ Les onglets ouverts sont rouverts au démarrage
+- ♻️ Les onglets ouverts sont rouverts au démarrage (épinglés et groupes compris)
 - 🔑 Gestionnaire de mots de passe : propose de les enregistrer après une
   connexion, les remplit ensuite ; liste dans *Settings* > *Mots de passe*
 - 🔄 Synchro chiffrée de bout en bout avec les autres appareils (favoris,
