@@ -4,6 +4,24 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.24.1] - 2026-11-25
+
+### Corrigé
+
+- Bitwarden ne remplissait plus rien depuis la 0.21.0 : ni icône ni menu
+  dans les champs, et le bouton Remplir sans effet. Le premier message
+  qu'une extension envoie en se chargeant dans une page se perdait.
+- « Rechercher des mises à jour » ne faisait rien quand une mise à jour
+  téléchargée avait été remise à plus tard : son bandeau réapparaît.
+
+### Modifié
+
+- Une mise à jour disponible se voit davantage : un bouton « Mettre à
+  jour » (puis « Redémarrer ») dans la barre d'outils, qui reste affiché
+  même remis à plus tard, un bandeau violet en bas de la fenêtre dont le
+  bouton Nouveautés ouvre les notes de la version, et un point sur
+  l'icône À propos du panneau de droite.
+
 ## [0.24.0] - 2026-11-25
 
 ### Ajouté
