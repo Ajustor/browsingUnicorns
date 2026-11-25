@@ -86,7 +86,12 @@ impl Updater {
     }
 
     fn check_with(&mut self, manual: bool, skipped_version: Option<&str>, fetch: Fetch) {
-        if self.is_busy() || matches!(self.state, UpdateState::Ready(_)) {
+        if self.is_busy() {
+            return;
+        }
+        // Downloaded already: nothing to look for, its banner shows again.
+        if matches!(self.state, UpdateState::Ready(_)) {
+            self.dismissed = false;
             return;
         }
         self.manual = manual;

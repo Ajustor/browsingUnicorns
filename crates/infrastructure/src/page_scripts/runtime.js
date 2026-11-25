@@ -70,8 +70,18 @@ if (BRIDGE === "android") {
     }
   };
 } else {
+  // WebView2's channel, taken now: wry's `ipc.postMessage` reads
+  // `window.chrome.webview` at each call, and a content script loads with
+  // `window.chrome` being its extension's API (see `asExtension`), so a
+  // message sent as it loads (Bitwarden's first one) would find no channel.
+  const webview = window.chrome && window.chrome.webview;
   const ipc = window.ipc;
-  const postMessage = ipc && ipc.postMessage ? ipc.postMessage.bind(ipc) : null;
+  const postMessage =
+    webview && webview.postMessage
+      ? webview.postMessage.bind(webview)
+      : ipc && ipc.postMessage
+        ? ipc.postMessage.bind(ipc)
+        : null;
   post = (msg) => {
     if (postMessage) postMessage(JSON.stringify(msg));
     else deliver({ id: msg.id, error: "no bridge" });

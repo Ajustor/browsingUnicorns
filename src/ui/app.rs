@@ -558,6 +558,7 @@ impl BrowserApp {
             Command::CheckForUpdates => self.updates.check_now(),
             Command::InstallUpdate => self.updates.updater.install(),
             Command::UpdateLater => self.updates.updater.later(),
+            Command::ShowUpdateNotes => self.library.open = Some(LibraryView::About),
             Command::SkipUpdate => self.updates.skip(),
             Command::RestartToUpdate => {
                 self.updates.updater.schedule_restart();
@@ -990,6 +991,7 @@ impl BrowserApp {
                     self.profiles.current(),
                     downloads_tip.as_deref().map(|tip| (tip, downloads_running)),
                     zoom,
+                    &self.updates.updater.state,
                     commands,
                 );
             });
@@ -1089,6 +1091,10 @@ impl BrowserApp {
                     default_download_dir: infrastructure::downloads_dir(),
                 },
                 unseen_notes,
+                update_waiting: matches!(
+                    self.updates.updater.state,
+                    updater::UpdateState::Available(_) | updater::UpdateState::Ready(_)
+                ),
             },
             commands,
         );

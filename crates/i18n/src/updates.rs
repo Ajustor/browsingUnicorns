@@ -30,4 +30,10 @@ messages! {
     }
     /// The banner's button that restarts on the new version.
     fn restart_now() { en: "Restart now", fr: "Redémarrer maintenant" }
+    /// The toolbar's button, a new version out.
+    fn update_button() { en: "Update", fr: "Mettre à jour" }
+    /// The toolbar's button, while it downloads.
+    fn downloading_button() { en: "Updating…", fr: "Mise à jour…" }
+    /// The toolbar's button, the new version downloaded.
+    fn restart_button() { en: "Restart", fr: "Redémarrer" }
 }

@@ -27,6 +27,7 @@ pub fn show(
     profile: &Profile,
     downloads: Option<(&str, bool)>,
     zoom: Option<u32>,
+    update: &updater::UpdateState,
     commands: &mut Vec<Command>,
 ) {
     let history = active.map(Tab::history);
@@ -101,6 +102,7 @@ pub fn show(
             {
                 commands.push(Command::ToggleLibrary(LibraryView::Profiles));
             }
+            super::updates::toolbar_button(ui, update, commands);
             if button(
                 ui,
                 RichText::new(icon::MASK_HAPPY).size(16.0),

@@ -102,6 +102,8 @@ pub struct LibraryData<'a> {
     pub settings: SettingsView<'a>,
     /// This version's notes were not looked at yet.
     pub unseen_notes: bool,
+    /// An update is there, to install or restart on.
+    pub update_waiting: bool,
 }
 
 #[derive(Default)]
@@ -149,6 +151,7 @@ impl Library {
             default_browser,
             settings,
             unseen_notes,
+            update_waiting,
         } = data;
         SidePanel::right("library")
             .resizable(true)
@@ -158,7 +161,7 @@ impl Library {
                 egui::Frame::side_top_panel(&ctx.style()).inner_margin(Margin::symmetric(12, 10)),
             )
             .show(ctx, |ui| {
-                head(ui, view, unseen_notes, commands);
+                head(ui, view, unseen_notes, update_waiting, commands);
                 if private && view.needs_profile() {
                     empty_state(
                         ui,
@@ -330,7 +333,13 @@ impl Library {
 
 /// The panel's head: the view's name, the close button, and the bar of
 /// views.
-fn head(ui: &mut egui::Ui, view: LibraryView, unseen_notes: bool, commands: &mut Vec<Command>) {
+fn head(
+    ui: &mut egui::Ui,
+    view: LibraryView,
+    unseen_notes: bool,
+    update_waiting: bool,
+    commands: &mut Vec<Command>,
+) {
     ui.horizontal(|ui| {
         badge(ui, view.glyph(), 30.0, ACCENT);
         ui.add_space(2.0);
@@ -348,7 +357,8 @@ fn head(ui: &mut egui::Ui, view: LibraryView, unseen_notes: bool, commands: &mut
             (
                 v.glyph(),
                 v.name(),
-                *v == LibraryView::WhatsNew && unseen_notes,
+                (*v == LibraryView::WhatsNew && unseen_notes)
+                    || (*v == LibraryView::About && update_waiting),
             )
         })
         .collect();
