@@ -53,7 +53,7 @@ binaire reste petit et le moteur profite des mises à jour de sécurité de l'OS
   *vaft* de TwitchAdSolutions (MIT, la suite maintenue par ryanbr,
   téléchargée avec les listes) qui remplace les coupures par un flux sans
   pub ; sur Netflix, un script maison coupe le son des pubs et les accélère,
-  et ferme la pub de la pause. Listes téléchargées au premier lancement puis vérifiées
+  et ferme la pub de la pause ; sur YouTube, les passages sponsorisés des vidéos sont sautés grâce aux segments de [SponsorBlock](https://sponsor.ajay.app) (la vidéo est demandée par les 4 premiers caractères du SHA-256 de son identifiant), et les vidéos sponsorisées sont retirées des pages. Listes téléchargées au premier lancement puis vérifiées
   chaque jour, rangées dans `<data>/browsing-unicorns/blocker/`. Bouclier à côté du
   cadenas (dans la barre d'adresse sur Android) : nombre d'éléments bloqués
   sur la page (pas sous macOS et Linux, où WebKit ne le dit pas), blocage

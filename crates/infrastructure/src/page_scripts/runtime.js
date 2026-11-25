@@ -226,6 +226,9 @@ function makeChrome(entry) {
     set: (items, cb) => call("set", { area: name, items }, cb),
     remove: (keys, cb) => call("remove", { area: name, keys }, cb),
     clear: (cb) => call("clear", { area: name }, cb),
+    // Chrome 130: the keys stored (Bitwarden clears its stale session data
+    // with them at start-up).
+    getKeys: (cb) => withCallback(send(owner, "get", { area: name, keys: null }).then((items) => Object.keys(items || {})), cb, api),
     getBytesInUse: noop(api, 0),
     setAccessLevel: noop(api, undefined),
     onChanged: event(),

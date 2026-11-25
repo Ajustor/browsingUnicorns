@@ -1,7 +1,7 @@
 //! The built-in ad blocker: EasyList, EasyPrivacy and uBlock Origin's own
 //! lists through adblock-rust (Brave's engine), with uBlock Origin's
 //! scriptlets for the lists' `+js(...)` rules, TwitchAdSolutions' vaft on
-//! Twitch and our own script on Netflix. The lists are downloaded and cached under the app's data folder
+//! Twitch and our own scripts on Netflix and YouTube. The lists are downloaded and cached under the app's data folder
 //! with the compiled engine; the request
 //! hooks (WebView2, Android), the cosmetic page script and the scriptlet
 //! injection consult it through a [`BlockerHandle`].
@@ -71,6 +71,11 @@ pub const TWITCH: (&str, &str) = (
 /// Ours, shipped with the app: Netflix's ads come with the film, no list
 /// blocks them.
 const NETFLIX: &str = include_str!("netflix_ads.js");
+
+/// YouTube's sponsored content: the creators' own sponsor reads skipped with
+/// SponsorBlock's segments, the promoted videos taken out of the pages. Ours,
+/// shipped with the app: no list removes what is in the video itself.
+const YOUTUBE: &str = include_str!("youtube_sponsors.js");
 
 const ENGINE_FILE: &str = "engine.dat";
 const STATE_FILE: &str = "state.json";
@@ -144,6 +149,11 @@ fn on_twitch(url: &str) -> bool {
 /// `url` is on Netflix.
 fn on_netflix(url: &str) -> bool {
     on_site(url, "netflix.com")
+}
+
+/// `url` is on YouTube.
+fn on_youtube(url: &str) -> bool {
+    on_site(url, "youtube.com")
 }
 
 /// adblock's name for a request type; `None` for the page itself, never
@@ -252,8 +262,8 @@ impl Blocker {
     }
 
     /// The script the lists' `+js(...)` rules inject into `url`'s pages
-    /// (their exceptions included), then vaft on Twitch, our script on
-    /// Netflix; empty when none.
+    /// (their exceptions included), then vaft on Twitch, our scripts on
+    /// Netflix and YouTube; empty when none.
     pub fn scriptlets(&self, url: &str) -> String {
         let mut script = self.engine.url_cosmetic_resources(url).injected_script;
         if !script.is_empty() {
@@ -266,6 +276,9 @@ impl Blocker {
         }
         if on_netflix(url) {
             script.push_str(NETFLIX);
+        }
+        if on_youtube(url) {
+            script.push_str(YOUTUBE);
         }
         script
     }
@@ -1211,6 +1224,25 @@ sub.site.test#@#+js(say, hello)
             "https://www.twitch.tv/x",
         ] {
             assert_eq!(b.scriptlets(url), "", "{url}");
+        }
+    }
+
+    #[test]
+    fn the_youtube_script_comes_on_youtube_only() {
+        let b = blocker();
+        for url in [
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            "https://m.youtube.com/",
+            "https://youtube.com./shorts/x",
+        ] {
+            assert!(b.scriptlets(url).contains("__buYoutubeSponsors"), "{url}");
+        }
+        for url in [
+            "https://notyoutube.com/",
+            "https://youtube.com.evil.test/",
+            "https://www.netflix.com/watch/1",
+        ] {
+            assert!(!b.scriptlets(url).contains("__buYoutubeSponsors"), "{url}");
         }
     }
 

@@ -22,8 +22,8 @@ messages! {
     fn ad_blocker() { en: "Ad blocker", fr: "Bloqueur de pubs" }
     /// The lists' line, before their first download.
     fn lists_not_downloaded() {
-        en: "Lists: EasyList, EasyPrivacy, uBlock filters, Twitch (vaft), Netflix · not downloaded yet",
-        fr: "Listes\u{a0}: EasyList, EasyPrivacy, filtres uBlock, Twitch (vaft), Netflix · pas encore téléchargées",
+        en: "Lists: EasyList, EasyPrivacy, uBlock filters, Twitch (vaft), Netflix, SponsorBlock · not downloaded yet",
+        fr: "Listes\u{a0}: EasyList, EasyPrivacy, filtres uBlock, Twitch (vaft), Netflix, SponsorBlock · pas encore téléchargées",
     }
     /// The lists' line, downloaded `secs` seconds ago.
     fn lists_updated(secs: u64) -> String {
@@ -34,7 +34,7 @@ messages! {
                 3_600..86_400 => format!("{} h ago", secs / 3_600),
                 _ => format!("{} d ago", secs / 86_400),
             };
-            format!("Lists: EasyList, EasyPrivacy, uBlock filters, Twitch (vaft), Netflix · updated {age}")
+            format!("Lists: EasyList, EasyPrivacy, uBlock filters, Twitch (vaft), Netflix, SponsorBlock · updated {age}")
         },
         fr: {
             let age = match secs {
@@ -43,7 +43,7 @@ messages! {
                 3_600..86_400 => format!("il y a {}\u{a0}h", secs / 3_600),
                 _ => format!("il y a {}\u{a0}j", secs / 86_400),
             };
-            format!("Listes\u{a0}: EasyList, EasyPrivacy, filtres uBlock, Twitch (vaft), Netflix · mises à jour {age}")
+            format!("Listes\u{a0}: EasyList, EasyPrivacy, filtres uBlock, Twitch (vaft), Netflix, SponsorBlock · mises à jour {age}")
         },
     }
 }
