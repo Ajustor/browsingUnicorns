@@ -33,6 +33,9 @@ pub struct DeviceSettings {
     pub sync_cookies: bool,
     /// Zoom of the sites zoomed in or out, in percent, by host.
     pub site_zoom: Vec<(String, u32)>,
+    /// Too many tabs for the strip: they shrink to fit it, instead of
+    /// scrolling.
+    pub shrink_tabs: bool,
 }
 
 /// The interface's language: the system's, or one chosen. The computer's,
@@ -53,6 +56,7 @@ impl Default for DeviceSettings {
             save_passwords: true,
             sync_cookies: true,
             site_zoom: Vec::new(),
+            shrink_tabs: false,
         }
     }
 }

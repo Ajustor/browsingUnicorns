@@ -128,6 +128,18 @@ impl SettingsPanel {
                 }
             });
 
+        section(ui, icon::TABS, i18n::settings::tabs());
+        ui.weak(i18n::settings::tabs_hint());
+        let shrink = settings.device.shrink_tabs;
+        for (choice, text) in [
+            (false, i18n::settings::tabs_scroll()),
+            (true, i18n::settings::tabs_shrink()),
+        ] {
+            if ui.radio(shrink == choice, text).clicked() && shrink != choice {
+                change(&|s| s.device.shrink_tabs = choice);
+            }
+        }
+
         section(ui, icon::DOWNLOAD_SIMPLE, i18n::settings::downloads());
         let folder = settings
             .device

@@ -932,6 +932,7 @@ impl BrowserApp {
                     &chrome,
                     self.is_private(),
                     &mut self.naming_group,
+                    self.browser.settings().device.shrink_tabs,
                     commands,
                 );
             })

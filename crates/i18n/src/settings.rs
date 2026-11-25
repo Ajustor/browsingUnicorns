@@ -19,6 +19,14 @@ messages! {
     fn search_engine_hint() { en: "What the address bar searches with.", fr: "Utilisé par la barre d’adresse pour les recherches." }
 
     /// Section title.
+    fn tabs() { en: "Tabs", fr: "Onglets" }
+    fn tabs_hint() { en: "When they no longer fit in the tab strip.", fr: "Quand ils ne tiennent plus dans la barre d’onglets." }
+    /// The tabs keep their width; the wheel scrolls them.
+    fn tabs_scroll() { en: "Scroll them (mouse wheel)", fr: "Les faire défiler (molette)" }
+    /// The tabs get narrower to fit.
+    fn tabs_shrink() { en: "Shrink them to fit", fr: "Les réduire pour qu’ils tiennent" }
+
+    /// Section title.
     fn downloads() { en: "Downloads", fr: "Téléchargements" }
     /// Before the downloads' folder.
     fn save_to() { en: "Save to", fr: "Enregistrer dans" }

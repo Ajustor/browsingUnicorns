@@ -33,6 +33,8 @@ struct SettingsFile {
     sync_cookies: bool,
     /// Zoom of the sites zoomed in or out.
     site_zoom: Vec<SiteZoomFile>,
+    /// Too many tabs: they shrink to fit the strip instead of scrolling.
+    shrink_tabs: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -82,6 +84,7 @@ impl From<&Settings> for SettingsFile {
                     percent: *percent,
                 })
                 .collect(),
+            shrink_tabs: s.device.shrink_tabs,
         }
     }
 }
@@ -107,6 +110,7 @@ impl SettingsFile {
                     .into_iter()
                     .map(|z| (z.host, z.percent))
                     .collect(),
+                shrink_tabs: self.shrink_tabs,
             },
         })
     }
@@ -177,6 +181,7 @@ mod tests {
                 save_passwords: true,
                 sync_cookies: false,
                 site_zoom: vec![("example.com".into(), 125), ("b.org".into(), 80)],
+                shrink_tabs: true,
             },
         };
         repo(&dir).save(&settings).unwrap();
