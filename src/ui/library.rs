@@ -203,7 +203,13 @@ impl Library {
                     LibraryView::Settings => {
                         ui.separator();
                         egui::ScrollArea::vertical().show(ui, |ui| {
-                            self.settings.show(ui, settings, commands);
+                            // Room on the right for the scroll bar.
+                            egui::Frame::NONE
+                                .inner_margin(egui::Margin {
+                                    right: 10,
+                                    ..Default::default()
+                                })
+                                .show(ui, |ui| self.settings.show(ui, settings, commands));
                         });
                         return;
                     }

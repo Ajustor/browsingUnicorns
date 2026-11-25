@@ -20,11 +20,14 @@ messages! {
 
     /// Section title.
     fn tabs() { en: "Tabs", fr: "Onglets" }
-    fn tabs_hint() { en: "When they no longer fit in the tab strip.", fr: "Quand ils ne tiennent plus dans la barre d’onglets." }
+    fn tabs_hint() {
+        en: "When they no longer fit in the tab strip: scroll them with the wheel, or shrink them down to their icon.",
+        fr: "Quand ils ne tiennent plus dans la barre\u{a0}: les faire défiler à la molette, ou les réduire jusqu’à leur icône.",
+    }
     /// The tabs keep their width; the wheel scrolls them.
-    fn tabs_scroll() { en: "Scroll them (mouse wheel)", fr: "Les faire défiler (molette)" }
+    fn tabs_scroll() { en: "Scroll", fr: "Défiler" }
     /// The tabs get narrower to fit.
-    fn tabs_shrink() { en: "Shrink them to fit", fr: "Les réduire pour qu’ils tiennent" }
+    fn tabs_shrink() { en: "Shrink", fr: "Réduire" }
 
     /// Section title.
     fn downloads() { en: "Downloads", fr: "Téléchargements" }
