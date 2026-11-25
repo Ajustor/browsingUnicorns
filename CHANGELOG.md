@@ -4,6 +4,29 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.24.0] - 2026-11-25
+
+### Ajouté
+
+- Nouveautés : une nouvelle vue du panneau de droite présente les notes
+  de chaque version, avec la version installée signalée. Après une mise
+  à jour, le panneau s'ouvre de lui-même sur ce qui a changé ; un point
+  sur son icône rappelle les notes pas encore lues.
+- À propos : les notes de la version disponible s'affichent sous le
+  bouton de mise à jour.
+
+### Modifié
+
+- Les onglets se réduisent désormais par défaut quand ils ne tiennent
+  plus dans la barre (Réglages > Onglets pour revenir au défilement).
+- Le panneau de droite a été redessiné : les vues sont choisies dans une
+  barre d'icônes, l'historique est rangé par période (dernière heure,
+  24 heures, semaine, mois), chaque page a une pastille aux couleurs de
+  son site, et la synchronisation, les extensions, les scripts, les
+  profils et la page À propos sont présentés en cartes, avec des
+  interrupteurs pour activer ou désactiver les extensions et les
+  scripts.
+
 ## [0.23.1] - 2026-11-25
 
 ### Modifié
