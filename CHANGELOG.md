@@ -4,6 +4,17 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.23.0] - 2026-11-25
+
+### Ajouté
+
+- Réglages > Onglets : quand les onglets ne tiennent plus dans la barre,
+  choisir entre les faire défiler (comme avant) ou les réduire pour
+  qu'ils tiennent ; trop étroits, ils n'affichent plus que leur icône.
+  Réglage propre à chaque appareil.
+- Un onglet déposé sur l'étiquette d'un groupe rejoint ce groupe, même
+  replié.
+
 ## [0.22.0] - 2026-11-25
 
 ### Ajouté
