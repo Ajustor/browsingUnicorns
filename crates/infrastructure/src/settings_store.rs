@@ -33,8 +33,12 @@ struct SettingsFile {
     sync_cookies: bool,
     /// Zoom of the sites zoomed in or out.
     site_zoom: Vec<SiteZoomFile>,
-    /// Too many tabs: they shrink to fit the strip instead of scrolling.
-    shrink_tabs: bool,
+    /// Too many tabs: "shrink" to fit the strip, or "scroll". (Not
+    /// the 0.23 `shrink_tabs`, false for everyone then: shrinking became
+    /// the default.)
+    tab_overflow: String,
+    /// The last version whose release notes were offered.
+    seen_release: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -84,7 +88,13 @@ impl From<&Settings> for SettingsFile {
                     percent: *percent,
                 })
                 .collect(),
-            shrink_tabs: s.device.shrink_tabs,
+            tab_overflow: if s.device.shrink_tabs {
+                "shrink"
+            } else {
+                "scroll"
+            }
+            .into(),
+            seen_release: s.device.seen_release.clone(),
         }
     }
 }
@@ -110,7 +120,8 @@ impl SettingsFile {
                     .into_iter()
                     .map(|z| (z.host, z.percent))
                     .collect(),
-                shrink_tabs: self.shrink_tabs,
+                shrink_tabs: self.tab_overflow != "scroll",
+                seen_release: self.seen_release,
             },
         })
     }
@@ -181,7 +192,8 @@ mod tests {
                 save_passwords: true,
                 sync_cookies: false,
                 site_zoom: vec![("example.com".into(), 125), ("b.org".into(), 80)],
-                shrink_tabs: true,
+                shrink_tabs: false,
+                seen_release: "0.23.1".into(),
             },
         };
         repo(&dir).save(&settings).unwrap();
@@ -198,6 +210,27 @@ mod tests {
         assert_eq!(loaded.search_engine, SearchEngine::default());
         assert!(loaded.blocker);
         assert!(loaded.blocker_allowlist.is_empty());
+        assert!(loaded.device.shrink_tabs);
+    }
+
+    #[test]
+    fn the_old_tab_setting_gives_way_to_shrinking() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = repo(&dir);
+        files::write(
+            repo.path(),
+            "shrink_tabs = false
+",
+        )
+        .unwrap();
+        assert!(repo.load().unwrap().device.shrink_tabs);
+        files::write(
+            repo.path(),
+            "tab_overflow = \"scroll\"
+",
+        )
+        .unwrap();
+        assert!(!repo.load().unwrap().device.shrink_tabs);
     }
 
     #[test]

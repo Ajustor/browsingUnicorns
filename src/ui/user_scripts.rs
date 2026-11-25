@@ -7,10 +7,11 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use application::UserScriptManager;
 use application::ports::{ExtensionError, WebEngine};
 use domain::{UserScript, UserScriptId, UserScripts};
-use egui::{Button, RichText, TextEdit};
+use egui::{Button, RichText};
 use egui_phosphor::regular as icon;
 
 use super::command::Command;
+use super::panel_kit::{card, field, primary_button};
 
 type Installed = Result<UserScript, ExtensionError>;
 
@@ -97,74 +98,86 @@ pub fn show(
     input: &mut String,
     commands: &mut Vec<Command>,
 ) {
-    ui.heading(i18n::user_scripts::heading());
-    ui.label(i18n::user_scripts::input_label());
-    let field = ui.add(
-        TextEdit::singleline(input)
-            .hint_text("https://greasyfork.org/scripts/…/code/….user.js")
-            .desired_width(f32::INFINITY),
-    );
-    let submitted = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-    ui.horizontal(|ui| {
-        let can = !input.trim().is_empty() && !runner.installing;
-        if ui
-            .add_enabled(
-                can,
-                Button::new(format!(
-                    "{} {}",
-                    icon::DOWNLOAD_SIMPLE,
-                    i18n::user_scripts::install()
-                )),
-            )
-            .clicked()
-            || (submitted && can)
-        {
-            commands.push(Command::InstallUserScript(std::mem::take(input)));
-        }
-        if super::theme::hover_fill(ui, |ui| {
-            ui.add(Button::new(format!("{} Greasy Fork", icon::GLOBE)).frame(false))
-        })
-        .on_hover_text(i18n::user_scripts::greasy_fork_tip())
-        .clicked()
-            && let Ok(site) = domain::WebAddress::parse("https://greasyfork.org/")
-        {
-            commands.push(Command::Open(site, application::Target::NewTab));
-        }
-        if runner.installing {
-            ui.spinner();
-        }
-    });
-    match &runner.status {
-        Some(Ok(text)) => {
-            ui.label(text);
-        }
-        Some(Err(text)) => {
-            ui.colored_label(ui.visuals().error_fg_color, text);
-        }
-        None => {}
-    }
-    if runner.scripts().is_empty() {
-        ui.weak(i18n::user_scripts::none());
-        return;
-    }
-    for s in runner.scripts().items() {
-        ui.horizontal(|ui| {
-            let mut enabled = s.enabled;
-            if ui.checkbox(&mut enabled, "").changed() {
-                commands.push(Command::SetUserScriptEnabled(s.id.clone(), enabled));
+    card(
+        ui,
+        icon::FILE_CODE,
+        i18n::user_scripts::heading(),
+        Some(i18n::user_scripts::input_label()),
+        |ui| {
+            let field = ui.add(field(
+                input,
+                "https://greasyfork.org/scripts/…/code/….user.js",
+            ));
+            let submitted = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            ui.horizontal_wrapped(|ui| {
+                let can = !input.trim().is_empty() && !runner.installing;
+                if primary_button(
+                    ui,
+                    format!(
+                        "{} {}",
+                        icon::DOWNLOAD_SIMPLE,
+                        i18n::user_scripts::install()
+                    ),
+                    can,
+                )
+                .clicked()
+                    || (submitted && can)
+                {
+                    commands.push(Command::InstallUserScript(std::mem::take(input)));
+                }
+                if ui
+                    .button(format!("{} Greasy Fork", icon::GLOBE))
+                    .on_hover_text(i18n::user_scripts::greasy_fork_tip())
+                    .clicked()
+                    && let Ok(site) = domain::WebAddress::parse("https://greasyfork.org/")
+                {
+                    commands.push(Command::Open(site, application::Target::NewTab));
+                }
+                if runner.installing {
+                    ui.spinner();
+                }
+            });
+            super::extensions::status(ui, runner.status.as_ref());
+            if runner.scripts().is_empty() {
+                ui.weak(i18n::user_scripts::none());
+                return;
             }
-            let title = RichText::new(format!("{} {}", s.meta.name, s.meta.version)).strong();
-            ui.add(egui::Label::new(if s.enabled { title } else { title.weak() }).truncate());
-        });
-        if !s.meta.description.is_empty() {
-            ui.add(egui::Label::new(RichText::new(&s.meta.description).small().weak()).wrap());
-        }
-        if ui
-            .add(Button::new(format!("{} {}", icon::TRASH, i18n::user_scripts::remove())).small())
-            .clicked()
-        {
-            commands.push(Command::RemoveUserScript(s.id.clone()));
-        }
-        ui.add_space(6.0);
-    }
+            for s in runner.scripts().items() {
+                ui.separator();
+                let tip = i18n::user_scripts::on_off_tip();
+                if super::extensions::add_on_head(
+                    ui,
+                    icon::FILE_CODE,
+                    &s.meta.name,
+                    &s.meta.version,
+                    s.enabled,
+                    tip,
+                ) {
+                    commands.push(Command::SetUserScriptEnabled(s.id.clone(), !s.enabled));
+                }
+                if !s.meta.description.is_empty() {
+                    ui.add(
+                        egui::Label::new(RichText::new(&s.meta.description).size(12.5).weak())
+                            .wrap(),
+                    );
+                }
+                if ui
+                    .add(
+                        Button::new(
+                            RichText::new(format!(
+                                "{} {}",
+                                icon::TRASH,
+                                i18n::user_scripts::remove()
+                            ))
+                            .color(ui.visuals().error_fg_color),
+                        )
+                        .small(),
+                    )
+                    .clicked()
+                {
+                    commands.push(Command::RemoveUserScript(s.id.clone()));
+                }
+            }
+        },
+    );
 }

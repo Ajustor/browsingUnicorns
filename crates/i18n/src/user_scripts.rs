@@ -17,4 +17,6 @@ messages! {
     }
     fn none() { en: "No user scripts.", fr: "Aucun script utilisateur." }
     fn remove() { en: "Remove", fr: "Supprimer" }
+    /// The switch beside a script.
+    fn on_off_tip() { en: "Turn on or off", fr: "Activer ou désactiver" }
 }

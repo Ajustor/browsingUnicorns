@@ -11,6 +11,9 @@ use egui_phosphor::regular as icon;
 use infrastructure::profiles::{ProfileLock, open_window};
 
 use super::command::Command;
+use super::panel_kit::{
+    self, card, card_frame, chip, danger_button, field, icon_button, list_row, primary_button,
+};
 
 /// The profile this window runs and the list, with which ones are open.
 pub struct ProfilesRunner {
@@ -155,60 +158,105 @@ impl ProfilesPanel {
         commands: &mut Vec<Command>,
     ) {
         let current = runner.current();
-        ui.heading(i18n::profiles::heading());
-        ui.weak(i18n::profiles::intro());
-        ui.add_space(6.0);
+        ui.add(egui::Label::new(RichText::new(i18n::profiles::intro()).weak().size(12.5)).wrap());
+        ui.add_space(8.0);
 
-        ui.horizontal(|ui| {
-            avatar(ui, current, 28.0);
-            ui.vertical(|ui| {
-                ui.label(RichText::new(&current.name).strong());
-                ui.weak(i18n::profiles::this_window());
+        card_frame(ui, |ui| {
+            ui.horizontal(|ui| {
+                avatar(ui, current, 44.0);
+                ui.add_space(4.0);
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = 1.0;
+                    ui.add(
+                        egui::Label::new(RichText::new(&current.name).strong().size(17.0))
+                            .truncate(),
+                    );
+                    ui.label(
+                        RichText::new(format!(
+                            "{} · {}",
+                            i18n::profiles::this_profile(),
+                            i18n::profiles::this_window()
+                        ))
+                        .weak()
+                        .size(12.5),
+                    );
+                });
+            });
+            ui.add_space(6.0);
+            let name = self.name.get_or_insert_with(|| current.name.clone());
+            // The button first, from the right: the field takes the rest.
+            ui.horizontal(|ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let changed = name.trim() != current.name && !name.trim().is_empty();
+                    let clicked = ui
+                        .add_enabled(
+                            changed,
+                            Button::new(format!(
+                                "{} {}",
+                                icon::PENCIL_SIMPLE,
+                                i18n::profiles::rename()
+                            )),
+                        )
+                        .clicked();
+                    let field = ui.add(
+                        TextEdit::singleline(name)
+                            .margin(egui::Margin::symmetric(8, 6))
+                            .desired_width(ui.available_width()),
+                    );
+                    let submitted =
+                        field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    if (clicked || submitted) && changed {
+                        commands.push(Command::Profile(ProfileCommand::Rename(
+                            current.id.clone(),
+                            name.trim().to_owned(),
+                        )));
+                    }
+                });
+            });
+            ui.add_space(4.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = 6.0;
+                for index in 0..PROFILE_COLORS {
+                    let (rect, response) =
+                        ui.allocate_exact_size(Vec2::splat(24.0), Sense::click());
+                    let painter = ui.painter();
+                    let chosen = index == current.color;
+                    painter.circle_filled(rect.center(), 10.0, color(index));
+                    if chosen {
+                        painter.circle_stroke(
+                            rect.center(),
+                            11.5,
+                            egui::Stroke::new(2.0_f32, ui.visuals().strong_text_color()),
+                        );
+                        painter.text(
+                            rect.center(),
+                            egui::Align2::CENTER_CENTER,
+                            icon::CHECK,
+                            egui::FontId::proportional(12.0),
+                            Color32::WHITE,
+                        );
+                    } else if response.hovered() {
+                        painter.circle_stroke(
+                            rect.center(),
+                            11.5,
+                            egui::Stroke::new(1.0_f32, ui.visuals().weak_text_color()),
+                        );
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
+                    if response
+                        .on_hover_text(i18n::profiles::color_tip())
+                        .clicked()
+                        && !chosen
+                    {
+                        commands.push(Command::Profile(ProfileCommand::SetColor(
+                            current.id.clone(),
+                            index,
+                        )));
+                    }
+                }
             });
         });
-        let name = self.name.get_or_insert_with(|| current.name.clone());
-        ui.horizontal(|ui| {
-            let field = ui.add(TextEdit::singleline(name).desired_width(160.0));
-            let submitted = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-            let changed = name.trim() != current.name && !name.trim().is_empty();
-            if (ui
-                .add_enabled(changed, Button::new(i18n::profiles::rename()))
-                .clicked()
-                || submitted)
-                && changed
-            {
-                commands.push(Command::Profile(ProfileCommand::Rename(
-                    current.id.clone(),
-                    name.trim().to_owned(),
-                )));
-            }
-        });
-        ui.horizontal(|ui| {
-            for index in 0..PROFILE_COLORS {
-                let (rect, response) = ui.allocate_exact_size(Vec2::splat(18.0), Sense::click());
-                let painter = ui.painter();
-                painter.circle_filled(rect.center(), 8.0, color(index));
-                if index == current.color {
-                    painter.circle_stroke(
-                        rect.center(),
-                        8.0,
-                        egui::Stroke::new(2.0_f32, ui.visuals().strong_text_color()),
-                    );
-                }
-                if response
-                    .on_hover_text(i18n::profiles::color_tip())
-                    .clicked()
-                    && index != current.color
-                {
-                    commands.push(Command::Profile(ProfileCommand::SetColor(
-                        current.id.clone(),
-                        index,
-                    )));
-                }
-            }
-        });
 
-        ui.separator();
         let others: Vec<&Profile> = runner
             .manager
             .profiles()
@@ -216,87 +264,111 @@ impl ProfilesPanel {
             .iter()
             .filter(|p| p.id != current.id)
             .collect();
-        if others.is_empty() {
-            ui.weak(i18n::profiles::no_other());
-        }
-        for p in others {
-            let open = runner.open.contains(&p.id);
-            ui.horizontal(|ui| {
-                if avatar(ui, p, 22.0)
-                    .on_hover_text(i18n::profiles::open_in_new_window_tip())
-                    .clicked()
-                    && !open
-                {
-                    commands.push(Command::Profile(ProfileCommand::Open(p.id.clone())));
+        card(
+            ui,
+            icon::USERS_THREE,
+            i18n::profiles::other_profiles(),
+            None,
+            |ui| {
+                if others.is_empty() {
+                    ui.weak(i18n::profiles::no_other());
                 }
-                ui.add(egui::Label::new(RichText::new(&p.name).strong()).truncate());
+                for p in others {
+                    self.other(ui, runner, p, commands);
+                }
+            },
+        );
+
+        card(
+            ui,
+            icon::USER_PLUS,
+            i18n::profiles::new_profile_title(),
+            Some(i18n::profiles::opens_in_new_window()),
+            |ui| {
+                let field = ui.add(field(&mut self.new_name, i18n::profiles::name_hint()));
+                let submitted = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                let can = !self.new_name.trim().is_empty();
+                if (primary_button(ui, format!("{} {}", icon::PLUS, i18n::profiles::add()), can)
+                    .clicked()
+                    || submitted)
+                    && can
+                {
+                    commands.push(Command::Profile(ProfileCommand::Add(
+                        std::mem::take(&mut self.new_name).trim().to_owned(),
+                    )));
+                }
+            },
+        );
+    }
+
+    /// Another profile: open it, or remove it (once confirmed).
+    fn other(
+        &mut self,
+        ui: &mut egui::Ui,
+        runner: &ProfilesRunner,
+        p: &Profile,
+        commands: &mut Vec<Command>,
+    ) {
+        let open = runner.open.contains(&p.id);
+        let row = list_row(ui, |ui| {
+            ui.horizontal(|ui| {
+                avatar(ui, p, 28.0);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if open {
-                        ui.weak(i18n::profiles::is_open());
-                        return;
-                    }
-                    if !p.id.is_default()
-                        && super::theme::hover_fill(ui, |ui| {
-                            ui.add(Button::new(icon::TRASH).frame(false))
-                        })
-                        .on_hover_text(i18n::profiles::remove())
-                        .clicked()
+                        chip(ui, i18n::profiles::is_open(), panel_kit::ok_text(ui));
+                    } else if !p.id.is_default()
+                        && icon_button(ui, icon::TRASH, i18n::profiles::remove()).clicked()
                     {
                         self.confirm_remove = Some(p.id.clone());
                     }
-                    if ui.button(i18n::profiles::open()).clicked() {
+                    if !open
+                        && ui
+                            .small_button(format!(
+                                "{} {}",
+                                icon::ARROW_SQUARE_OUT,
+                                i18n::profiles::open()
+                            ))
+                            .clicked()
+                    {
                         commands.push(Command::Profile(ProfileCommand::Open(p.id.clone())));
                     }
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        ui.add(egui::Label::new(RichText::new(&p.name).strong()).truncate());
+                    });
                 });
             });
-            if self.confirm_remove.as_ref() == Some(&p.id) {
-                ui.colored_label(
-                    ui.visuals().warn_fg_color,
-                    i18n::profiles::confirm_remove(&p.name),
-                );
-                ui.horizontal(|ui| {
-                    if ui
-                        .button(
-                            RichText::new(i18n::profiles::remove())
-                                .color(ui.visuals().error_fg_color),
-                        )
-                        .clicked()
-                    {
-                        commands.push(Command::Profile(ProfileCommand::Remove(p.id.clone())));
-                        self.confirm_remove = None;
-                    }
-                    if ui.button(i18n::common::cancel()).clicked() {
-                        self.confirm_remove = None;
-                    }
-                });
-            }
+        });
+        if row
+            .on_hover_text(i18n::profiles::open_in_new_window_tip())
+            .clicked()
+            && !open
+        {
+            commands.push(Command::Profile(ProfileCommand::Open(p.id.clone())));
         }
-
-        ui.separator();
-        ui.label(i18n::profiles::new_profile());
-        ui.horizontal(|ui| {
-            let field = ui.add(
-                TextEdit::singleline(&mut self.new_name)
-                    .hint_text(i18n::profiles::name_hint())
-                    .desired_width(160.0),
+        if self.confirm_remove.as_ref() == Some(&p.id) {
+            ui.add(
+                egui::Label::new(
+                    RichText::new(i18n::profiles::confirm_remove(&p.name))
+                        .color(ui.visuals().warn_fg_color),
+                )
+                .wrap(),
             );
-            let submitted = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-            let can = !self.new_name.trim().is_empty();
-            if (ui
-                .add_enabled(
-                    can,
-                    Button::new(format!("{} {}", icon::PLUS, i18n::profiles::add())),
+            ui.horizontal(|ui| {
+                if danger_button(
+                    ui,
+                    format!("{} {}", icon::TRASH, i18n::profiles::remove()),
+                    true,
                 )
                 .clicked()
-                || submitted)
-                && can
-            {
-                commands.push(Command::Profile(ProfileCommand::Add(
-                    std::mem::take(&mut self.new_name).trim().to_owned(),
-                )));
-            }
-        });
-        ui.weak(i18n::profiles::opens_in_new_window());
+                {
+                    commands.push(Command::Profile(ProfileCommand::Remove(p.id.clone())));
+                    self.confirm_remove = None;
+                }
+                if ui.button(i18n::common::cancel()).clicked() {
+                    self.confirm_remove = None;
+                }
+            });
+        }
     }
 
     /// The current profile was renamed (or the rename failed): show the

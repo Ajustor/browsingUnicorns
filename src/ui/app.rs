@@ -117,7 +117,7 @@ impl BrowserApp {
         browser
             .engine_mut()
             .set_shortcuts(super::shortcuts::page_keys());
-        Self {
+        let mut app = Self {
             browser,
             events,
             updates,
@@ -148,6 +148,26 @@ impl BrowserApp {
             drm,
             relaunch: false,
             private_data,
+        };
+        app.offer_release_notes();
+        app
+    }
+
+    /// After an update, the side panel opens on what changed (not at the
+    /// first start: nothing was seen before, nothing changed then).
+    fn offer_release_notes(&mut self) {
+        let seen = &self.browser.settings().device.seen_release;
+        if !self.is_private() && !seen.is_empty() && seen != env!("CARGO_PKG_VERSION") {
+            self.library.open = Some(LibraryView::WhatsNew);
+        }
+    }
+
+    /// This version's notes were shown.
+    fn mark_notes_seen(&mut self) {
+        let mut device = self.browser.settings().device.clone();
+        device.seen_release = env!("CARGO_PKG_VERSION").into();
+        if let Err(e) = self.browser.update_device_settings(device) {
+            log::warn!("release notes: {e}");
         }
     }
 
@@ -1027,6 +1047,11 @@ impl BrowserApp {
             }
         }
         self.notice_bar(ctx);
+        let unseen_notes = !self.is_private()
+            && self.browser.settings().device.seen_release != env!("CARGO_PKG_VERSION");
+        if unseen_notes && self.library.open == Some(LibraryView::WhatsNew) {
+            self.mark_notes_seen();
+        }
         self.library.show(
             ctx,
             LibraryData {
@@ -1063,6 +1088,7 @@ impl BrowserApp {
                     reset_drm: self.drm.is_some(),
                     default_download_dir: infrastructure::downloads_dir(),
                 },
+                unseen_notes,
             },
             commands,
         );

@@ -3,6 +3,10 @@
 messages! {
     /// The view's title.
     fn heading() { en: "Profiles", fr: "Profils" }
+    /// The cards' titles.
+    fn this_profile() { en: "This profile", fr: "Ce profil" }
+    fn other_profiles() { en: "Other profiles", fr: "Autres profils" }
+    fn new_profile_title() { en: "New profile", fr: "Nouveau profil" }
     fn intro() {
         en: "Each profile has its own history, bookmarks, tabs, extensions, cookies and sync, and opens in its own window.",
         fr: "Chaque profil a son propre historique, ses favoris, ses onglets, ses extensions, ses cookies et sa synchronisation, et s’ouvre dans sa propre fenêtre.",

@@ -36,6 +36,9 @@ pub struct DeviceSettings {
     /// Too many tabs for the strip: they shrink to fit it, instead of
     /// scrolling.
     pub shrink_tabs: bool,
+    /// The last version whose release notes were offered (empty: none
+    /// yet): after an update, the side panel opens on what changed.
+    pub seen_release: String,
 }
 
 /// The interface's language: the system's, or one chosen. The computer's,
@@ -56,7 +59,8 @@ impl Default for DeviceSettings {
             save_passwords: true,
             sync_cookies: true,
             site_zoom: Vec::new(),
-            shrink_tabs: false,
+            shrink_tabs: true,
+            seen_release: String::new(),
         }
     }
 }

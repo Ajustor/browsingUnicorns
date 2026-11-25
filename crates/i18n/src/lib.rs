@@ -241,6 +241,7 @@ pub mod tabs;
 pub mod toolbar;
 pub mod updates;
 pub mod user_scripts;
+pub mod whats_new;
 pub mod window;
 
 // The core's messages the user reads, by crate.

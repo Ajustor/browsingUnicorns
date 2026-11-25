@@ -24,6 +24,8 @@ binaire reste petit et le moteur profite des mises à jour de sécurité de l'OS
 - 🔎 Recherche dans les onglets ouverts (Ctrl+Shift+A, loupe de la barre
   d'onglets) : lettres dans l'ordre, comme « aller au fichier » d'un
   éditeur, sur le titre et l'adresse ; ↑↓ puis Entrée
+- ✨ Nouveautés : les notes de chaque version dans le panneau de droite,
+  ouvert de lui-même après une mise à jour
 - 🪟 La barre d'onglets sert de barre de titre (boutons de fenêtre, double-clic
   pour agrandir, redimensionnement par les bords)
 - 🔎 Barre d'adresse unique : une adresse complète, un nom d'hôte
@@ -245,5 +247,4 @@ demande un compte Pro et Pages réglé sur « GitHub Actions ».
 
 ## Pistes
 
-- Page de réglages dans l'interface
 - Masquage cosmétique générique du bloqueur de pubs

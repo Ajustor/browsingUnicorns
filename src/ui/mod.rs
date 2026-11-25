@@ -14,6 +14,7 @@ mod language;
 mod library;
 mod omnibox;
 mod page_holes;
+mod panel_kit;
 mod passwords;
 mod profiles;
 mod settings_panel;
@@ -29,6 +30,7 @@ pub mod theme;
 mod toolbar;
 mod updates;
 mod user_scripts;
+mod whats_new;
 mod window_frame;
 
 pub use blocker::BlockerRunner;

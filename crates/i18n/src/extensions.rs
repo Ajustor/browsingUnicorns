@@ -3,6 +3,9 @@
 messages! {
     /// The view's title.
     fn heading() { en: "Extensions", fr: "Extensions" }
+    /// The cards' titles.
+    fn add_title() { en: "Add an extension", fr: "Ajouter une extension" }
+    fn installed_title() { en: "Installed", fr: "Installées" }
     fn unsupported() {
         en: "Extensions need the Windows web view (WebView2): the web view of this system cannot run them.",
         fr: "Les extensions demandent la vue web de Windows (WebView2)\u{a0}: celle de ce système ne peut pas les faire fonctionner.",

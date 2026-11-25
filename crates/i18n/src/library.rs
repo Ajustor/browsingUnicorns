@@ -16,6 +16,8 @@ messages! {
     fn settings_pill() { en: "Settings", fr: "Réglages" }
     /// The About view's pill.
     fn about_pill() { en: "About", fr: "À propos" }
+    /// The release notes' view.
+    fn whats_new_pill() { en: "What’s new", fr: "Nouveautés" }
     /// The search field over the history and the bookmarks.
     fn filter_hint() { en: "Filter", fr: "Filtrer" }
 }

@@ -6,6 +6,10 @@ messages! {
         en: "Sync bookmarks, history, open tabs and settings with your other devices. Everything is encrypted on the device: the relay cannot read it.",
         fr: "Synchronisez favoris, historique, onglets ouverts et réglages avec vos autres appareils. Tout est chiffré sur l’appareil\u{a0}: le relais ne peut pas le lire.",
     }
+    /// The view's first card.
+    fn title() { en: "Sync", fr: "Synchronisation" }
+    /// The card to join a group.
+    fn join_title() { en: "Already syncing elsewhere?", fr: "Déjà synchronisé ailleurs\u{a0}?" }
     fn turn_on() { en: "Turn on sync", fr: "Activer la synchronisation" }
     fn join_prompt() {
         en: "Already on another device? Enter its sync code:",

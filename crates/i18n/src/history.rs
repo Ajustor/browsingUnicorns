@@ -3,6 +3,12 @@
 messages! {
     /// No visit (or none matching the filter).
     fn no_pages() { en: "No pages.", fr: "Aucune page." }
+    /// The parts of the history, by age.
+    fn last_hour() { en: "Last hour", fr: "Dernière heure" }
+    fn last_day() { en: "Last 24 hours", fr: "Dernières 24\u{a0}heures" }
+    fn this_week() { en: "This week", fr: "Cette semaine" }
+    fn this_month() { en: "This month", fr: "Ce mois-ci" }
+    fn older() { en: "Older", fr: "Plus ancien" }
     /// The button under the list.
     fn clear_history() { en: "Clear history", fr: "Effacer l’historique" }
     /// How long ago, for an age in seconds: short, next to a page or a

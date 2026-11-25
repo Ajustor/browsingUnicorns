@@ -17,6 +17,11 @@ messages! {
         en: "Update check failed: {e}",
         fr: "La recherche de mises à jour a échoué\u{a0}: {e}",
     }
+    /// The cards' titles.
+    fn updates() { en: "Updates", fr: "Mises à jour" }
+    fn default_browser() { en: "Default browser", fr: "Navigateur par défaut" }
+    /// Under the name.
+    fn tagline() { en: "A light browser that respects you.", fr: "Un navigateur léger et respectueux." }
     /// The button.
     fn check_for_updates() { en: "Check for updates", fr: "Rechercher des mises à jour" }
     fn is_default() { en: "browsingUnicorns is your default browser.", fr: "browsingUnicorns est votre navigateur par défaut." }

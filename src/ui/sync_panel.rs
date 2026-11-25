@@ -3,12 +3,13 @@
 use application::Target;
 use application::sync::RemoteDevice;
 use domain::Timestamp;
-use egui::{Button, Color32, RichText, ScrollArea, Sense, TextEdit, Vec2};
+use egui::{Button, Color32, RichText, Sense, Vec2};
 use egui_phosphor::regular as icon;
 use infrastructure::sync::SyncConfig;
 use qrcode::{Color, QrCode};
 
 use super::command::Command;
+use super::panel_kit::{self, card, field, list_row, primary_button, site_badge};
 use super::sync::RoundState;
 
 /// What the view shows, borrowed for one frame.
@@ -41,34 +42,45 @@ impl SyncPanel {
 
     fn off(&mut self, ui: &mut egui::Ui, commands: &mut Vec<Command>) {
         self.show_code = false;
-        ui.label(i18n::sync::intro());
-        ui.add_space(8.0);
-        if ui
-            .button(format!(
-                "{} {}",
-                icon::ARROWS_CLOCKWISE,
-                i18n::sync::turn_on()
-            ))
-            .clicked()
-        {
-            commands.push(Command::SyncTurnOn);
-        }
-        ui.add_space(12.0);
-        ui.label(i18n::sync::join_prompt());
-        ui.add(
-            TextEdit::singleline(&mut self.join_code)
-                .hint_text("ABCD-EFGH-…")
-                .desired_width(f32::INFINITY),
+        card(
+            ui,
+            icon::ARROWS_CLOCKWISE,
+            i18n::sync::title(),
+            Some(i18n::sync::intro()),
+            |ui| {
+                if primary_button(
+                    ui,
+                    format!("{} {}", icon::POWER, i18n::sync::turn_on()),
+                    true,
+                )
+                .clicked()
+                {
+                    commands.push(Command::SyncTurnOn);
+                }
+            },
         );
-        if ui
-            .add_enabled(
-                !self.join_code.trim().is_empty(),
-                Button::new(i18n::sync::join()),
-            )
-            .clicked()
-        {
-            commands.push(Command::SyncJoin(std::mem::take(&mut self.join_code)));
-        }
+        card(
+            ui,
+            icon::LINK,
+            i18n::sync::join_title(),
+            Some(i18n::sync::join_prompt()),
+            |ui| {
+                let field = ui.add(field(&mut self.join_code, "ABCD-EFGH-…"));
+                let submitted = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                let can = !self.join_code.trim().is_empty();
+                if (ui
+                    .add_enabled(
+                        can,
+                        Button::new(format!("{} {}", icon::SIGN_IN, i18n::sync::join())),
+                    )
+                    .clicked()
+                    || submitted)
+                    && can
+                {
+                    commands.push(Command::SyncJoin(std::mem::take(&mut self.join_code)));
+                }
+            },
+        );
     }
 
     fn on(
@@ -79,111 +91,151 @@ impl SyncPanel {
         now: Timestamp,
         commands: &mut Vec<Command>,
     ) {
-        ui.label(i18n::sync::this_device(&config.device_name));
-        ui.horizontal(|ui| {
-            match view.state {
-                RoundState::Never => ui.weak(i18n::sync::not_synced()),
-                RoundState::Running => {
-                    ui.spinner();
-                    ui.label(i18n::sync::syncing())
+        let this_device = i18n::sync::this_device(&config.device_name);
+        card(
+            ui,
+            icon::ARROWS_CLOCKWISE,
+            i18n::sync::title(),
+            Some(&this_device),
+            |ui| {
+                ui.horizontal(|ui| {
+                    match view.state {
+                        RoundState::Never => {
+                            ui.label(RichText::new(icon::CIRCLE_DASHED).size(16.0).weak());
+                            ui.weak(i18n::sync::not_synced());
+                        }
+                        RoundState::Running => {
+                            ui.spinner();
+                            ui.label(i18n::sync::syncing());
+                        }
+                        RoundState::Done(at) => {
+                            ui.label(
+                                RichText::new(icon::CHECK_CIRCLE)
+                                    .size(16.0)
+                                    .color(panel_kit::ok_text(ui)),
+                            );
+                            ui.label(i18n::sync::synced(&super::library::ago_secs(
+                                at.elapsed().as_secs(),
+                            )));
+                        }
+                        RoundState::Failed(e) => {
+                            let red = ui.visuals().error_fg_color;
+                            ui.label(RichText::new(icon::WARNING).size(16.0).color(red));
+                            ui.add(egui::Label::new(RichText::new(e).color(red)).wrap());
+                        }
+                    };
+                });
+                ui.horizontal(|ui| {
+                    let running = *view.state == RoundState::Running;
+                    if primary_button(
+                        ui,
+                        format!("{} {}", icon::ARROWS_CLOCKWISE, i18n::sync::sync_now()),
+                        !running,
+                    )
+                    .clicked()
+                    {
+                        commands.push(Command::SyncNow);
+                    }
+                    if ui
+                        .button(format!("{} {}", icon::POWER, i18n::sync::turn_off()))
+                        .on_hover_text(i18n::sync::turn_off_tip())
+                        .clicked()
+                    {
+                        commands.push(Command::SyncTurnOff);
+                    }
+                });
+            },
+        );
+
+        card(
+            ui,
+            icon::QR_CODE,
+            i18n::sync::add_device(),
+            Some(i18n::sync::add_device_how()),
+            |ui| {
+                if !self.show_code {
+                    if ui
+                        .button(format!("{} {}", icon::EYE, i18n::sync::show_code()))
+                        .clicked()
+                    {
+                        self.show_code = true;
+                    }
+                    return;
                 }
-                RoundState::Done(at) => ui.weak(i18n::sync::synced(&super::library::ago_secs(
-                    at.elapsed().as_secs(),
-                ))),
-                RoundState::Failed(e) => ui.colored_label(ui.visuals().error_fg_color, e),
-            };
-        });
-        ui.horizontal(|ui| {
-            let running = *view.state == RoundState::Running;
-            if ui
-                .add_enabled(
-                    !running,
-                    Button::new(format!(
-                        "{} {}",
-                        icon::ARROWS_CLOCKWISE,
-                        i18n::sync::sync_now()
-                    )),
+                ui.vertical_centered(|ui| qr(ui, &config.key.qr_text()));
+                egui::Frame::NONE
+                    .fill(ui.visuals().extreme_bg_color)
+                    .corner_radius(egui::CornerRadius::same(8))
+                    .inner_margin(egui::Margin::same(8))
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.add(
+                            egui::Label::new(RichText::new(config.key.code()).monospace()).wrap(),
+                        );
+                    });
+                ui.horizontal(|ui| {
+                    if ui
+                        .button(format!("{} {}", icon::COPY, i18n::sync::copy()))
+                        .clicked()
+                    {
+                        ui.ctx().copy_text(config.key.code());
+                    }
+                    if ui
+                        .button(format!("{} {}", icon::EYE_SLASH, i18n::sync::hide()))
+                        .clicked()
+                    {
+                        self.show_code = false;
+                    }
+                });
+            },
+        );
+
+        card(ui, icon::DEVICES, i18n::sync::other_devices(), None, |ui| {
+            if view.devices.is_empty() {
+                ui.weak(i18n::sync::no_other_devices());
+            }
+            for device in view.devices {
+                let id = ui.make_persistent_id(("synced device", &device.name));
+                egui::collapsing_header::CollapsingState::load_with_default_open(
+                    ui.ctx(),
+                    id,
+                    false,
                 )
-                .clicked()
-            {
-                commands.push(Command::SyncNow);
-            }
-            if ui
-                .button(i18n::sync::turn_off())
-                .on_hover_text(i18n::sync::turn_off_tip())
-                .clicked()
-            {
-                commands.push(Command::SyncTurnOff);
-            }
-        });
-
-        ui.add_space(8.0);
-        ui.collapsing(i18n::sync::add_device(), |ui| {
-            ui.label(i18n::sync::add_device_how());
-            if !self.show_code {
-                if ui
-                    .button(format!("{} {}", icon::EYE, i18n::sync::show_code()))
-                    .clicked()
-                {
-                    self.show_code = true;
-                }
-                return;
-            }
-            qr(ui, &config.key.qr_text());
-            ui.add(egui::Label::new(RichText::new(config.key.code()).monospace()).wrap());
-            ui.horizontal(|ui| {
-                if ui
-                    .button(format!("{} {}", icon::COPY, i18n::sync::copy()))
-                    .clicked()
-                {
-                    ui.ctx().copy_text(config.key.code());
-                }
-                if ui.button(i18n::sync::hide()).clicked() {
-                    self.show_code = false;
-                }
-            });
-        });
-
-        ui.add_space(8.0);
-        ui.strong(i18n::sync::other_devices());
-        if view.devices.is_empty() {
-            ui.weak(i18n::sync::no_other_devices());
-        }
-        ScrollArea::vertical()
-            .auto_shrink([false, true])
-            .show(ui, |ui| {
-                for device in view.devices {
-                    ui.collapsing(
-                        format!(
-                            "{} {}",
-                            icon::DEVICES,
-                            i18n::sync::device_summary(
+                .show_header(ui, |ui| {
+                    ui.label(RichText::new(icon::DEVICES).color(panel_kit::accent_text(ui)));
+                    ui.add(
+                        egui::Label::new(
+                            RichText::new(i18n::sync::device_summary(
                                 &device.name,
                                 device.tabs.len(),
                                 &super::library::ago_secs(now.saturating_sub(device.updated_at)),
-                            )
-                        ),
-                        |ui| {
-                            for tab in &device.tabs {
-                                let title = if tab.title.is_empty() {
-                                    tab.address.as_str()
-                                } else {
-                                    &tab.title
-                                };
-                                if super::theme::hover_fill(ui, |ui| {
-                                    ui.add(Button::new(title).frame(false).truncate())
-                                })
-                                .on_hover_text(tab.address.as_str())
-                                .clicked()
-                                {
-                                    commands
-                                        .push(Command::Open(tab.address.clone(), Target::NewTab));
-                                }
-                            }
-                        },
+                            ))
+                            .strong(),
+                        )
+                        .truncate(),
                     );
-                }
-            });
+                })
+                .body(|ui| {
+                    for tab in &device.tabs {
+                        let title = if tab.title.is_empty() {
+                            tab.address.as_str()
+                        } else {
+                            &tab.title
+                        };
+                        let response = list_row(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                site_badge(ui, tab.address.host().unwrap_or("?"), 20.0);
+                                ui.add(egui::Label::new(title).truncate());
+                            });
+                        })
+                        .on_hover_text(tab.address.as_str());
+                        if response.clicked() {
+                            commands.push(Command::Open(tab.address.clone(), Target::NewTab));
+                        }
+                    }
+                });
+            }
+        });
     }
 }
 
