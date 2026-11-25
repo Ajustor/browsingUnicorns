@@ -4,6 +4,15 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.23.1] - 2026-11-25
+
+### Modifié
+
+- Les réglages ont été redessinés : une carte par section avec son
+  icône, des interrupteurs au lieu des cases à cocher, un choix en deux
+  boutons pour les onglets (défiler ou réduire), des menus et des champs
+  de la même largeur et de la même hauteur.
+
 ## [0.23.0] - 2026-11-25
 
 ### Ajouté
