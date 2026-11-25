@@ -4,6 +4,25 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.22.0] - 2026-11-25
+
+### Ajouté
+
+- Onglets épinglés : clic droit sur un onglet, *Épingler l'onglet*. Ils
+  restent en tête de la barre, réduits à leur icône, sans bouton de
+  fermeture.
+- Groupes d'onglets : clic droit sur un onglet, *Ajouter à un nouveau
+  groupe* ou *Ajouter au groupe*. Chaque groupe a un nom et une couleur ;
+  un clic sur son étiquette le replie ou le déplie, un clic droit permet
+  de le renommer, d'en changer la couleur, de le dissocier ou de le
+  fermer. Un onglet déposé entre deux onglets d'un groupe le rejoint, et
+  les liens ouverts depuis un onglet groupé restent dans son groupe.
+- Les onglets épinglés et les groupes sont retrouvés au redémarrage.
+- Recherche dans les onglets ouverts (Ctrl+Shift+A, ou la loupe de la
+  barre d'onglets), comme « aller au fichier » d'un éditeur : les lettres
+  tapées, dans l'ordre, sur le titre et l'adresse ; ↑↓ puis Entrée pour
+  aller à l'onglet.
+
 ## [0.21.1] - 2026-11-24
 
 ### Corrigé
