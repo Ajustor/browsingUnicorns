@@ -4,6 +4,25 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.25.0] - 2026-11-25
+
+### Ajouté
+
+- YouTube : les passages sponsorisés des vidéos (sponsors lus par le
+  vidéaste, autopromo) sont sautés tout seuls, grâce aux segments de
+  [SponsorBlock](https://sponsor.ajay.app). Une note « Sponsor passé » sur
+  le lecteur propose de revenir en arrière. La vidéo regardée n'est pas
+  révélée : seuls les 4 premiers caractères de l'empreinte de son
+  identifiant sont envoyés. Rien n'est sauté pendant une pub.
+- YouTube : les vidéos sponsorisées sont retirées de l'accueil, des
+  recherches et des suggestions, ainsi que les bannières promotionnelles.
+  *Bloquer sur ce site* coupe les deux, comme le reste du bloqueur.
+
+### Corrigé
+
+- Bitwarden efface au démarrage ses données de session périmées, au lieu
+  d'échouer à les déchiffrer (`chrome.storage.*.getKeys`).
+
 ## [0.24.1] - 2026-11-25
 
 ### Corrigé
