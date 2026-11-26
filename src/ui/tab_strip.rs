@@ -267,8 +267,9 @@ pub fn show(
                                     ));
                                 }
                             }
-                            let title = truncate(tab.display_title(), TITLE_CHARS);
-                            // Cut to the tab, room left for the cross.
+                            let title = tab.display_title();
+                            // Cut to the tab, room left for the cross; a
+                            // cut title shows whole on hover (egui's own).
                             let room = ui.available_width() - 22.0;
                             let label = ui
                                 .scope(|ui| {
@@ -280,8 +281,7 @@ pub fn show(
                                             .sense(Sense::click()),
                                     )
                                 })
-                                .inner
-                                .on_hover_text(tab.display_title());
+                                .inner;
                             if label.clicked() {
                                 commands.push(Command::Activate(tab.id()));
                             }
