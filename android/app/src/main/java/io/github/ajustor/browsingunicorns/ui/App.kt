@@ -74,7 +74,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import io.github.ajustor.browsingunicorns.AppUpdates
 import io.github.ajustor.browsingunicorns.R
 import io.github.ajustor.browsingunicorns.BrowserController
 import io.github.ajustor.browsingunicorns.UpdateState
@@ -144,7 +143,8 @@ private fun BrowserScreen(c: BrowserController) {
         }
         CredentialBanner(c)
         StoreBanner(c)
-        UpdateBanner(c.updates)
+        // An update found at start: its window, over the page.
+        UpdateDialog(c.updates)
         AnimatedVisibility(
             visible = !c.barsCollapsed,
             enter = expandVertically(tween(150)),
@@ -272,35 +272,6 @@ private fun StoreBanner(c: BrowserController) {
             TextButton(onClick = { c.installExtension(offer.id) }, enabled = !c.installing) {
                 Text(stringResource(if (c.installing) R.string.installing else R.string.install))
             }
-        }
-    }
-}
-
-/** A newer version: install it, later, or skip it. */
-@Composable
-private fun UpdateBanner(u: AppUpdates) {
-    val (version, label) = when (val s = u.state) {
-        is UpdateState.Available -> s.release.version to stringResource(R.string.install)
-        is UpdateState.Ready -> s.release.version to stringResource(R.string.install)
-        is UpdateState.Downloading -> s.release.version to stringResource(R.string.update_downloading, s.percent)
-        else -> return
-    }
-    Surface(tonalElevation = 6.dp, modifier = Modifier.fillMaxWidth()) {
-        Row(
-            Modifier.padding(start = 16.dp, end = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                stringResource(R.string.update_available, version),
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.weight(1f),
-            )
-            val downloading = u.state is UpdateState.Downloading
-            if (!downloading) {
-                TextButton(onClick = { u.skip() }) { Text(stringResource(R.string.update_skip)) }
-                TextButton(onClick = { u.later() }) { Text(stringResource(R.string.update_later)) }
-            }
-            TextButton(onClick = { u.install() }, enabled = !downloading) { Text(label) }
         }
     }
 }
@@ -542,11 +513,26 @@ private fun BottomBar(c: BrowserController) {
                         menu = false
                         c.screen = Screen.Settings
                     })
+                    // An update there: its window; else look for one.
+                    val waiting = when (val s = c.updates.state) {
+                        is UpdateState.Available -> s.release.version
+                        is UpdateState.Downloading -> s.release.version
+                        is UpdateState.Ready -> s.release.version
+                        else -> null
+                    }
                     DropdownMenuItem(
-                        text = { Text(stringResource(R.string.check_for_updates, c.updates.currentVersion)) },
+                        text = {
+                            Text(
+                                if (waiting != null) {
+                                    stringResource(R.string.update_menu, waiting)
+                                } else {
+                                    stringResource(R.string.check_for_updates, c.updates.currentVersion)
+                                },
+                            )
+                        },
                         onClick = {
                             menu = false
-                            c.updates.check(manual = true)
+                            if (waiting != null) c.updates.showPrompt() else c.updates.check(manual = true)
                         },
                     )
                     DropdownMenuItem(

@@ -25,9 +25,20 @@
     <string name="store_offer">Installer %1$s dans Browsing Unicorns ?</string>
     <string name="store_offer_unnamed">cette extension</string>
     <string name="update_available">Browsing Unicorns %1$s est disponible</string>
-    <string name="update_downloading">%1$d %%</string>
-    <string name="update_skip">Ignorer</string>
     <string name="update_later">Plus tard</string>
+    <!-- La fenêtre qui propose une mise à jour trouvée au démarrage. -->
+    <string name="update_window_title">Une nouvelle version est là</string>
+    <string name="update_window_downloading">Mise à jour en cours…</string>
+    <string name="update_window_ready">Prête à installer</string>
+    <string name="update_in_this_version">Nouveau dans la %1$s</string>
+    <string name="update_now">Mettre à jour</string>
+    <string name="update_skip_version">Ignorer cette version</string>
+    <string name="update_downloading_long">Téléchargement… %1$d %%</string>
+    <string name="update_keep_browsing">Vous pouvez continuer à naviguer pendant ce temps.</string>
+    <string name="update_hide">Masquer</string>
+    <string name="update_ready_install">Téléchargée : Android l’installe.</string>
+    <!-- Entrée du menu quand une mise à jour est là : ouvre sa fenêtre. -->
+    <string name="update_menu">Mettre à jour vers la %1$s</string>
 
     <!-- Navigateur : barre d’adresse -->
     <string name="address_placeholder">Rechercher ou saisir une adresse</string>

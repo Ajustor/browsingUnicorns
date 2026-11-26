@@ -36,13 +36,21 @@ sealed interface UpdateState {
 
 /**
  * Self-update, like the desktop app: a daily look at the release manifest,
- * a banner when a newer version exists, the signed APK downloaded and its
+ * a window offering a newer version found at start, the signed APK downloaded and its
  * SHA-256 checked, then handed to Android's package installer through a
  * [PackageInstaller] session (same signing key: an update). The outcome
  * comes back to [UpdateInstallReceiver].
  */
 class AppUpdates(private val context: Context, private val scope: CoroutineScope) {
     var state by mutableStateOf<UpdateState>(UpdateState.Idle)
+        private set
+
+    /**
+     * The window offering the update is open: opened by the automatic check
+     * finding one (at start), not by a check by hand (the menu then offers
+     * it).
+     */
+    var prompt by mutableStateOf(false)
         private set
 
     /** Short messages for the user (up to date, errors). */
@@ -86,9 +94,28 @@ class AppUpdates(private val context: Context, private val scope: CoroutineScope
                     UpdateState.Idle
                 }
                 !manual && release.version == skipped -> UpdateState.Idle
-                else -> UpdateState.Available(release)
+                else -> {
+                    if (manual) {
+                        onMessage(context.getString(R.string.update_available, release.version))
+                    } else {
+                        prompt = true
+                    }
+                    UpdateState.Available(release)
+                }
             }
         }
+    }
+
+    /** Opens the update's window (the menu's "Update"). */
+    fun showPrompt() {
+        if (state is UpdateState.Available || state is UpdateState.Downloading || state is UpdateState.Ready) {
+            prompt = true
+        }
+    }
+
+    /** Closes the update's window; a download goes on. */
+    fun hidePrompt() {
+        prompt = false
     }
 
     fun install() {
@@ -99,8 +126,9 @@ class AppUpdates(private val context: Context, private val scope: CoroutineScope
         }
     }
 
+    /** Not now: the window closes; the menu still offers the update. */
     fun later() {
-        if (state is UpdateState.Available || state is UpdateState.Ready) state = UpdateState.Idle
+        prompt = false
     }
 
     fun skip() {
@@ -111,6 +139,7 @@ class AppUpdates(private val context: Context, private val scope: CoroutineScope
         }
         prefs.edit().putString("skipped", release.version).apply()
         state = UpdateState.Idle
+        prompt = false
     }
 
     private fun fetchLatest(): Release? {

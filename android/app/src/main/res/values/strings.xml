@@ -31,9 +31,20 @@
     <string name="store_offer">Install %1$s in Browsing Unicorns?</string>
     <string name="store_offer_unnamed">this extension</string>
     <string name="update_available">Browsing Unicorns %1$s is available</string>
-    <string name="update_downloading">%1$d %%</string>
-    <string name="update_skip">Skip</string>
     <string name="update_later">Later</string>
+    <!-- The window offering an update found at start. -->
+    <string name="update_window_title">A new version is out</string>
+    <string name="update_window_downloading">Updating…</string>
+    <string name="update_window_ready">Ready to install</string>
+    <string name="update_in_this_version">New in %1$s</string>
+    <string name="update_now">Update</string>
+    <string name="update_skip_version">Skip this version</string>
+    <string name="update_downloading_long">Downloading… %1$d %%</string>
+    <string name="update_keep_browsing">You can keep browsing meanwhile.</string>
+    <string name="update_hide">Hide</string>
+    <string name="update_ready_install">Downloaded: Android installs it.</string>
+    <!-- Menu entry while an update is there: opens its window. -->
+    <string name="update_menu">Update to %1$s</string>
 
     <!-- Browser screen: address bar -->
     <string name="address_placeholder">Search or enter an address</string>
