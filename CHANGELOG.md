@@ -4,6 +4,24 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.31.0] - 2026-11-26
+
+### Ajouté
+
+- Les onglets endormis (restaurés au démarrage, ou mis en veille) gardent
+  l'icône de leur site au lieu d'un globe, sans recharger leur page.
+  L'icône de chaque site est gardée sur le disque, en petit ; rien n'est
+  gardé des onglets privés.
+
+### Modifié
+
+- Android : un APK par processeur, deux fois plus léger à télécharger.
+  `browsingUnicorns-android-arm64.apk` pour les téléphones et tablettes,
+  `browsingUnicorns-android-x86_64.apk` pour les émulateurs. La mise à jour
+  intégrée télécharge celui de l'appareil ; l'APK universel reste publié.
+- Les barres de défilement des listes et des panneaux sont plus larges
+  quand le curseur est dessus, plus faciles à voir et à attraper.
+
 ## [0.30.0] - 2026-11-26
 
 ### Ajouté
