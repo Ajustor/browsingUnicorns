@@ -62,6 +62,20 @@ pub struct Sources<'a> {
     pub credentials: bool,
 }
 
+/// A JavaScript expression, true in the extensions' own pages wherever
+/// they are served ([`Origins`]): as Chrome on `chrome-extension://`, no
+/// page script runs there (they would take the messages meant for the
+/// extension's page, a password manager's popup opened in a tab).
+const IN_EXTENSION_PAGE: &str = r#"(location.protocol === "bu-ext:" || /^bu-ext\.[a-p]{32}$|^[a-p]{32}\.bu-ext\.invalid$/.test(location.hostname))"#;
+
+/// `script` (starting with [`MARKER`]), but not in an extension's page.
+fn outside_extension_pages(script: String) -> String {
+    match script.strip_prefix(MARKER) {
+        Some(rest) => format!("{MARKER}if (!{IN_EXTENSION_PAGE}) {rest}"),
+        None => script,
+    }
+}
+
 /// The owner the ad blocker's page script speaks as.
 pub const BLOCKER_OWNER: &str = "blocker";
 
@@ -221,7 +235,7 @@ pub fn page_scripts(sources: &Sources<'_>) -> Vec<String> {
             ),
         ));
     }
-    out
+    out.into_iter().map(outside_extension_pages).collect()
 }
 
 #[cfg(test)]
@@ -319,5 +333,53 @@ mod tests {
         });
         assert_eq!(with_blocker.len(), 2);
         assert!(with_blocker[0].contains("\nblockerCosmetic();\n"));
+    }
+
+    #[test]
+    fn no_page_script_runs_in_the_extensions_own_pages() {
+        // As Chrome on chrome-extension://: Bitwarden's popup opened in a
+        // tab (https://bu-ext.<id> on Windows) got Bitwarden's own content
+        // scripts, which took its background's messages.
+        let root = tempfile::tempdir().unwrap();
+        let scripts = page_scripts(&Sources {
+            extensions_dir: root.path(),
+            extensions: None,
+            user_scripts_dir: root.path(),
+            user_scripts: &UserScripts::default(),
+            token: "tok",
+            bridge: Bridge::Ipc,
+            origins: Origins::WindowsHttps,
+            state_dir: None,
+            blocker: true,
+            credentials: true,
+        });
+        assert_eq!(scripts.len(), 2);
+        let guard = format!("{MARKER}if (!{IN_EXTENSION_PAGE}) ");
+        assert!(scripts.iter().all(|s| s.starts_with(&guard)));
+
+        let node = std::process::Command::new("node")
+            .arg("-e")
+            .arg(format!(
+                "const cases = [\
+                   ['https:', 'bu-ext.nngceckbapebfimnlniiiahkandclblb', true],\
+                   ['https:', 'nngceckbapebfimnlniiiahkandclblb.bu-ext.invalid', true],\
+                   ['bu-ext:', 'nngceckbapebfimnlniiiahkandclblb', true],\
+                   ['https:', 'www.paypal.com', false],\
+                   ['https:', 'bu-ext.example.com', false],\
+                   ['http:', 'bu-ext.test', false]];\
+                 for (const [protocol, hostname, expected] of cases) {{\
+                   const location = {{ protocol, hostname }};\
+                   if ({IN_EXTENSION_PAGE} !== expected) {{ console.log(hostname); process.exit(1); }}\
+                 }}"
+            ))
+            .output();
+        // Without node, the shape above is all that is checked.
+        if let Ok(out) = node {
+            assert!(
+                out.status.success(),
+                "{}",
+                String::from_utf8_lossy(&out.stdout)
+            );
+        }
     }
 }
