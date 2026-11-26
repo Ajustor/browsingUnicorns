@@ -74,4 +74,12 @@ messages! {
     fn unsplit() { en: "Close split view", fr: "Fermer l’écran scindé" }
     /// Tooltip of the bar between the two pages of a split view.
     fn split_divider() { en: "Drag to resize · double-click: half and half", fr: "Tirer pour redimensionner · double-clic\u{a0}: moitié-moitié" }
+    /// Where a page that crashed was.
+    fn page_crashed() { en: "This page crashed", fr: "Cette page a planté" }
+    fn page_crashed_hint() {
+        en: "It is not loaded again by itself, in case it crashes again.",
+        fr: "Elle n’est pas rechargée toute seule, au cas où elle planterait de nouveau.",
+    }
+    /// The button that loads a crashed page again.
+    fn reload_page() { en: "Reload", fr: "Recharger" }
 }

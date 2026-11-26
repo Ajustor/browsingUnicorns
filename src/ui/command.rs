@@ -92,6 +92,8 @@ pub enum Command {
     Back,
     Forward,
     Reload,
+    /// Reloads that tab (its page crashed).
+    ReloadTab(TabId),
     /// Reload without the cache (Ctrl+Shift+R, Ctrl+F5, Shift+click).
     HardReload,
     Home,

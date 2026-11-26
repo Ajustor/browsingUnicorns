@@ -219,6 +219,12 @@ pub enum EngineEvent {
     PageFocused {
         tab: TabId,
     },
+    /// `tab`'s page crashed (its renderer died); `all`: the engine itself,
+    /// every page with it.
+    PageCrashed {
+        tab: TabId,
+        all: bool,
+    },
 }
 
 /// Where page scripts run: a tab, an extension's background page, the

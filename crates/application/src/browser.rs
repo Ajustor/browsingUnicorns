@@ -64,6 +64,9 @@ pub struct Browser<E: WebEngine> {
     /// When each tab was last seen (shown, or first looked at by
     /// [`Self::discard_idle`]).
     last_seen: HashMap<TabId, Timestamp>,
+    /// Tabs whose page crashed: they stay without a page (the presentation
+    /// says so) until reloaded or shown again.
+    crashed: std::collections::HashSet<TabId>,
     seen_cookies: SeenCookies,
 }
 
@@ -90,6 +93,7 @@ impl<E: WebEngine> Browser<E> {
             pending_credential: None,
             typed_usernames: HashMap::new(),
             last_seen: HashMap::new(),
+            crashed: std::collections::HashSet::new(),
             seen_cookies: SeenCookies::default(),
         }
     }
@@ -834,8 +838,15 @@ impl<E: WebEngine> Browser<E> {
         Ok(self.engine.navigate(tab, address)?)
     }
 
-    /// Reloads `tab` (an extension's `tabs.reload`); asleep, it wakes.
+    /// Whether `tab`'s page crashed (it has none until reloaded).
+    pub fn is_crashed(&self, tab: TabId) -> bool {
+        self.crashed.contains(&tab)
+    }
+
+    /// Reloads `tab` (an extension's `tabs.reload`); asleep or crashed, it
+    /// wakes.
     pub fn reload_tab(&mut self, tab: TabId) {
+        self.crashed.remove(&tab);
         if self.session.tab(tab).is_some_and(|t| t.is_discarded()) {
             if let Err(e) = self.wake(tab) {
                 log::warn!("waking tab {tab}: {e}");
@@ -850,6 +861,8 @@ impl<E: WebEngine> Browser<E> {
         if let Some(id) = tab {
             // Seen now: its idle time counts again from the next look.
             self.last_seen.remove(&id);
+            // Shown again by the user: a crashed page gets another go.
+            self.crashed.remove(&id);
             if let Err(e) = self.wake(id) {
                 log::warn!("waking tab {id}: {e}");
             }
@@ -859,7 +872,11 @@ impl<E: WebEngine> Browser<E> {
 
     /// Loads the page of `id` again if it sleeps (a new view).
     fn wake(&mut self, id: TabId) -> Result<(), BrowserError> {
-        let Some(tab) = self.session.tab(id).filter(|t| t.is_discarded()) else {
+        let Some(tab) = self
+            .session
+            .tab(id)
+            .filter(|t| t.is_discarded() && !self.crashed.contains(&id))
+        else {
             return Ok(());
         };
         let private = tab.is_private();
@@ -967,7 +984,7 @@ impl<E: WebEngine> Browser<E> {
 
     pub fn reload(&mut self) {
         if let Some(id) = self.session.active_id() {
-            self.engine.reload(id);
+            self.reload_tab(id);
         }
     }
 
@@ -1044,6 +1061,39 @@ impl<E: WebEngine> Browser<E> {
             EngineEvent::DownloadStarted { .. }
             | EngineEvent::DownloadFinished { .. }
             | EngineEvent::ExtensionOffered { .. } => {}
+            // The page died: its view goes, the tab waits to be reloaded.
+            // The whole engine: every page went with it, the tabs sleep and
+            // the one shown starts again.
+            EngineEvent::PageCrashed { tab, all } => {
+                // From a view already gone (the engine's crash reaches every
+                // view): handled with the first.
+                if self.session.tab(tab).is_none_or(|t| t.is_discarded()) {
+                    return Ok(());
+                }
+                if all {
+                    let ids: Vec<TabId> = self
+                        .session
+                        .tabs()
+                        .iter()
+                        .filter(|t| !t.is_discarded())
+                        .map(domain::Tab::id)
+                        .collect();
+                    for id in ids {
+                        self.engine.close_view(id);
+                        if let Some(t) = self.session.tab_mut(id) {
+                            t.discard();
+                        }
+                    }
+                    let active = self.session.active_id();
+                    self.show(active);
+                } else {
+                    self.engine.close_view(tab);
+                    if let Some(t) = self.session.tab_mut(tab) {
+                        t.discard();
+                    }
+                    self.crashed.insert(tab);
+                }
+            }
             // The other pane of the split view: it becomes the active tab.
             EngineEvent::PageFocused { tab } => {
                 if let Some(active) = self.session.active_id()
@@ -1881,5 +1931,50 @@ mod tests {
         assert_eq!(b.session().tabs()[1].id(), new);
         b.unsplit(new);
         assert!(b.session().split_of(t1).is_none());
+    }
+
+    #[test]
+    fn a_crashed_page_waits_to_be_reloaded() {
+        let mut b = browser();
+        let t1 = b.open_tab(None).unwrap();
+        finish(&mut b, t1, "https://a.com/");
+        take_calls(&mut b);
+        b.handle(EngineEvent::PageCrashed {
+            tab: t1,
+            all: false,
+        })
+        .unwrap();
+        assert!(b.is_crashed(t1));
+        assert_eq!(take_calls(&mut b), vec![Call::Close(t1.get())]);
+        // Not loaded again behind the user's back (it could crash again).
+        let viewport = Viewport::default();
+        b.show_panes(&[(t1, viewport)]);
+        assert!(
+            !take_calls(&mut b)
+                .iter()
+                .any(|c| matches!(c, Call::Open(..)))
+        );
+        // Reloaded: a new view.
+        b.reload();
+        assert!(!b.is_crashed(t1));
+        assert!(take_calls(&mut b).contains(&Call::Open(t1.get(), "https://a.com/".into())));
+    }
+
+    #[test]
+    fn the_engine_crashing_restarts_the_page_shown_only() {
+        let mut b = browser();
+        let t1 = b.open_tab(None).unwrap();
+        let t2 = b.open_tab(None).unwrap();
+        finish(&mut b, t1, "https://a.com/");
+        finish(&mut b, t2, "https://b.com/");
+        take_calls(&mut b);
+        b.handle(EngineEvent::PageCrashed { tab: t1, all: true })
+            .unwrap();
+        let calls = take_calls(&mut b);
+        assert!(calls.contains(&Call::Close(t1.get())));
+        assert!(calls.contains(&Call::Close(t2.get())));
+        assert!(calls.contains(&Call::Open(t2.get(), "https://b.com/".into())));
+        assert!(!calls.iter().any(|c| matches!(c, Call::Open(1, _))));
+        assert!(b.session().tab(t1).unwrap().is_discarded());
     }
 }

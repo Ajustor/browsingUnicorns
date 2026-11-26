@@ -872,6 +872,8 @@ impl WebEngine for WryEngine {
         let on_audio = emit.clone();
         #[cfg(windows)]
         let on_focus = emit.clone();
+        #[cfg(windows)]
+        let on_crash = emit.clone();
         let device_for_downloads = self.device.clone();
         // Downloads the browser stopped before they began.
         let refused = std::rc::Rc::new(std::cell::RefCell::new(std::collections::HashSet::new()));
@@ -1054,6 +1056,12 @@ impl WebEngine for WryEngine {
                 });
             }) {
                 log::warn!("sound of tab {tab}: {e}");
+            }
+            if let Err(e) = crate::webview2_settings::follow_crashes(&view, move |all| {
+                log::warn!("tab {tab}: the page crashed (all pages: {all})");
+                on_crash(EngineEvent::PageCrashed { tab, all });
+            }) {
+                log::warn!("crashes of tab {tab}: {e}");
             }
         }
         // Within the page (`history.pushState`): the address bar follows.

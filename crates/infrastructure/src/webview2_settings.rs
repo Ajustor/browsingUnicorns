@@ -155,6 +155,32 @@ pub fn follow_audio(
     unsafe { webview.add_IsMutedChanged(&muted, &mut token) }
 }
 
+/// Calls `on_crash(all)` when `view`'s page dies: its renderer (`false`),
+/// or the browser process with every page (`true`). A frame's, the GPU's or
+/// a helper's are left to WebView2, which starts them again.
+pub fn follow_crashes(
+    view: &WebView,
+    on_crash: impl Fn(bool) + 'static,
+) -> windows_core::Result<()> {
+    use webview2_com::Microsoft::Web::WebView2::Win32::{
+        COREWEBVIEW2_PROCESS_FAILED_KIND, COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED,
+        COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED,
+    };
+    let handler = webview2_com::ProcessFailedEventHandler::create(Box::new(move |_, args| {
+        let Some(args) = args else { return Ok(()) };
+        let mut kind = COREWEBVIEW2_PROCESS_FAILED_KIND::default();
+        unsafe { args.ProcessFailedKind(&mut kind)? };
+        if kind == COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED {
+            on_crash(true);
+        } else if kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED {
+            on_crash(false);
+        }
+        Ok(())
+    }));
+    let mut token = 0;
+    unsafe { view.webview().add_ProcessFailed(&handler, &mut token) }
+}
+
 /// Mutes `view`'s page, or lets it play sound again.
 pub fn set_muted(view: &WebView, muted: bool) {
     let result = view

@@ -543,6 +543,7 @@ impl BrowserApp {
             Command::Back => self.browser.go_back(),
             Command::Forward => self.browser.go_forward(),
             Command::Reload => self.browser.reload(),
+            Command::ReloadTab(tab) => self.browser.reload_tab(tab),
             Command::HardReload => self.browser.reload_bypassing_cache(),
             Command::FocusOmnibox => {
                 self.browser.engine().focus_window();
@@ -998,6 +999,49 @@ fn writes_profile(command: &Command) -> bool {
 /// `CONTEXT_MENU_ID_STR`, private to it).
 const CONTEXT_MENU_ID: &str = "__egui::context_menu";
 
+/// Where a crashed page was: what happened, and Reload.
+fn crashed_page(
+    ui: &mut egui::Ui,
+    area: egui::Rect,
+    commands: &mut Vec<Command>,
+    tab: domain::TabId,
+) {
+    let mut child = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(area)
+            .layout(egui::Layout::top_down(egui::Align::Center)),
+    );
+    child.add_space((area.height() / 2.0 - 90.0).max(0.0));
+    child.label(
+        egui::RichText::new(egui_phosphor::regular::SMILEY_SAD)
+            .size(56.0)
+            .color(super::theme::CHROME_TEXT_WEAK),
+    );
+    child.add_space(8.0);
+    child.label(
+        egui::RichText::new(i18n::tabs::page_crashed())
+            .size(20.0)
+            .color(super::theme::CHROME_TEXT),
+    );
+    child.label(
+        egui::RichText::new(i18n::tabs::page_crashed_hint()).color(super::theme::CHROME_TEXT_WEAK),
+    );
+    child.add_space(12.0);
+    if super::panel_kit::primary_button(
+        &mut child,
+        format!(
+            "{} {}",
+            egui_phosphor::regular::ARROW_CLOCKWISE,
+            i18n::tabs::reload_page()
+        ),
+        true,
+    )
+    .clicked()
+    {
+        commands.push(Command::ReloadTab(tab));
+    }
+}
+
 /// Closes the open right-click menu (a tab's): egui keeps it open until it
 /// sees a click elsewhere, and a click in the page is the web view's.
 fn close_context_menu(ctx: &egui::Context) {
@@ -1322,11 +1366,17 @@ impl eframe::App for BrowserApp {
                     // would cover it.
                     self.browser.engine_mut().show(None);
                 } else {
-                    let panes: Vec<_> =
-                        split_view::panes(ui, rect, self.browser.session(), &mut commands)
-                            .into_iter()
-                            .map(|(tab, area)| (tab, page_viewport(area, ppp)))
-                            .collect();
+                    let panes = split_view::panes(ui, rect, self.browser.session(), &mut commands);
+                    // A crashed page has no view: its message shows there.
+                    for &(tab, area) in &panes {
+                        if self.browser.is_crashed(tab) {
+                            crashed_page(ui, area, &mut commands, tab);
+                        }
+                    }
+                    let panes: Vec<_> = panes
+                        .into_iter()
+                        .map(|(tab, area)| (tab, page_viewport(area, ppp)))
+                        .collect();
                     self.browser.show_panes(&panes);
                 }
                 rect
