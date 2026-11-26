@@ -806,6 +806,30 @@ impl BrowserApp {
         self.browser.engine_mut().show_panel_page(Some(&url), area);
     }
 
+    /// The extension's window shown (the active tab is one), with the size
+    /// it asked for.
+    fn active_popup_window(&self) -> Option<(domain::TabId, Option<(u32, u32)>)> {
+        let active = self.browser.session().active_id()?;
+        self.hub
+            .popup_windows()
+            .into_iter()
+            .find(|(tab, _)| *tab == active)
+    }
+
+    /// An extension's window stays over the tab that opened it: back on
+    /// that tab, the window shows again (until it closes).
+    fn front_popup_window(&mut self) {
+        let Some(active) = self.browser.session().active_id() else {
+            return;
+        };
+        let window = self.hub.popup_windows().into_iter().find(|(tab, _)| {
+            self.browser.session().tab(*tab).and_then(|t| t.opener()) == Some(active)
+        });
+        if let Some((window, _)) = window {
+            self.browser.activate(window);
+        }
+    }
+
     /// Puts the tabs left unseen [`SLEEP_AFTER`] to sleep, every
     /// [`SLEEP_CHECK_EVERY`] (unless the user turned it off). Those playing
     /// sound stay awake.
@@ -999,6 +1023,78 @@ fn writes_profile(command: &Command) -> bool {
 /// `CONTEXT_MENU_ID_STR`, private to it).
 const CONTEXT_MENU_ID: &str = "__egui::context_menu";
 
+/// An extension's window (a passkey prompt...) in the middle of the page
+/// area, over a dimmed backdrop: its title and a close button above, the
+/// page in it. `size`: what it asked for (points). Returns where its page
+/// goes.
+fn floating_window(
+    ui: &mut egui::Ui,
+    area: egui::Rect,
+    size: Option<(u32, u32)>,
+    title: &str,
+    tab: domain::TabId,
+    commands: &mut Vec<Command>,
+) -> egui::Rect {
+    const BAR: f32 = 36.0;
+    let painter = ui.painter();
+    painter.rect_filled(area, 0.0, egui::Color32::from_black_alpha(150));
+    let (w, h) = size.map_or((420.0, 600.0), |(w, h)| (w as f32, h as f32));
+    let room = area.shrink(24.0);
+    let page_size = egui::vec2(w.min(room.width()), h.min(room.height() - BAR).max(120.0));
+    let frame = egui::Rect::from_center_size(area.center(), page_size + egui::vec2(0.0, BAR));
+    painter.rect_filled(frame.expand(1.0), 12.0, super::theme::GRADIENT[1]);
+    let bar = egui::Rect::from_min_size(frame.min, egui::vec2(frame.width(), BAR));
+    painter.rect_filled(
+        bar,
+        egui::CornerRadius {
+            nw: 12,
+            ne: 12,
+            sw: 0,
+            se: 0,
+        },
+        super::theme::GRADIENT[1],
+    );
+    // The close button on the right, the title on the left of what is left.
+    let inner = bar.shrink2(egui::vec2(12.0, 0.0));
+    let mut right = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(inner)
+            .layout(egui::Layout::right_to_left(egui::Align::Center)),
+    );
+    let close = super::theme::hover_fill(&mut right, |ui| {
+        ui.add(
+            egui::Button::new(
+                egui::RichText::new(egui_phosphor::regular::X)
+                    .size(16.0)
+                    .color(egui::Color32::WHITE),
+            )
+            .frame(false),
+        )
+    })
+    .on_hover_text(i18n::common::close());
+    if close.clicked() {
+        commands.push(Command::CloseTab(tab));
+    }
+    let title_area = egui::Rect::from_min_max(
+        inner.min,
+        egui::pos2((close.rect.left() - 8.0).max(inner.left()), inner.bottom()),
+    );
+    let mut left = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(title_area)
+            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+    );
+    left.add(
+        egui::Label::new(
+            egui::RichText::new(format!("{}  {title}", egui_phosphor::regular::PUZZLE_PIECE))
+                .color(egui::Color32::WHITE)
+                .strong(),
+        )
+        .truncate(),
+    );
+    egui::Rect::from_min_max(egui::pos2(frame.left(), bar.bottom()), frame.max)
+}
+
 /// Where a crashed page was: what happened, and Reload.
 fn crashed_page(
     ui: &mut egui::Ui,
@@ -1058,6 +1154,19 @@ impl BrowserApp {
         {
             self.naming_group = None;
         }
+        // Extensions' windows float over their opener's page: not listed.
+        let hidden: Vec<domain::TabId> = self
+            .hub
+            .popup_windows()
+            .into_iter()
+            .map(|(tab, _)| tab)
+            .filter(|&t| {
+                self.browser
+                    .session()
+                    .tab(t)
+                    .is_some_and(|t| t.opener().is_some())
+            })
+            .collect();
         let device = &self.browser.settings().device;
         let side = device.tab_position == domain::TabPosition::Left;
         let (side_width, folded) = (device.side_tabs_width, device.side_tabs_collapsed);
@@ -1083,6 +1192,7 @@ impl BrowserApp {
                         self.is_private(),
                         &mut self.naming_group,
                         self.browser.settings().device.shrink_tabs,
+                        &hidden,
                         commands,
                     );
                 })
@@ -1206,6 +1316,7 @@ impl BrowserApp {
                     private: self.is_private(),
                     width: side_width,
                     folded,
+                    hidden: &hidden,
                 },
                 &mut self.naming_group,
                 commands,
@@ -1336,6 +1447,7 @@ impl eframe::App for BrowserApp {
             }
         }
         if !fullscreen {
+            self.front_popup_window();
             self.show_chrome(ctx, &mut commands);
         }
         let chrome = super::theme::Chrome::of(self.is_private());
@@ -1365,6 +1477,17 @@ impl eframe::App for BrowserApp {
                     // The update's window is over them: their native views
                     // would cover it.
                     self.browser.engine_mut().show(None);
+                } else if let Some((window, size)) = self.active_popup_window() {
+                    // An extension's window over its opener: alone, framed.
+                    let title = self
+                        .browser
+                        .session()
+                        .tab(window)
+                        .map(|t| t.display_title().to_owned())
+                        .unwrap_or_default();
+                    let area = floating_window(ui, rect, size, &title, window, &mut commands);
+                    self.browser
+                        .show_panes(&[(window, page_viewport(area, ppp))]);
                 } else {
                     let panes = split_view::panes(ui, rect, self.browser.session(), &mut commands);
                     // A crashed page has no view: its message shows there.

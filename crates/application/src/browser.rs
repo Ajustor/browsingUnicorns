@@ -634,6 +634,11 @@ impl<E: WebEngine> Browser<E> {
         self.session.add_to_group(id, group);
     }
 
+    /// Leaves tab `id` out of the saved session (an extension's window).
+    pub fn keep_out_of_session(&mut self, id: TabId) {
+        self.session.set_transient(id);
+    }
+
     /// Takes tab `id` out of its group.
     pub fn remove_from_group(&mut self, id: TabId) {
         self.session.remove_from_group(id);

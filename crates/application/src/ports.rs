@@ -50,9 +50,9 @@ pub trait WebEngine {
     fn show(&mut self, tab: Option<TabId>);
     /// Shows `panes` side by side (a split view), each view in its own
     /// area (in [`Self::set_viewport`]'s coordinates), the others hidden;
-    /// `focused` is the one the keyboard goes to. One pane: `focused` alone,
-    /// on the whole viewport. Engines that show one view at a time show
-    /// `focused` only.
+    /// `focused` is the one the keyboard goes to. One pane: alone, in its
+    /// area (the whole viewport, or an extension's floating window). Engines
+    /// that show one view at a time show `focused` only, on the viewport.
     fn show_panes(&mut self, panes: &[(TabId, Viewport)], focused: TabId) {
         let _ = panes;
         self.show(Some(focused));

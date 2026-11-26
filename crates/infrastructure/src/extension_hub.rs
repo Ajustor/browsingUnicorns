@@ -39,6 +39,12 @@ pub struct TabState {
 pub trait HubHost {
     fn tabs(&self) -> Vec<TabState>;
     fn create_tab(&mut self, url: Option<&str>, active: bool) -> Option<TabId>;
+    /// A tab for an extension's popup window (`windows.create` of type
+    /// `popup`): opened from the active tab, which it goes back to once
+    /// closed.
+    fn create_window_tab(&mut self, url: Option<&str>, active: bool) -> Option<TabId> {
+        self.create_tab(url, active)
+    }
     fn update_tab(&mut self, tab: TabId, url: Option<&str>, active: bool);
     fn remove_tab(&mut self, tab: TabId);
     fn reload_tab(&mut self, tab: TabId);
@@ -81,6 +87,22 @@ impl<E: WebEngine> HubHost for BrowserHub<'_, E> {
         let tab = self.browser.open_tab(address).ok()?;
         if !active && let Some(previous) = previous {
             self.browser.activate(previous);
+        }
+        Some(tab)
+    }
+
+    fn create_window_tab(&mut self, url: Option<&str>, active: bool) -> Option<TabId> {
+        let (Some(opener), Some(address)) = (
+            self.browser.session().active_id(),
+            url.and_then(|u| WebAddress::parse(u).ok()),
+        ) else {
+            return self.create_tab(url, active);
+        };
+        let tab = self.browser.open_link_tab(Some(opener), address).ok()?;
+        // It goes with this run: not reopened as a tab next time.
+        self.browser.keep_out_of_session(tab);
+        if active {
+            self.browser.activate(tab);
         }
         Some(tab)
     }
@@ -173,6 +195,8 @@ pub struct Hub {
     /// Tabs opened by `windows.create`: each is a window of its own for the
     /// extensions (its id, its type), closed with the tab.
     popups: HashMap<TabId, (u64, String)>,
+    /// The size (points) a popup window asked for, by tab.
+    window_sizes: HashMap<TabId, (u32, u32)>,
     next_window: u64,
     /// Background pages whose scripts ran: their listeners are in.
     ready: HashSet<String>,
@@ -282,6 +306,7 @@ impl Hub {
             wake: Arc::new(|| {}),
             blocker: None,
             popups: HashMap::new(),
+            window_sizes: HashMap::new(),
             next_window: MAIN_WINDOW + 1,
             ready: HashSet::new(),
             queued: HashMap::new(),
@@ -1234,9 +1259,19 @@ impl Hub {
                     .and_then(Value::as_str)
                     .unwrap_or("normal")
                     .to_owned();
-                let tab = host
-                    .create_tab(url.as_deref(), focused)
-                    .ok_or("The window could not be created.")?;
+                // A popup (a passkey prompt...) floats over its opener's
+                // page; a normal window is a tab.
+                let popup = matches!(kind.as_str(), "popup" | "panel");
+                let tab = if popup {
+                    host.create_window_tab(url.as_deref(), focused)
+                } else {
+                    host.create_tab(url.as_deref(), focused)
+                }
+                .ok_or("The window could not be created.")?;
+                let size = |k: &str| data.get(k).and_then(Value::as_u64).map(|v| v as u32);
+                if popup && let (Some(w), Some(h)) = (size("width"), size("height")) {
+                    self.window_sizes.insert(tab, (w, h));
+                }
                 let id = self.next_window;
                 self.next_window += 1;
                 self.popups.insert(tab, (id, kind));
@@ -1277,6 +1312,16 @@ impl Hub {
             }
             op => Err(format!("unknown operation {op}")),
         }
+    }
+
+    /// The extensions' popup windows (tabs shown floating over their
+    /// opener's page), with the size they asked for.
+    pub fn popup_windows(&self) -> Vec<(TabId, Option<(u32, u32)>)> {
+        self.popups
+            .iter()
+            .filter(|(_, (_, kind))| matches!(kind.as_str(), "popup" | "panel"))
+            .map(|(tab, _)| (*tab, self.window_sizes.get(tab).copied()))
+            .collect()
     }
 
     /// Whether `owner` has a background page (the manifest says, once).
@@ -1659,6 +1704,7 @@ impl Hub {
                 self.page_tabs.remove(&b.id);
                 self.closed_pages.push(PageSource::Tab(b.id));
                 let popup = self.popups.remove(&b.id).map(|(w, _)| w);
+                self.window_sizes.remove(&b.id);
                 events.push((
                     "onRemoved",
                     json!([
@@ -2635,5 +2681,34 @@ mod tests {
         assert_eq!(host.changed, 3);
         let state = ExtensionState::load(&dir.path().join("state"), &ext());
         assert_eq!(state.registered_scripts()[0].js, vec!["c.js"]);
+    }
+
+    #[test]
+    fn popup_windows_are_listed_with_their_size() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut hub = hub(dir.path());
+        let mut host = Host::default();
+        let bg = PageSource::Background(ext());
+        hub.handle(
+            &bg,
+            &msg(1, "background", "windows.create", json!({"data": {"url": "https://a.test/", "type": "popup", "width": 380, "height": 630}})),
+            &mut host,
+        );
+        hub.handle(
+            &bg,
+            &msg(
+                2,
+                "background",
+                "windows.create",
+                json!({"data": {"url": "https://b.test/"}}),
+            ),
+            &mut host,
+        );
+        let windows = hub.popup_windows();
+        assert_eq!(windows, vec![(TabId::new(1), Some((380, 630)))]);
+        hub.tabs_changed(&mut host);
+        host.tabs.clear();
+        hub.tabs_changed(&mut host);
+        assert!(hub.popup_windows().is_empty());
     }
 }

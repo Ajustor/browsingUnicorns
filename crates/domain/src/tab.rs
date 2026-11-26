@@ -45,6 +45,8 @@ pub struct Tab {
     /// Asleep: its page is not loaded (restored and not shown yet, or left
     /// unseen a while), to load again once shown.
     discarded: bool,
+    /// Left out of the saved session (an extension's window).
+    pub(crate) transient: bool,
 }
 
 impl Tab {
@@ -59,6 +61,7 @@ impl Tab {
             pinned: false,
             group: None,
             discarded: false,
+            transient: false,
         }
     }
 

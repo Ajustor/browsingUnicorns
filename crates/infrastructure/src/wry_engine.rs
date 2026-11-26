@@ -1235,7 +1235,14 @@ impl WebEngine for WryEngine {
     }
 
     fn show_panes(&mut self, panes: &[(TabId, Viewport)], focused: TabId) {
-        if panes.len() < 2 {
+        // One page on the whole page area: the usual case. Smaller (an
+        // extension's floating window), it is laid out as a pane.
+        let whole = match panes {
+            [] => true,
+            [(_, area)] => *area == self.viewport,
+            _ => false,
+        };
+        if whole {
             if self.panes.is_empty() {
                 self.show(Some(focused));
                 return;

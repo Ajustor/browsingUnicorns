@@ -437,21 +437,24 @@ impl Session {
         }
     }
 
-    /// Closes `id`. When it was the active tab, its right neighbour (else its
-    /// left one) becomes active. Returns whether a tab was closed.
+    /// Closes `id`. When it was the active tab, the tab that opened it (an
+    /// extension's window, a link) becomes active again, else its right
+    /// neighbour (else its left one). Returns whether a tab was closed.
     pub fn close_tab(&mut self, id: TabId) -> bool {
         let Some(index) = self.position(id) else {
             return false;
         };
+        let opener = self.tabs[index].opener;
         self.tabs.remove(index);
         self.prune_groups();
         self.prune_splits();
         if self.active == Some(id) {
-            self.active = self
-                .tabs
-                .get(index)
-                .or_else(|| self.tabs.last())
-                .map(Tab::id);
+            self.active = opener.filter(|&o| self.position(o).is_some()).or_else(|| {
+                self.tabs
+                    .get(index)
+                    .or_else(|| self.tabs.last())
+                    .map(Tab::id)
+            });
             if let Some(active) = self.active {
                 self.reveal(active);
             }
@@ -476,7 +479,7 @@ impl Session {
         let mut last_group = None;
         // Where each saved tab is in the snapshot.
         let mut saved = Vec::new();
-        for tab in self.tabs.iter().filter(|t| !t.is_private()) {
+        for tab in self.tabs.iter().filter(|t| !t.is_private() && !t.transient) {
             let Some(address) = tab.address() else {
                 continue;
             };
@@ -521,6 +524,14 @@ impl Session {
             }
         }
         snapshot
+    }
+
+    /// Leaves `id` out of the saved session (an extension's window: it
+    /// goes with the run).
+    pub fn set_transient(&mut self, id: TabId) {
+        if let Some(tab) = self.tab_mut(id) {
+            tab.transient = true;
+        }
     }
 
     /// The split `id` is in.
@@ -1034,5 +1045,36 @@ mod tests {
             .collect();
         restored.restore_layout(&ids, &snap);
         assert_eq!(restored.snapshot(), snap);
+    }
+
+    #[test]
+    fn closing_a_tab_shown_from_its_opener_returns_to_the_opener() {
+        let mut s = Session::new();
+        let t = open(&mut s, 3);
+        // An extension's window opened from t[0], shown, after t[0].
+        let window = s.open_tab_from(t[0]).unwrap();
+        s.activate(window);
+        s.close_tab(window);
+        assert_eq!(s.active_id(), Some(t[0]));
+        // Its opener gone: the neighbour, as before.
+        let link = s.open_tab_from(t[1]).unwrap();
+        s.activate(link);
+        s.close_tab(t[1]);
+        s.close_tab(link);
+        assert_eq!(s.active_id(), Some(t[2]));
+    }
+
+    #[test]
+    fn an_extensions_window_is_not_saved() {
+        let mut s = Session::new();
+        let t = open(&mut s, 2);
+        for (i, &id) in t.iter().enumerate() {
+            let page = WebAddress::parse(&format!("https://x.com/{i}")).unwrap();
+            s.tab_mut(id).unwrap().load_started(page);
+        }
+        s.set_transient(t[1]);
+        let snap = s.snapshot();
+        assert_eq!(snap.tabs.len(), 1);
+        assert_eq!(snap.titles.len(), 1);
     }
 }

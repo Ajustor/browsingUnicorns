@@ -47,6 +47,7 @@ pub fn show(
     private: bool,
     naming: &mut Option<GroupId>,
     shrink: bool,
+    hidden: &[domain::TabId],
     commands: &mut Vec<Command>,
 ) {
     title_bar(ui);
@@ -110,7 +111,10 @@ pub fn show(
                         }
                         // A collapsed group's tabs take no room (but the
                         // active one): dropped there, a tab goes after them.
-                        if group.is_some_and(|g| g.collapsed) && !active {
+                        // Nor do extensions' windows (shown floating).
+                        if (group.is_some_and(|g| g.collapsed) && !active)
+                            || hidden.contains(&tab.id())
+                        {
                             let x = ui.cursor().left();
                             rects.push(egui::Rect::from_x_y_ranges(x..=x, ui.min_rect().y_range()));
                             continue;

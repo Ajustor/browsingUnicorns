@@ -33,6 +33,8 @@ pub struct SideTabs<'a> {
     /// Width when unfolded (points), and whether it is folded.
     pub width: u32,
     pub folded: bool,
+    /// Tabs not listed: extensions' windows, shown floating.
+    pub hidden: &'a [domain::TabId],
 }
 
 /// Shows the column; returns its area (the tab search opens beside it).
@@ -191,8 +193,9 @@ fn list(
                 headers.push((group.id(), rect));
             }
         }
-        // A folded group's tabs take no room (but the active one).
-        if group.is_some_and(|g| g.collapsed) && !active {
+        // A folded group's tabs take no room (but the active one), nor
+        // extensions' windows.
+        if (group.is_some_and(|g| g.collapsed) && !active) || tabs.hidden.contains(&tab.id()) {
             let y = ui.cursor().top();
             rects.push(egui::Rect::from_x_y_ranges(ui.max_rect().x_range(), y..=y));
             continue;
