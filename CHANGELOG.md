@@ -4,6 +4,30 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.32.0] - 2026-11-26
+
+### Ajouté
+
+- Rechercher dans la page (Ctrl+F, Cmd+F sur macOS) et imprimer (Ctrl+P,
+  Cmd+P) sur macOS et Linux : une barre de recherche sous la barre
+  d'outils (Entrée : suivant, Maj+Entrée : précédent, Échap : fermer).
+  Sous Windows, la page garde la barre de recherche et l'aperçu avant
+  impression de WebView2.
+- Linux : un bandeau demande avant qu'un site utilise la caméra, le micro,
+  l'écran, la position ou les notifications ; la réponse vaut pour le site
+  jusqu'à la fermeture. Ils étaient refusés sans rien dire (pas de
+  visioconférence possible).
+- Android : la caméra, le micro et la position se demandent site par site,
+  puis à Android ; ils étaient refusés sans rien dire.
+
+### Corrigé
+
+- Android : envoyer un fichier depuis une page (`<input type="file">`) ne
+  faisait rien. Le sélecteur de fichiers d'Android s'ouvre.
+- macOS : l'application était fermée par le système dès qu'un site
+  demandait la caméra ou le micro, et un site pouvait les utiliser sans
+  qu'on le lui accorde. macOS demande maintenant, site par site.
+
 ## [0.31.0] - 2026-11-26
 
 ### Ajouté
