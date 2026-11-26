@@ -144,6 +144,9 @@ pub struct Hub {
     tab_owners: HashMap<TabId, HashSet<String>>,
     backgrounds: HashSet<String>,
     panel: Option<String>,
+    /// Tabs showing an extension's own page (a window it opened, as
+    /// Bitwarden's passkey window): by owner, as one of its pages.
+    page_tabs: HashMap<TabId, String>,
     /// The popup lost the focus: the user clicked elsewhere.
     panel_blurred: bool,
     /// The tabs as last seen, for `tabs.on*` events.
@@ -265,6 +268,7 @@ impl Hub {
             tab_owners: HashMap::new(),
             backgrounds: HashSet::new(),
             panel: None,
+            page_tabs: HashMap::new(),
             panel_blurred: false,
             last_tabs: Vec::new(),
             native: NativeMessaging::default(),
@@ -495,7 +499,21 @@ impl Hub {
         if self.panel.as_deref() == Some(owner) {
             out.push(PageSource::Panel);
         }
+        for tab in self.page_tabs_of(owner) {
+            if !out.contains(&tab) {
+                out.push(tab);
+            }
+        }
         out
+    }
+
+    /// The tabs showing a page of `owner`.
+    fn page_tabs_of(&self, owner: &str) -> Vec<PageSource> {
+        self.page_tabs
+            .iter()
+            .filter(|(_, o)| o.as_str() == owner)
+            .map(|(tab, _)| PageSource::Tab(*tab))
+            .collect()
     }
 
     fn broadcast(&self, owner: &str, event: Value, host: &mut dyn HubHost) {
@@ -607,6 +625,9 @@ impl Hub {
                         self.ready.remove(owner);
                     }
                     (PageSource::Panel, _) => self.panel = Some(owner.to_owned()),
+                    (PageSource::Tab(tab), "page") => {
+                        self.page_tabs.insert(*tab, owner.to_owned());
+                    }
                     _ => {}
                 }
                 Some(Ok(Value::Null))
@@ -691,6 +712,7 @@ impl Hub {
                         if self.panel.as_deref() == Some(owner) {
                             pages.push(PageSource::Panel);
                         }
+                        pages.extend(self.page_tabs_of(owner));
                         pages
                     }
                 };
@@ -1266,8 +1288,8 @@ impl Hub {
             .or_insert_with(|| manifest::background(&extension_dir(dir, ext)).is_some())
     }
 
-    /// Where a `runtime.sendMessage` from `from` goes: the background page
-    /// and the popup, but the sender.
+    /// Where a `runtime.sendMessage` from `from` goes: the background page,
+    /// the popup and the extension's pages in tabs, but the sender.
     fn message_targets(
         &self,
         from: &PageSource,
@@ -1281,6 +1303,7 @@ impl Hub {
         if from != &PageSource::Panel && self.panel.as_deref() == Some(owner) {
             to.push(PageSource::Panel);
         }
+        to.extend(self.page_tabs_of(owner).into_iter().filter(|t| t != from));
         to
     }
 
@@ -1617,6 +1640,7 @@ impl Hub {
                     if t.loading && !b.loading {
                         // A new page: its content scripts say hello again.
                         self.tab_owners.remove(&t.id);
+                        self.page_tabs.remove(&t.id);
                         self.closed_pages.push(PageSource::Tab(t.id));
                     }
                     if t.active && !b.active {
@@ -1632,6 +1656,7 @@ impl Hub {
         for b in &before {
             if !now.iter().any(|t| t.id == b.id) {
                 self.tab_owners.remove(&b.id);
+                self.page_tabs.remove(&b.id);
                 self.closed_pages.push(PageSource::Tab(b.id));
                 let popup = self.popups.remove(&b.id).map(|(w, _)| w);
                 events.push((
@@ -2397,6 +2422,81 @@ mod tests {
             &mut host,
         );
         assert!(host.delivered.pop().unwrap().1["error"].is_string());
+    }
+
+    #[test]
+    fn an_extension_page_in_a_tab_is_one_of_its_pages() {
+        // Bitwarden's passkey window: its popup page, in a tab
+        // `windows.create` opened, waits for its background's messages.
+        let dir = tempfile::tempdir().unwrap();
+        let mut hub = hub(dir.path());
+        let mut host = Host::default();
+        let url = format!("https://bu-ext.{EXT}/popup/index.html");
+        let tab = host.create_tab(Some(&url), true).unwrap();
+        hub.tabs_changed(&mut host);
+        host.tabs[0].loading = false;
+        hub.tabs_changed(&mut host);
+        let (bg, page) = (PageSource::Background(ext()), PageSource::Tab(tab));
+        hub.handle(&bg, &msg(1, "background", "hello", json!({})), &mut host);
+        hub.handle(&bg, &msg(2, "background", "ready", json!({})), &mut host);
+        hub.handle(&page, &msg(1, "page", "hello", json!({})), &mut host);
+        host.delivered.clear();
+
+        // runtime.sendMessage from the background reaches it.
+        hub.handle(
+            &bg,
+            &msg(3, "background", "sendMessage", json!({"payload": "pick"})),
+            &mut host,
+        );
+        let (to, event) = host.delivered.pop().unwrap();
+        assert_eq!((to, event["event"].clone()), (page.clone(), json!("message")));
+        assert_eq!(event["payload"], "pick");
+        // ...and its own messages reach the background, not itself.
+        host.delivered.clear();
+        hub.handle(
+            &page,
+            &msg(2, "page", "sendMessage", json!({"payload": "ok"})),
+            &mut host,
+        );
+        let to: Vec<PageSource> = host.delivered.iter().map(|(t, _)| t.clone()).collect();
+        assert_eq!(to, vec![bg.clone()]);
+
+        // storage.onChanged too.
+        host.delivered.clear();
+        hub.handle(
+            &bg,
+            &msg(4, "background", "set", json!({"items": {"k": 1}})),
+            &mut host,
+        );
+        assert!(
+            host.delivered
+                .iter()
+                .any(|(to, e)| to == &page && e["event"] == "storage")
+        );
+
+        // runtime.connect from the background finds it.
+        host.delivered.clear();
+        hub.handle(
+            &bg,
+            &msg(5, "background", "port.connect", json!({"name": "s"})),
+            &mut host,
+        );
+        assert!(
+            host.delivered
+                .iter()
+                .any(|(to, e)| to == &page && e["event"] == "connect")
+        );
+
+        // The tab goes to another page: no longer the extension's.
+        host.tabs[0].loading = true;
+        hub.tabs_changed(&mut host);
+        host.delivered.clear();
+        hub.handle(
+            &bg,
+            &msg(6, "background", "sendMessage", json!({"payload": "x"})),
+            &mut host,
+        );
+        assert!(!host.delivered.iter().any(|(to, _)| to == &page));
     }
 
     #[test]
