@@ -4,6 +4,18 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.29.0] - 2026-11-26
+
+### Modifié
+
+- Une mise à jour trouvée au démarrage s'annonce dans une fenêtre, à la
+  place du bandeau en bas : ce qu'elle apporte, puis « Mettre à jour »,
+  « Plus tard » ou « Ignorer cette version », le téléchargement, et le
+  redémarrage (sur Android, l'installation). Une recherche faite à la main
+  ne l'ouvre pas : sur ordinateur, À propos et le bouton de la barre
+  d'outils proposent la mise à jour ; sur Android, l'entrée du menu devient
+  « Mettre à jour vers la … ».
+
 ## [0.28.1] - 2026-11-26
 
 ### Corrigé
