@@ -462,6 +462,7 @@ impl WryEngine {
     }
 
     /// The views shown, each in its area.
+    #[cfg(windows)]
     fn shown_panes(&self) -> Vec<(TabId, Viewport)> {
         if self.panes.is_empty() {
             self.shown
