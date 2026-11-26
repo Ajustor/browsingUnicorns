@@ -1,6 +1,10 @@
 package io.github.ajustor.browsingunicorns
 
 import android.content.ComponentCallbacks2
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.webkit.WebChromeClient
+import androidx.activity.result.contract.ActivityResultContracts
 import android.content.Intent
 import android.content.res.Configuration
 import android.os.Build
@@ -21,6 +25,30 @@ import uniffi.mobile.setLanguage
 class MainActivity : ComponentActivity() {
     private lateinit var controller: BrowserController
 
+    /** A page's file picker waiting for its files. */
+    private var pickedFiles: ((Array<Uri>?) -> Unit)? = null
+    private val pickFiles = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val data = result.data
+        // Several files come in the clip data, one in the data.
+        val clip = data?.clipData
+        val uris = if (result.resultCode == RESULT_OK && clip != null) {
+            Array(clip.itemCount) { clip.getItemAt(it).uri }
+        } else {
+            WebChromeClient.FileChooserParams.parseResult(result.resultCode, data)
+        }
+        pickedFiles?.invoke(uris)
+        pickedFiles = null
+    }
+
+    /** Android's answer for the permissions a site needs. */
+    private var permissionsAnswer: ((Boolean) -> Unit)? = null
+    private val askPermissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
+        // Coarse location is enough: fine may be refused.
+        val ok = granted.filterKeys { it != android.Manifest.permission.ACCESS_FINE_LOCATION }.values.all { it }
+        permissionsAnswer?.invoke(ok)
+        permissionsAnswer = null
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -37,6 +65,28 @@ class MainActivity : ComponentActivity() {
             http = SyncHttpClient(this),
         )
         views.browser = browser
+        views.chooseFiles = { intent, done ->
+            pickedFiles?.invoke(null)
+            pickedFiles = done
+            try {
+                pickFiles.launch(intent)
+            } catch (_: Exception) {
+                pickedFiles = null
+                done(null)
+            }
+        }
+        views.androidPermissions = { permissions, done ->
+            val missing = permissions.filter {
+                checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED
+            }
+            if (missing.isEmpty()) {
+                done(true)
+            } else {
+                permissionsAnswer?.invoke(false)
+                permissionsAnswer = done
+                askPermissions.launch(missing.toTypedArray())
+            }
+        }
         controller = BrowserController(this, browser, views, AppUpdates(this, lifecycleScope), lifecycleScope)
         downloads.onMessage = { controller.message = it }
         controller.act { restoreSession() }

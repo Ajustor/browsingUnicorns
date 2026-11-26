@@ -78,6 +78,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import io.github.ajustor.browsingunicorns.R
+import io.github.ajustor.browsingunicorns.SiteNeed
+import io.github.ajustor.browsingunicorns.SiteAsk
+import androidx.compose.material3.AlertDialog
 import io.github.ajustor.browsingunicorns.BrowserController
 import io.github.ajustor.browsingunicorns.UpdateState
 import io.github.ajustor.browsingunicorns.Screen
@@ -151,6 +154,7 @@ private fun BrowserScreen(c: BrowserController) {
         StoreBanner(c)
         // An update found at start: its window, over the page.
         UpdateDialog(c.updates)
+        c.siteAsk?.let { SiteAskDialog(it) }
         AnimatedVisibility(
             visible = !c.barsCollapsed,
             enter = expandVertically(tween(150)),
@@ -280,6 +284,25 @@ private fun StoreBanner(c: BrowserController) {
             }
         }
     }
+}
+
+/** A site asks to use the camera, the microphone or the location. */
+@Composable
+private fun SiteAskDialog(ask: SiteAsk) {
+    val what = when {
+        SiteNeed.Location in ask.needs -> stringResource(R.string.site_ask_location)
+        SiteNeed.Camera in ask.needs && SiteNeed.Microphone in ask.needs ->
+            stringResource(R.string.site_ask_camera_microphone)
+        SiteNeed.Camera in ask.needs -> stringResource(R.string.site_ask_camera)
+        else -> stringResource(R.string.site_ask_microphone)
+    }
+    AlertDialog(
+        onDismissRequest = { ask.answer(false) },
+        title = { Text(ask.host) },
+        text = { Text(stringResource(R.string.site_ask, what)) },
+        confirmButton = { TextButton(onClick = { ask.answer(true) }) { Text(stringResource(R.string.site_allow)) } },
+        dismissButton = { TextButton(onClick = { ask.answer(false) }) { Text(stringResource(R.string.site_deny)) } },
+    )
 }
 
 /** Where a crashed page was: what happened, and Reload. */

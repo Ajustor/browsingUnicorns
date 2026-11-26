@@ -208,4 +208,12 @@
     <string name="page_crashed">Cette page a planté</string>
     <string name="page_crashed_hint">Elle n’est pas rechargée toute seule, au cas où elle planterait de nouveau.</string>
     <string name="reload_page">Recharger</string>
+    <!-- La demande d'un site : %1$s est l'un des site_ask_* ci-dessous. -->
+    <string name="site_ask">veut utiliser %1$s.</string>
+    <string name="site_ask_camera">votre caméra</string>
+    <string name="site_ask_microphone">votre micro</string>
+    <string name="site_ask_camera_microphone">votre caméra et votre micro</string>
+    <string name="site_ask_location">votre position</string>
+    <string name="site_allow">Autoriser</string>
+    <string name="site_deny">Refuser</string>
 </resources>

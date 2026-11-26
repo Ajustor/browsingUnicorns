@@ -220,4 +220,12 @@
     <string name="page_crashed">This page crashed</string>
     <string name="page_crashed_hint">It is not loaded again by itself, in case it crashes again.</string>
     <string name="reload_page">Reload</string>
+    <!-- A site's request: %1$s is one of the site_ask_* below. -->
+    <string name="site_ask">wants to use %1$s.</string>
+    <string name="site_ask_camera">your camera</string>
+    <string name="site_ask_microphone">your microphone</string>
+    <string name="site_ask_camera_microphone">your camera and microphone</string>
+    <string name="site_ask_location">your location</string>
+    <string name="site_allow">Allow</string>
+    <string name="site_deny">Deny</string>
 </resources>

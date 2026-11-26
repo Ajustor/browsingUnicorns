@@ -39,6 +39,9 @@ class BrowserController(
     private val scope: CoroutineScope,
 ) {
     var state by mutableStateOf(browser.state())
+
+    /** A site's request (camera, location...) waiting for the user. */
+    var siteAsk by mutableStateOf<SiteAsk?>(null)
         private set
     var sync by mutableStateOf(browser.syncInfo())
         private set
@@ -157,6 +160,7 @@ class BrowserController(
             leaveFullscreen = leave
         }
         views.onLinkTab = { message = context.getString(R.string.opened_in_new_tab) }
+        views.askSite = { siteAsk = it }
         views.onScrolled = ::onScrolled
         views.onNavigation = ::expandBars
         views.onPull = { pull = it }

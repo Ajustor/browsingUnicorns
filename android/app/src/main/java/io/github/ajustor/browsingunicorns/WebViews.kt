@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
@@ -12,7 +13,11 @@ import android.util.Log
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.Manifest
+import android.webkit.GeolocationPermissions
 import android.webkit.JavascriptInterface
+import android.webkit.PermissionRequest
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -364,6 +369,42 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
     /** A link opened in a new tab, behind the one shown. */
     var onLinkTab: () -> Unit = {}
 
+    /**
+     * Opens Android's file picker for a page's `<input type="file">` and
+     * gives back the files chosen (null: none). The activity sets it.
+     */
+    var chooseFiles: (Intent, (Array<Uri>?) -> Unit) -> Unit = { _, done -> done(null) }
+
+    /** Asks Android for [permissions]; true when all were granted. The activity sets it. */
+    var androidPermissions: (Array<String>, (Boolean) -> Unit) -> Unit = { _, done -> done(false) }
+
+    /** Shows (or, null, takes away) the question to the user about a site's request. */
+    var askSite: (SiteAsk?) -> Unit = {}
+
+    /** The user's answers, by site and need, for this run. */
+    private val siteAnswers = HashMap<Pair<String, SiteNeed>, Boolean>()
+
+    /**
+     * Whether [host] may use [needs]: the answers already given, else the
+     * user is asked, then Android (its own permissions) when allowed.
+     */
+    private fun decide(host: String, needs: List<SiteNeed>, done: (Boolean) -> Unit) {
+        val known = needs.map { siteAnswers[host to it] }
+        if (known.all { it == true }) return androidPermissions(needs.flatMap { it.android }.toTypedArray(), done)
+        if (known.any { it == false }) return done(false)
+        askSite(
+            SiteAsk(host, needs) { yes ->
+                askSite(null)
+                needs.forEach { siteAnswers[host to it] = yes }
+                if (!yes) {
+                    done(false)
+                } else {
+                    androidPermissions(needs.flatMap { it.android }.toTypedArray(), done)
+                }
+            },
+        )
+    }
+
     /** Called with the page's load progress (0-100). */
     var onProgress: (Int) -> Unit = {}
 
@@ -633,6 +674,60 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
             }
         }
         webChromeClient = object : WebChromeClient() {
+            // <input type="file">: Android's picker.
+            override fun onShowFileChooser(
+                view: WebView,
+                callback: ValueCallback<Array<Uri>>,
+                params: FileChooserParams,
+            ): Boolean {
+                val intent = try {
+                    params.createIntent()
+                } catch (_: Exception) {
+                    callback.onReceiveValue(null)
+                    return true
+                }
+                if (params.mode == FileChooserParams.MODE_OPEN_MULTIPLE) {
+                    intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                }
+                chooseFiles(intent) { callback.onReceiveValue(it) }
+                return true
+            }
+
+            // Camera, microphone: the user decides, site by site; protected
+            // media (DRM) goes through, as in other browsers.
+            override fun onPermissionRequest(request: PermissionRequest) {
+                val resources = request.resources.toSet()
+                val needs = buildList {
+                    if (PermissionRequest.RESOURCE_VIDEO_CAPTURE in resources) add(SiteNeed.Camera)
+                    if (PermissionRequest.RESOURCE_AUDIO_CAPTURE in resources) add(SiteNeed.Microphone)
+                }
+                val media = PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID
+                if (needs.isEmpty()) {
+                    if (media in resources) request.grant(arrayOf(media)) else request.deny()
+                    return
+                }
+                decide(request.origin.host ?: "", needs) { allowed ->
+                    if (!allowed) return@decide request.deny()
+                    val granted = resources.filter {
+                        it == PermissionRequest.RESOURCE_VIDEO_CAPTURE ||
+                            it == PermissionRequest.RESOURCE_AUDIO_CAPTURE || it == media
+                    }
+                    request.grant(granted.toTypedArray())
+                }
+            }
+
+            override fun onPermissionRequestCanceled(request: PermissionRequest) = askSite(null)
+
+            override fun onGeolocationPermissionsShowPrompt(
+                origin: String,
+                callback: GeolocationPermissions.Callback,
+            ) {
+                val host = Uri.parse(origin).host ?: origin
+                decide(host, listOf(SiteNeed.Location)) { callback.invoke(origin, it, false) }
+            }
+
+            override fun onGeolocationPermissionsHidePrompt() = askSite(null)
+
             override fun onReceivedTitle(view: WebView, title: String?) {
                 browser.onTitleChanged(tab, title ?: "")
                 onChange()
@@ -692,3 +787,13 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
         private const val TAG = "WebViews"
     }
 }
+
+/** What a site may ask to use, and the Android permissions it takes. */
+enum class SiteNeed(val android: List<String>) {
+    Camera(listOf(Manifest.permission.CAMERA)),
+    Microphone(listOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.MODIFY_AUDIO_SETTINGS)),
+    Location(listOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION)),
+}
+
+/** A site's request, waiting for the user: [answer] with their choice. */
+class SiteAsk(val host: String, val needs: List<SiteNeed>, val answer: (Boolean) -> Unit)
