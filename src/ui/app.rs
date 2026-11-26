@@ -558,7 +558,6 @@ impl BrowserApp {
             Command::CheckForUpdates => self.updates.check_now(),
             Command::InstallUpdate => self.updates.updater.install(),
             Command::UpdateLater => self.updates.updater.later(),
-            Command::ShowUpdateNotes => self.library.open = Some(LibraryView::About),
             Command::SkipUpdate => self.updates.skip(),
             Command::RestartToUpdate => {
                 self.updates.updater.schedule_restart();
@@ -1129,7 +1128,6 @@ impl BrowserApp {
                 commands,
             );
         }
-        self.updates.banner(ctx, commands);
         self.default_browser.banner(ctx, commands);
         // Asked in the tab where it was typed only.
         let active = self.browser.session().active().map(|t| t.id());
@@ -1280,16 +1278,23 @@ impl eframe::App for BrowserApp {
                 let rect = ui.max_rect();
                 let ppp = ctx.pixels_per_point();
                 self.browser.set_viewport(page_viewport(rect, ppp));
-                let panes: Vec<_> =
-                    split_view::panes(ui, rect, self.browser.session(), &mut commands)
-                        .into_iter()
-                        .map(|(tab, area)| (tab, page_viewport(area, ppp)))
-                        .collect();
-                self.browser.show_panes(&panes);
+                if self.updates.window_open() {
+                    // The update's window is over them: their native views
+                    // would cover it.
+                    self.browser.engine_mut().show(None);
+                } else {
+                    let panes: Vec<_> =
+                        split_view::panes(ui, rect, self.browser.session(), &mut commands)
+                            .into_iter()
+                            .map(|(tab, area)| (tab, page_viewport(area, ppp)))
+                            .collect();
+                    self.browser.show_panes(&panes);
+                }
                 rect
             })
             .inner;
 
+        self.updates.window(ctx, &mut commands);
         for command in commands {
             self.run(command);
         }

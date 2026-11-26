@@ -106,8 +106,6 @@ pub enum Command {
     CheckForUpdates,
     InstallUpdate,
     UpdateLater,
-    /// Opens the About view, where the update's notes are.
-    ShowUpdateNotes,
     SkipUpdate,
     RestartToUpdate,
     SyncTurnOn,
