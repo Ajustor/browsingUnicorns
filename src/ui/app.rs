@@ -71,6 +71,9 @@ pub struct BrowserApp {
     /// A page said it got the keyboard (its script, where the web view
     /// doesn't tell): menus close as for a click in it.
     page_focused: bool,
+    /// What pages asked to use, waiting for the user (WebKitGTK).
+    permission_asks: Vec<super::permissions::Ask>,
+    find_bar: super::find_bar::FindBar,
     close_requested: bool,
     /// The DRM data this window can reset (Windows, the profile's window).
     drm: Option<infrastructure::DrmReset>,
@@ -157,6 +160,8 @@ impl BrowserApp {
             last_persist: Instant::now(),
             last_sleep_check: Instant::now(),
             page_focused: false,
+            permission_asks: Vec::new(),
+            find_bar: Default::default(),
             close_requested: false,
             drm,
             relaunch: false,
@@ -549,6 +554,17 @@ impl BrowserApp {
             Command::Forward => self.browser.go_forward(),
             Command::Reload => self.browser.reload(),
             Command::ReloadTab(tab) => self.browser.reload_tab(tab),
+            Command::OpenFind => self.find_bar.open(),
+            Command::FindInPage {
+                query,
+                backwards,
+                restart,
+            } => self.browser.find_in_page(&query, backwards, restart),
+            Command::Print => self.browser.print(),
+            Command::AnswerPermission(id, allow) => {
+                self.permission_asks.retain(|a| a.id != id);
+                self.browser.engine_mut().answer_permission(id, allow);
+            }
             Command::HardReload => self.browser.reload_bypassing_cache(),
             Command::FocusOmnibox => {
                 self.browser.engine().focus_window();
@@ -899,6 +915,14 @@ impl BrowserApp {
                     }
                     continue;
                 }
+                // Ctrl/Cmd+F, Ctrl/Cmd+P typed in a page (WebKit leaves them).
+                if let Some(key) = infrastructure::page_scripts::focus::shortcut(body) {
+                    self.run(match key {
+                        'f' => Command::OpenFind,
+                        _ => Command::Print,
+                    });
+                    continue;
+                }
                 // A page got the keyboard (WebKit, where the web view
                 // doesn't say): as WebView2's own focus event.
                 if infrastructure::page_scripts::focus::focused(body) {
@@ -932,6 +956,21 @@ impl BrowserApp {
             }
             if let EngineEvent::FaviconChanged { tab, png } = event {
                 self.favicons.changed(tab, png);
+                continue;
+            }
+            if let EngineEvent::PermissionRequested {
+                id,
+                tab,
+                host,
+                kind,
+            } = event
+            {
+                self.permission_asks.push(super::permissions::Ask {
+                    id,
+                    tab,
+                    host,
+                    kind,
+                });
                 continue;
             }
             if let EngineEvent::AudioChanged {
@@ -1348,6 +1387,12 @@ impl BrowserApp {
             .pending_credential()
             .filter(|p| Some(p.tab) == active);
         super::passwords::banner(ctx, pending, commands);
+        // Requests of closed tabs went with their view.
+        let open = self.browser.session();
+        self.permission_asks.retain(|a| open.tab(a.tab).is_some());
+        let ask = self.permission_asks.iter().find(|a| Some(a.tab) == active);
+        super::permissions::bar(ctx, ask, commands);
+        self.find_bar.show(ctx, commands);
         if self.library.open == Some(LibraryView::Profiles) && !self.is_private() {
             self.profiles.refresh(ctx);
         }

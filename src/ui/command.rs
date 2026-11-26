@@ -94,6 +94,18 @@ pub enum Command {
     Reload,
     /// Reloads that tab (its page crashed).
     ReloadTab(TabId),
+    /// The user's answer to a page's request (camera, location...).
+    AnswerPermission(u64, bool),
+    /// Opens the find bar (Ctrl/Cmd+F).
+    OpenFind,
+    /// Finds in the active page (see `Browser::find_in_page`).
+    FindInPage {
+        query: String,
+        backwards: bool,
+        restart: bool,
+    },
+    /// Prints the active page (Ctrl/Cmd+P).
+    Print,
     /// Reload without the cache (Ctrl+Shift+R, Ctrl+F5, Shift+click).
     HardReload,
     Home,

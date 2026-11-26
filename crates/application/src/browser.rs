@@ -681,6 +681,31 @@ impl<E: WebEngine> Browser<E> {
         self.session.set_split_ratio(id, ratio);
     }
 
+    /// Prints the active tab's page.
+    pub fn print(&mut self) {
+        if let Some(id) = self.session.active_id() {
+            self.engine.print(id);
+        }
+    }
+
+    /// Finds `query` in the active tab's page and selects it (the next one
+    /// after the selection, or before it when `backwards`); `restart`: from
+    /// the top. Empty: the selection goes.
+    pub fn find_in_page(&mut self, query: &str, backwards: bool, restart: bool) {
+        let Some(id) = self.session.active_id() else {
+            return;
+        };
+        let clear = "window.getSelection && window.getSelection().removeAllRanges();";
+        let script = if query.is_empty() {
+            clear.to_owned()
+        } else {
+            let query = js_string(query);
+            let restart = if restart { clear } else { "" };
+            format!("{restart}window.find({query}, false, {backwards}, true);")
+        };
+        self.engine.run_in_tab(id, &script);
+    }
+
     /// Whether the engine can show two pages side by side.
     pub fn can_split(&self) -> bool {
         self.engine.can_split()
@@ -1065,7 +1090,8 @@ impl<E: WebEngine> Browser<E> {
             // Shown by the presentation.
             EngineEvent::DownloadStarted { .. }
             | EngineEvent::DownloadFinished { .. }
-            | EngineEvent::ExtensionOffered { .. } => {}
+            | EngineEvent::ExtensionOffered { .. }
+            | EngineEvent::PermissionRequested { .. } => {}
             // The page died: its view goes, the tab waits to be reloaded.
             // The whole engine: every page went with it, the tabs sleep and
             // the one shown starts again.
@@ -1112,6 +1138,26 @@ impl<E: WebEngine> Browser<E> {
     }
 }
 
+/// `text` as a JavaScript string literal.
+fn js_string(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 2);
+    out.push('"');
+    for c in text.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\u{2028}' => out.push_str("\\u2028"),
+            '\u{2029}' => out.push_str("\\u2029"),
+            c if c.is_control() => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::{Arc, Mutex};
@@ -1131,6 +1177,8 @@ mod tests {
         Viewport(Viewport),
         Fill(u64, String, String),
         SetCookies(Vec<String>),
+        Script(u64, String),
+        Print(u64),
     }
 
     #[derive(Default)]
@@ -1163,6 +1211,12 @@ mod tests {
         }
         fn can_split(&self) -> bool {
             true
+        }
+        fn run_in_tab(&mut self, tab: TabId, script: &str) {
+            self.calls.push(Call::Script(tab.get(), script.to_owned()));
+        }
+        fn print(&mut self, tab: TabId) {
+            self.calls.push(Call::Print(tab.get()));
         }
         fn navigate(&mut self, tab: TabId, address: &WebAddress) -> Result<(), EngineError> {
             self.calls
@@ -1981,5 +2035,40 @@ mod tests {
         assert!(calls.contains(&Call::Open(t2.get(), "https://b.com/".into())));
         assert!(!calls.iter().any(|c| matches!(c, Call::Open(1, _))));
         assert!(b.session().tab(t1).unwrap().is_discarded());
+    }
+
+    #[test]
+    fn searched_text_is_quoted_for_the_page() {
+        assert_eq!(js_string(r#"a"b\c"#), r#""a\"b\\c""#);
+        // A line break and U+2028 (a line break to JavaScript): escaped.
+        let line_breaks = format!("x{}y{}", '\n', '\u{2028}');
+        let backslash = '\\';
+        let expected = format!("\"x{backslash}ny{backslash}u2028\"");
+        assert_eq!(js_string(&line_breaks), expected);
+        assert_eq!(js_string("\u{1}"), r#""\u0001""#);
+    }
+
+    #[test]
+    fn find_and_print_reach_the_shown_page() {
+        let mut b = browser();
+        let t = b.open_tab(None).unwrap().get();
+        take_calls(&mut b);
+        b.find_in_page("rust", false, true);
+        b.find_in_page("rust", true, false);
+        b.find_in_page("", false, false);
+        b.print();
+        let calls = take_calls(&mut b);
+        let scripts: Vec<&String> = calls
+            .iter()
+            .filter_map(|c| match c {
+                Call::Script(id, s) if *id == t => Some(s),
+                _ => None,
+            })
+            .collect();
+        assert!(scripts[0].ends_with(r#"window.find("rust", false, false, true);"#));
+        assert!(scripts[0].starts_with("window.getSelection"));
+        assert_eq!(scripts[1], r#"window.find("rust", false, true, true);"#);
+        assert!(!scripts[2].contains("find("));
+        assert_eq!(calls.last(), Some(&Call::Print(t)));
     }
 }

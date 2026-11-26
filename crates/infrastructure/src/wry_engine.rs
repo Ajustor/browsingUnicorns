@@ -3,7 +3,7 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::mpsc::Sender;
@@ -87,6 +87,9 @@ pub struct WryEngine {
     /// A split view's panes, each in its area; empty: `shown` alone, on the
     /// whole viewport.
     panes: Vec<(TabId, Viewport)>,
+    /// What pages asked to use, waiting for the user (WebKitGTK).
+    #[cfg(target_os = "linux")]
+    permissions: Rc<std::cell::RefCell<Permissions>>,
     events: Sender<EngineEvent>,
     waker: Waker,
     /// Where the web views keep cookies, cache and storage.
@@ -331,6 +334,10 @@ fn base_builder<'a>(
     // says: a private window's views get a non-persistent one.
     #[cfg(target_os = "macos")]
     let builder = builder.with_incognito(private);
+    // Camera and microphone: WebKit asks the user, site by site (without a
+    // handler wry would let any site have them).
+    #[cfg(target_os = "macos")]
+    let builder = builder.with_permission_handler(|_| wry::PermissionResponse::Default);
     #[cfg(not(target_os = "macos"))]
     let _ = private;
     let emit = std::rc::Rc::new(emit);
@@ -404,6 +411,8 @@ impl WryEngine {
             shown: None,
             viewport: Viewport::default(),
             panes: Vec::new(),
+            #[cfg(target_os = "linux")]
+            permissions: Rc::default(),
             events,
             #[cfg(any(target_os = "macos", target_os = "linux"))]
             rule_lists: crate::webkit_rules::RuleLists::new(
@@ -831,6 +840,109 @@ impl WryEngine {
     }
 }
 
+/// The requests pages made (WebKitGTK), waiting for the user, and the
+/// answers given, by site, for this run.
+#[cfg(target_os = "linux")]
+#[derive(Default)]
+struct Permissions {
+    next: u64,
+    waiting: HashMap<
+        u64,
+        (
+            webkit2gtk::PermissionRequest,
+            String,
+            application::ports::PermissionKind,
+        ),
+    >,
+    answered: HashMap<(String, application::ports::PermissionKind), bool>,
+}
+
+#[cfg(target_os = "linux")]
+impl Permissions {
+    fn answer(&mut self, id: u64, allow: bool) {
+        use webkit2gtk::PermissionRequestExt as _;
+        let Some((request, host, kind)) = self.waiting.remove(&id) else {
+            return;
+        };
+        if allow {
+            request.allow();
+        } else {
+            request.deny();
+        }
+        self.answered.insert((host, kind), allow);
+    }
+}
+
+/// Asks the user, through the presentation, before `tab`'s page uses the
+/// camera, the microphone, the screen, the location or notifications (the
+/// answer kept for the site); the protected media's keys are let through;
+/// anything else is refused, as WebKitGTK does by itself.
+#[cfg(target_os = "linux")]
+fn permission_requests(
+    view: &WebView,
+    tab: TabId,
+    permissions: Rc<std::cell::RefCell<Permissions>>,
+    emit: impl Fn(EngineEvent) + 'static,
+) -> glib::SignalHandlerId {
+    use application::ports::PermissionKind;
+    use gtk::glib::prelude::*;
+    use webkit2gtk::{
+        GeolocationPermissionRequest, MediaKeySystemPermissionRequest,
+        NotificationPermissionRequest, PermissionRequestExt as _, UserMediaPermissionRequest,
+        UserMediaPermissionRequestExt as _, WebViewExt as _,
+    };
+    use wry::WebViewExtUnix as _;
+    view.webview()
+        .connect_permission_request(move |webview, request| {
+            let kind = if let Some(media) = request.downcast_ref::<UserMediaPermissionRequest>() {
+                match (media.is_for_video_device(), media.is_for_audio_device()) {
+                    (true, true) => PermissionKind::CameraAndMicrophone,
+                    (true, false) => PermissionKind::Camera,
+                    (false, true) => PermissionKind::Microphone,
+                    (false, false) => PermissionKind::Screen,
+                }
+            } else if request.is::<GeolocationPermissionRequest>() {
+                PermissionKind::Location
+            } else if request.is::<NotificationPermissionRequest>() {
+                PermissionKind::Notifications
+            } else if request.is::<MediaKeySystemPermissionRequest>() {
+                // Protected videos (DRM): as other browsers, without asking.
+                request.allow();
+                return true;
+            } else {
+                request.deny();
+                return true;
+            };
+            let host = webview
+                .uri()
+                .and_then(|u| WebAddress::parse(&u).ok())
+                .and_then(|a| a.host().map(str::to_owned))
+                .unwrap_or_default();
+            let mut state = permissions.borrow_mut();
+            if let Some(&allow) = state.answered.get(&(host.clone(), kind)) {
+                if allow {
+                    request.allow();
+                } else {
+                    request.deny();
+                }
+                return true;
+            }
+            state.next += 1;
+            let id = state.next;
+            state
+                .waiting
+                .insert(id, (request.clone(), host.clone(), kind));
+            drop(state);
+            emit(EngineEvent::PermissionRequested {
+                id,
+                tab,
+                host,
+                kind,
+            });
+            true
+        })
+}
+
 /// `holes` (relative to the page area `page`) as they fall in the pane
 /// `area`, relative to it; those outside it left out.
 #[cfg_attr(not(windows), allow(dead_code))]
@@ -992,6 +1104,13 @@ impl WebEngine for WryEngine {
             })
             .build_as_child(&self.parent)
             .map_err(engine_error)?;
+        // Camera, microphone, location, notifications: WebKitGTK refuses
+        // them unless the browser answers; the user is asked.
+        #[cfg(target_os = "linux")]
+        {
+            let (permissions, emit) = (self.permissions.clone(), on_crash.clone());
+            let _handler = permission_requests(&view, tab, permissions, emit);
+        }
         // The page dying (Linux: WebKitGTK's web process), but when the
         // browser ended it itself.
         #[cfg(target_os = "linux")]
@@ -1323,6 +1442,11 @@ impl WebEngine for WryEngine {
         true
     }
 
+    #[cfg(target_os = "linux")]
+    fn answer_permission(&mut self, id: u64, allow: bool) {
+        self.permissions.borrow_mut().answer(id, allow);
+    }
+
     fn extension_support(&self) -> ExtensionSupport {
         if !builtin_extensions() {
             ExtensionSupport::Full
@@ -1400,6 +1524,10 @@ impl WebEngine for WryEngine {
 
     fn run_in_tab(&mut self, tab: TabId, script: &str) {
         self.with_view(tab, "script", |v| v.evaluate_script(script));
+    }
+
+    fn print(&mut self, tab: TabId) {
+        self.with_view(tab, "print", WebView::print);
     }
 
     fn open_devtools(&mut self, page: &PageSource) {

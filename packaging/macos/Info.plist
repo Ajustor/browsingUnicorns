@@ -29,5 +29,13 @@
   <true/>
   <key>NSSupportsAutomaticGraphicsSwitching</key>
   <true/>
+  <!-- Without them macOS ends the app as soon as a site asks for the
+       camera, the microphone or the location. -->
+  <key>NSCameraUsageDescription</key>
+  <string>Les sites que vous autorisez peuvent utiliser la caméra (visioconférence…). / Sites you allow can use the camera (video calls…).</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Les sites que vous autorisez peuvent utiliser le micro (appels…). / Sites you allow can use the microphone (calls…).</string>
+  <key>NSLocationWhenInUseUsageDescription</key>
+  <string>Les sites que vous autorisez peuvent connaître votre position. / Sites you allow can know your location.</string>
 </dict>
 </plist>

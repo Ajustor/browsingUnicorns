@@ -57,6 +57,10 @@ pub trait WebEngine {
         let _ = panes;
         self.show(Some(focused));
     }
+    /// Prints `tab`'s page (the system's print dialog).
+    fn print(&mut self, _tab: TabId) {}
+    /// The user's answer to [`EngineEvent::PermissionRequested`] `id`.
+    fn answer_permission(&mut self, _id: u64, _allow: bool) {}
     /// Whether [`Self::show_panes`] shows more than one view.
     fn can_split(&self) -> bool {
         false
@@ -225,6 +229,27 @@ pub enum EngineEvent {
         tab: TabId,
         all: bool,
     },
+    /// `tab`'s page (at `host`) asks to use `kind`: the presentation asks
+    /// the user, then [`WebEngine::answer_permission`] with `id`. Only where
+    /// the web view doesn't ask itself (WebKitGTK).
+    PermissionRequested {
+        id: u64,
+        tab: TabId,
+        host: String,
+        kind: PermissionKind,
+    },
+}
+
+/// What a page asks to use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PermissionKind {
+    Camera,
+    Microphone,
+    CameraAndMicrophone,
+    /// The screen (sharing it).
+    Screen,
+    Location,
+    Notifications,
 }
 
 /// Where page scripts run: a tab, an extension's background page, the

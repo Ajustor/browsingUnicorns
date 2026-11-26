@@ -48,6 +48,8 @@ const SHORTCUTS: &[(Modifiers, Key, Command)] = &[
     (Modifiers::ALT, Key::ArrowRight, Command::Forward),
     (Modifiers::ALT, Key::Home, Command::Home),
     (Modifiers::COMMAND, Key::D, Command::ToggleBookmark),
+    (Modifiers::COMMAND, Key::F, Command::OpenFind),
+    (Modifiers::COMMAND, Key::P, Command::Print),
     (Modifiers::NONE, Key::F12, Command::OpenDevTools),
     (
         Modifiers::COMMAND.plus(Modifiers::SHIFT),
@@ -85,8 +87,15 @@ fn key_press(modifiers: Modifiers, key: Key) -> KeyPress {
 pub fn page_keys() -> Vec<KeyPress> {
     SHORTCUTS
         .iter()
+        .filter(|(.., command)| !native_in_page(command))
         .map(|(m, k, _)| key_press(*m, *k))
         .collect()
+}
+
+/// Left to the page's web view, which does them itself (WebView2: its find
+/// bar, its print preview).
+fn native_in_page(command: &Command) -> bool {
+    matches!(command, Command::OpenFind | Command::Print)
 }
 
 /// The command of a shortcut pressed in a page.
