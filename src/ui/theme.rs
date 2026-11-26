@@ -129,6 +129,12 @@ pub fn install(ctx: &egui::Context) {
     ctx.set_visuals_of(Theme::Dark, visuals(Theme::Dark));
     ctx.set_visuals_of(Theme::Light, visuals(Theme::Light));
     ctx.set_theme(ThemePreference::System);
+    // Scroll bars easier to see and to grab: egui's floating ones are a 2 px
+    // line while the pointer is over the list, 10 px over the bar itself.
+    ctx.all_styles_mut(|style| {
+        style.spacing.scroll.floating_width = 6.0;
+        style.spacing.scroll.bar_width = 12.0;
+    });
 }
 
 fn fonts() -> FontDefinitions {
