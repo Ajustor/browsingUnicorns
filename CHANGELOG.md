@@ -4,6 +4,19 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.27.0] - 2026-11-26
+
+### Ajouté
+
+- Les onglets peuvent s'afficher dans une colonne à gauche plutôt qu'en
+  haut : *Réglages › Onglets › Position*, ou le menu d'un onglet. La
+  barre d'outils devient alors la barre de titre (on y attrape la
+  fenêtre, ses boutons sont à droite). Dans la colonne : les onglets
+  épinglés en icônes, puis un onglet par ligne sous l'en-tête de son
+  groupe (cliquer l'en-tête replie le groupe). Son bord se tire pour
+  l'élargir, et elle se replie sur les seules icônes. Glisser un onglet
+  le déplace, le met dans un groupe, ou l'ouvre dans sa propre fenêtre.
+
 ## [0.26.0] - 2026-11-26
 
 ### Ajouté
