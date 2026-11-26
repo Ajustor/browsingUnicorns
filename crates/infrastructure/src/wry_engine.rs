@@ -667,6 +667,8 @@ impl WryEngine {
             blocker: true,
             // Nothing is saved from a private window.
             credentials: !self.files.private && self.device.borrow().save_passwords,
+            // WebView2 tells it itself (GotFocus).
+            focus: !cfg!(windows),
         };
         self.page_scripts = page_scripts(&sources);
         for (tab, view) in &self.views {
@@ -872,7 +874,6 @@ impl WebEngine for WryEngine {
         let on_audio = emit.clone();
         #[cfg(windows)]
         let on_focus = emit.clone();
-        #[cfg(windows)]
         let on_crash = emit.clone();
         let device_for_downloads = self.device.clone();
         // Downloads the browser stopped before they began.
@@ -909,6 +910,16 @@ impl WebEngine for WryEngine {
             builder.with_navigation_handler(move |url| {
                 sites.navigating(&url, &blocker);
                 true
+            })
+        };
+        // The page dying (macOS: WebKit's web content process).
+        #[cfg(target_os = "macos")]
+        let builder = {
+            use wry::WebViewBuilderExtDarwin as _;
+            let on_crash = on_crash.clone();
+            builder.with_on_web_content_process_terminate_handler(move || {
+                log::warn!("tab {tab}: the page crashed");
+                on_crash(EngineEvent::PageCrashed { tab, all: false });
             })
         };
         // No address yet: the page scripts must be in before the first load.
@@ -981,6 +992,23 @@ impl WebEngine for WryEngine {
             })
             .build_as_child(&self.parent)
             .map_err(engine_error)?;
+        // The page dying (Linux: WebKitGTK's web process), but when the
+        // browser ended it itself.
+        #[cfg(target_os = "linux")]
+        {
+            use webkit2gtk::WebViewExt as _;
+            use wry::WebViewExtUnix as _;
+            let on_crash = on_crash.clone();
+            // Kept as long as the view: its id is not needed.
+            let _handler = view
+                .webview()
+                .connect_web_process_terminated(move |_, reason| {
+                    if reason != webkit2gtk::WebProcessTerminationReason::TerminatedByApi {
+                        log::warn!("tab {tab}: the page crashed ({reason:?})");
+                        on_crash(EngineEvent::PageCrashed { tab, all: false });
+                    }
+                });
+        }
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         self.rule_lists.attach(&view);
         // Before the first load, which comes through the navigation handler.

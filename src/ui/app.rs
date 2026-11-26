@@ -68,6 +68,9 @@ pub struct BrowserApp {
     last_persist: Instant,
     /// When idle tabs were last looked for, to put them to sleep.
     last_sleep_check: Instant,
+    /// A page said it got the keyboard (its script, where the web view
+    /// doesn't tell): menus close as for a click in it.
+    page_focused: bool,
     close_requested: bool,
     /// The DRM data this window can reset (Windows, the profile's window).
     drm: Option<infrastructure::DrmReset>,
@@ -152,6 +155,7 @@ impl BrowserApp {
             language: super::device_language(),
             last_persist: Instant::now(),
             last_sleep_check: Instant::now(),
+            page_focused: false,
             close_requested: false,
             drm,
             relaunch: false,
@@ -660,7 +664,8 @@ impl BrowserApp {
     /// doesn't take the keyboard back from it, and a click in the page
     /// leaves the widget looking focused.
     fn sync_keyboard_focus(&mut self, ctx: &egui::Context) {
-        if self.browser.engine_mut().take_page_focused() {
+        let page_script_said = std::mem::take(&mut self.page_focused);
+        if self.browser.engine_mut().take_page_focused() || page_script_said {
             ctx.memory_mut(|m| {
                 if let Some(id) = m.focused() {
                     m.surrender_focus(id);
@@ -890,6 +895,18 @@ impl BrowserApp {
                         && !self.is_private()
                     {
                         self.browser.offer_credential(*tab, &username, &password);
+                    }
+                    continue;
+                }
+                // A page got the keyboard (WebKit, where the web view
+                // doesn't say): as WebView2's own focus event.
+                if infrastructure::page_scripts::focus::focused(body) {
+                    if let PageSource::Tab(tab) = from {
+                        self.page_focused = true;
+                        if let Err(e) = self.browser.handle(EngineEvent::PageFocused { tab: *tab })
+                        {
+                            self.report(e);
+                        }
                     }
                     continue;
                 }

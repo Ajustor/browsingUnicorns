@@ -20,6 +20,7 @@ use crate::script_storage::new_token;
 use crate::user_scripts::read_code;
 
 pub mod credentials;
+pub mod focus;
 
 const RUNTIME: &str = include_str!("runtime.js");
 
@@ -60,6 +61,9 @@ pub struct Sources<'a> {
     pub blocker: bool,
     /// Add the password manager's script (reports the sign-ins sent).
     pub credentials: bool,
+    /// Add the script that says when a page gets the keyboard (where the
+    /// web view doesn't tell).
+    pub focus: bool,
 }
 
 /// A JavaScript expression, true in the extensions' own pages wherever
@@ -151,6 +155,9 @@ pub fn page_scripts(sources: &Sources<'_>) -> Vec<String> {
     }
     if sources.credentials {
         out.push(credentials::capture_script(sources.bridge));
+    }
+    if sources.focus {
+        out.push(focus::script());
     }
     for e in sources
         .extensions
@@ -301,6 +308,7 @@ mod tests {
             state_dir: None,
             blocker: false,
             credentials: false,
+            focus: false,
         };
         let scripts = page_scripts(&sources(true));
         // `node --check` them: BU_DUMP_PAGE_SCRIPTS=<dir> cargo test …
@@ -329,6 +337,7 @@ mod tests {
         let with_blocker = page_scripts(&Sources {
             blocker: true,
             credentials: false,
+            focus: false,
             ..sources(false)
         });
         assert_eq!(with_blocker.len(), 2);
@@ -352,6 +361,7 @@ mod tests {
             state_dir: None,
             blocker: true,
             credentials: true,
+            focus: false,
         });
         assert_eq!(scripts.len(), 2);
         let guard = format!("{MARKER}if (!{IN_EXTENSION_PAGE}) ");

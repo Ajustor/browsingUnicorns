@@ -139,6 +139,7 @@ impl HostEngine {
             state_dir: Some(&self.state_dir),
             blocker: true,
             credentials: self.credentials,
+            focus: false,
         });
         self.host.set_page_scripts(scripts);
     }
