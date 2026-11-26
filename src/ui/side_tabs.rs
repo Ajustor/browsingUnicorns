@@ -13,6 +13,8 @@ use super::favicons::{Favicons, Sound};
 use super::tab_strip::{self, Axis};
 use super::theme::{self, Chrome};
 
+/// The column's panel (egui keeps its width under it).
+const PANEL_ID: &str = "side tabs";
 /// The folded column's width (icons only).
 const FOLDED_WIDTH: f32 = 52.0;
 /// A tab's row.
@@ -41,7 +43,7 @@ pub fn show(
     commands: &mut Vec<Command>,
 ) -> egui::Rect {
     let (min, _, max) = domain::SIDE_TABS_WIDTH;
-    let panel = egui::SidePanel::left("side tabs")
+    let panel = egui::SidePanel::left(PANEL_ID)
         .frame(
             egui::Frame::NONE
                 .fill(tabs.chrome.gradient[0])
@@ -57,6 +59,9 @@ pub fn show(
             .width_range(min as f32..=max as f32)
     };
     let response = panel.show(ctx, |ui| {
+        // As wide as the panel: egui keeps the drawn width as the panel's,
+        // narrower content would shrink it (and the width saved) each run.
+        ui.set_min_width(ui.available_width());
         ui.style_mut().spacing.item_spacing = egui::vec2(4.0, 2.0);
         header(ui, &tabs, commands);
         ui.add_space(6.0);
@@ -66,10 +71,12 @@ pub fn show(
             .show(ui, |ui| list(ui, &tabs, naming, commands));
     });
     let rect = response.response.rect;
-    // The edge let go at another width: remembered.
-    if !tabs.folded && !ctx.input(|i| i.pointer.any_down()) {
+    // The edge dragged and let go: its width is remembered (only then: the
+    // first frames lay the panel out before the window has its size).
+    let resize = ctx.read_response(egui::Id::new(PANEL_ID).with("__resize"));
+    if !tabs.folded && resize.is_some_and(|r| r.drag_stopped()) {
         let width = rect.width().round() as u32;
-        if width.abs_diff(tabs.width) > 1 {
+        if width != tabs.width {
             commands.push(Command::SetSideTabsWidth(width.clamp(min, max)));
         }
     }
