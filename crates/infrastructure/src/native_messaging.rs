@@ -483,7 +483,9 @@ $out.Write($len, 0, 4); $out.Write($buf, 0, $n); $out.Flush()"#,
         let id = native.spawn(&launcher, "chrome-extension://x/").unwrap();
         native.post(id, &serde_json::json!({"ping": true})).unwrap();
         let mut got = Vec::new();
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        // PowerShell starting cold on a busy CI runner can take over 20 s;
+        // the loop ends as soon as the host exits.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
         while std::time::Instant::now() < deadline
             && !got.iter().any(|(_, e)| matches!(e, FromHost::Closed(_)))
         {
