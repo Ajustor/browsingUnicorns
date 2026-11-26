@@ -28,6 +28,14 @@ messages! {
     fn tabs_scroll() { en: "Scroll", fr: "Défiler" }
     /// The tabs get narrower to fit.
     fn tabs_shrink() { en: "Shrink", fr: "Réduire" }
+    /// Where the tabs are.
+    fn tabs_position() { en: "Position", fr: "Position" }
+    /// The tabs in a strip at the top.
+    fn tabs_top() { en: "Top", fr: "En haut" }
+    /// The tabs in a column on the left.
+    fn tabs_left() { en: "Left", fr: "À gauche" }
+    /// What to do when the tabs no longer fit the strip.
+    fn tabs_overflow() { en: "Too many tabs", fr: "Trop d’onglets" }
 
     /// Section title.
     fn downloads() { en: "Downloads", fr: "Téléchargements" }

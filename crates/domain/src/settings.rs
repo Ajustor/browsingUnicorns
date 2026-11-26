@@ -36,10 +36,27 @@ pub struct DeviceSettings {
     /// Too many tabs for the strip: they shrink to fit it, instead of
     /// scrolling.
     pub shrink_tabs: bool,
+    /// Where the tabs are: a strip at the top, or a column on the left.
+    pub tab_position: TabPosition,
+    /// The width of the tabs' column (logical points), when unfolded.
+    pub side_tabs_width: u32,
+    /// The tabs' column shows only the icons.
+    pub side_tabs_collapsed: bool,
     /// The last version whose release notes were offered (empty: none
     /// yet): after an update, the side panel opens on what changed.
     pub seen_release: String,
 }
+
+/// Where the tabs are shown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TabPosition {
+    #[default]
+    Top,
+    Left,
+}
+
+/// The tabs' column width: (narrowest, default, widest), logical points.
+pub const SIDE_TABS_WIDTH: (u32, u32, u32) = (160, 220, 400);
 
 /// The interface's language: the system's, or one chosen. The computer's,
 /// whatever the profile (not part of [`Settings`]).
@@ -60,6 +77,9 @@ impl Default for DeviceSettings {
             sync_cookies: true,
             site_zoom: Vec::new(),
             shrink_tabs: true,
+            tab_position: TabPosition::Top,
+            side_tabs_width: SIDE_TABS_WIDTH.1,
+            side_tabs_collapsed: false,
             seen_release: String::new(),
         }
     }

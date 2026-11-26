@@ -1,7 +1,7 @@
 use egui::{Button, Color32, RichText, ScrollArea, Sense, Spinner};
 use egui_phosphor::regular as icon;
 
-use domain::{GroupId, Session, Tab, TabGroup};
+use domain::{GroupId, Session, Tab, TabGroup, TabPosition};
 
 use super::command::Command;
 
@@ -12,7 +12,7 @@ const TITLE_CHARS: usize = 24;
 const DETACH_BELOW: f32 = 90.0;
 
 /// Room left of the tabs for macOS's window buttons, drawn over the strip.
-const MACOS_BUTTONS: f32 = 72.0;
+pub(super) const MACOS_BUTTONS: f32 = 72.0;
 
 /// Width of the window's buttons (Windows, Linux).
 const WINDOW_BUTTONS: f32 = 3.0 * 46.0;
@@ -148,7 +148,17 @@ pub fn show(
                         } else {
                             pinned..=rects.len()
                         };
-                        drag_tab(ui, &rects, &labels, from, tab, dropped, zone, commands);
+                        drag_tab(
+                            ui,
+                            &rects,
+                            &labels,
+                            from,
+                            tab,
+                            dropped,
+                            zone,
+                            Axis::Row,
+                            commands,
+                        );
                     }
                 })
                 .response
@@ -288,7 +298,9 @@ pub fn show(
                             if label.middle_clicked() {
                                 commands.push(Command::CloseTab(tab.id()));
                             }
-                            label.context_menu(|ui| tab_menu(ui, tab, session, commands));
+                            label.context_menu(|ui| {
+                                tab_menu(ui, tab, session, TabPosition::Top, commands)
+                            });
                             close_button(ui, tab, text, commands);
                         });
                     })
@@ -389,7 +401,7 @@ pub fn show(
         if response.middle_clicked() {
             commands.push(Command::CloseTab(tab.id()));
         }
-        response.context_menu(|ui| tab_menu(ui, tab, session, commands));
+        response.context_menu(|ui| tab_menu(ui, tab, session, TabPosition::Top, commands));
     }
 }
 
@@ -444,7 +456,7 @@ fn fixed_room(ui: &egui::Ui, session: &Session, naming: Option<GroupId>) -> f32 
     pinned + labels
 }
 
-fn tab_text(active: bool) -> Color32 {
+pub(super) fn tab_text(active: bool) -> Color32 {
     if active {
         Color32::WHITE
     } else {
@@ -469,8 +481,14 @@ fn tab_frame(active: bool, chrome: &super::theme::Chrome, left: i8, right: i8) -
         })
 }
 
-/// A tab's menu (right click): pin, groups, close.
-fn tab_menu(ui: &mut egui::Ui, tab: &Tab, session: &Session, commands: &mut Vec<Command>) {
+/// A tab's menu (right click): pin, groups, where the tabs are, close.
+pub(super) fn tab_menu(
+    ui: &mut egui::Ui,
+    tab: &Tab,
+    session: &Session,
+    position: TabPosition,
+    commands: &mut Vec<Command>,
+) {
     let item = |ui: &mut egui::Ui,
                 glyph: &str,
                 text: &str,
@@ -552,6 +570,23 @@ fn tab_menu(ui: &mut egui::Ui, tab: &Tab, session: &Session, commands: &mut Vec<
         );
     }
     ui.separator();
+    match position {
+        TabPosition::Top => item(
+            ui,
+            icon::SIDEBAR_SIMPLE,
+            i18n::tabs::tabs_on_left(),
+            Command::SetTabPosition(TabPosition::Left),
+            commands,
+        ),
+        TabPosition::Left => item(
+            ui,
+            icon::TABS,
+            i18n::tabs::tabs_on_top(),
+            Command::SetTabPosition(TabPosition::Top),
+            commands,
+        ),
+    }
+    ui.separator();
     item(
         ui,
         icon::X,
@@ -562,7 +597,7 @@ fn tab_menu(ui: &mut egui::Ui, tab: &Tab, session: &Session, commands: &mut Vec<
 }
 
 /// A group's name, else what stands for it in the menus.
-fn group_title(session: &Session, group: &TabGroup) -> String {
+pub(super) fn group_title(session: &Session, group: &TabGroup) -> String {
     if group.name.is_empty() {
         i18n::tabs::unnamed_group(session.group_tabs(group.id()).len())
     } else {
@@ -706,7 +741,7 @@ fn label_room(ui: &egui::Ui, session: &Session, group: &TabGroup, naming: bool) 
 }
 
 /// A group's menu: its name, its colour, ungroup, close.
-fn group_menu(ui: &mut egui::Ui, group: &TabGroup, commands: &mut Vec<Command>) {
+pub(super) fn group_menu(ui: &mut egui::Ui, group: &TabGroup, commands: &mut Vec<Command>) {
     let mut name = group.name.clone();
     let field = ui.add(
         egui::TextEdit::singleline(&mut name)
@@ -806,7 +841,12 @@ fn overflow_hints(ui: &egui::Ui, scroll: &egui::scroll_area::ScrollAreaOutput<eg
 /// The strip's empty space, sensed under the tabs and buttons: dragged, it
 /// moves the window; double-clicked, it maximizes or restores it.
 fn title_bar(ui: &egui::Ui) {
-    let rect = area(ui);
+    drag_window_by(ui, area(ui));
+}
+
+/// `rect`, sensed under what is drawn over it: dragged, it moves the
+/// window; double-clicked, it maximizes or restores it.
+pub(super) fn drag_window_by(ui: &egui::Ui, rect: egui::Rect) {
     let bar = ui.interact(rect, ui.id().with("title bar"), Sense::click_and_drag());
     if bar.double_clicked() {
         let maximized = ui.ctx().input(|i| i.viewport().maximized == Some(true));
@@ -819,7 +859,7 @@ fn title_bar(ui: &egui::Ui) {
 
 /// Close, maximize or restore, minimize (right to left), as tall as the
 /// strip.
-fn window_buttons(ui: &mut egui::Ui) {
+pub(super) fn window_buttons(ui: &mut egui::Ui) {
     let ctx = ui.ctx().clone();
     let maximized = ctx.input(|i| i.viewport().maximized == Some(true));
     ui.spacing_mut().item_spacing.x = 0.0;
@@ -861,10 +901,34 @@ fn window_buttons(ui: &mut egui::Ui) {
     }
 }
 
+/// How dragged tabs are laid out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Axis {
+    /// The strip at the top: left to right.
+    Row,
+    /// The column on the left: top to bottom.
+    Column,
+    /// The column's pinned tabs: rows of icons.
+    Grid,
+}
+
+impl Axis {
+    /// Whether `r` comes before `pointer`.
+    fn before(self, r: &egui::Rect, pointer: egui::Pos2) -> bool {
+        match self {
+            Self::Row => r.center().x < pointer.x,
+            Self::Column => r.center().y < pointer.y,
+            Self::Grid => {
+                r.bottom() <= pointer.y || (r.top() <= pointer.y && r.center().x < pointer.x)
+            }
+        }
+    }
+}
+
 /// A tab being dragged: a bar where it would land; dropped, it moves there.
-/// Dropped out of the window, or well under the strip, it gets its own.
+/// Dropped out of the window, or well away from the tabs, it gets its own.
 #[allow(clippy::too_many_arguments)]
-fn drag_tab(
+pub(super) fn drag_tab(
     ui: &egui::Ui,
     rects: &[egui::Rect],
     labels: &[(GroupId, egui::Rect)],
@@ -872,6 +936,7 @@ fn drag_tab(
     tab: &Tab,
     dropped: bool,
     zone: std::ops::RangeInclusive<usize>,
+    axis: Axis,
     commands: &mut Vec<Command>,
 ) {
     let ctx = ui.ctx();
@@ -891,7 +956,7 @@ fn drag_tab(
         }
         return;
     }
-    if detaches(ctx.screen_rect(), rects[from], pointer) {
+    if detaches(ctx.screen_rect(), rects[from], pointer, axis) {
         if rects.len() < 2 {
             return;
         }
@@ -902,7 +967,7 @@ fn drag_tab(
         }
         return;
     }
-    let (slot, to) = drop_slot(rects, from, pointer.x, zone);
+    let (slot, to) = drop_slot(rects, from, |r| axis.before(r, pointer), zone.clone());
     if to == from {
         return;
     }
@@ -911,27 +976,35 @@ fn drag_tab(
         return;
     }
     ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
-    let x = match rects.get(slot) {
-        Some(r) => r.left() - 1.5,
-        None => rects[rects.len() - 1].right() + 1.5,
-    };
-    let r = rects[from];
-    ui.painter().vline(
-        x,
-        r.y_range(),
-        egui::Stroke::new(3.0_f32, super::theme::CYAN),
-    );
+    let stroke = egui::Stroke::new(3.0_f32, super::theme::CYAN);
+    // The bar goes before the tab of the slot, else after the zone's last.
+    let last = rects[(*zone.end()).clamp(1, rects.len()) - 1];
+    let next = rects.get(slot).filter(|_| slot < *zone.end());
+    if axis == Axis::Column {
+        let y = next.map_or(last.bottom() + 1.5, |r| r.top() - 1.5);
+        ui.painter().hline(rects[from].x_range(), y, stroke);
+    } else {
+        let (x, y) = next.map_or((last.right() + 1.5, last.y_range()), |r| {
+            (r.left() - 1.5, r.y_range())
+        });
+        ui.painter().vline(x, y, stroke);
+    }
 }
 
-/// Whether a tab whose place in the strip is `tab`, dropped at `pointer`,
-/// leaves the window `window`.
-fn detaches(window: egui::Rect, tab: egui::Rect, pointer: egui::Pos2) -> bool {
-    !window.contains(pointer) || pointer.y > tab.bottom() + DETACH_BELOW
+/// Whether a tab whose place is `tab`, dropped at `pointer`, leaves the
+/// window `window`: out of it, or far from the tabs (under the strip,
+/// right of the column).
+fn detaches(window: egui::Rect, tab: egui::Rect, pointer: egui::Pos2, axis: Axis) -> bool {
+    !window.contains(pointer)
+        || match axis {
+            Axis::Row => pointer.y > tab.bottom() + DETACH_BELOW,
+            Axis::Column | Axis::Grid => pointer.x > tab.right() + DETACH_BELOW,
+        }
 }
 
 /// The new window of a dragged tab, as big as this one, its tab strip
 /// under the pointer: x, y, width, height on the screen, in points.
-fn new_window_at(ctx: &egui::Context, pointer: egui::Pos2) -> [f32; 4] {
+pub(super) fn new_window_at(ctx: &egui::Context, pointer: egui::Pos2) -> [f32; 4] {
     let window = ctx
         .input(|i| i.viewport().inner_rect)
         .unwrap_or(ctx.screen_rect());
@@ -939,17 +1012,18 @@ fn new_window_at(ctx: &egui::Context, pointer: egui::Pos2) -> [f32; 4] {
     [at.x, at.y, window.width(), window.height()]
 }
 
-/// Where a tab dragged from index `from` to `x` goes: the gap it is over
-/// (before tab `slot`, kept in `zone`), and its index once moved there.
+/// Where a tab dragged from index `from` goes: the gap it is over (after
+/// the tabs `before` the pointer, kept in `zone`), and its index once moved
+/// there.
 fn drop_slot(
     rects: &[egui::Rect],
     from: usize,
-    x: f32,
+    before: impl Fn(&egui::Rect) -> bool,
     zone: std::ops::RangeInclusive<usize>,
 ) -> (usize, usize) {
     let slot = rects
         .iter()
-        .filter(|r| r.center().x < x)
+        .filter(|r| before(r))
         .count()
         .clamp(*zone.start(), *zone.end());
     let to = if slot > from { slot - 1 } else { slot };
@@ -957,7 +1031,7 @@ fn drop_slot(
 }
 
 /// "Private", with the mask, before the tabs of a private window.
-fn private_pill(ui: &mut egui::Ui, chrome: &super::theme::Chrome) {
+pub(super) fn private_pill(ui: &mut egui::Ui, chrome: &super::theme::Chrome) {
     egui::Frame::NONE
         .fill(chrome.night)
         .corner_radius(egui::CornerRadius::same(255))
@@ -1000,17 +1074,52 @@ mod tests {
                 egui::Rect::from_min_max(egui::pos2(left, 0.0), egui::pos2(left + 100.0, 30.0))
             })
             .collect();
+        let at = |x: f32| move |r: &egui::Rect| Axis::Row.before(r, egui::pos2(x, 15.0));
         let all = 0..=3;
         // Tab 0 over the second half of tab 2: after it.
-        assert_eq!(drop_slot(&rects, 0, 280.0, all.clone()), (3, 2));
+        assert_eq!(drop_slot(&rects, 0, at(280.0), all.clone()), (3, 2));
         // Tab 2 over the first half of tab 0: before it.
-        assert_eq!(drop_slot(&rects, 2, 20.0, all.clone()), (0, 0));
+        assert_eq!(drop_slot(&rects, 2, at(20.0), all.clone()), (0, 0));
         // Over itself: it stays.
-        assert_eq!(drop_slot(&rects, 1, 120.0, all.clone()).1, 1);
-        assert_eq!(drop_slot(&rects, 1, 180.0, all).1, 1);
+        assert_eq!(drop_slot(&rects, 1, at(120.0), all.clone()).1, 1);
+        assert_eq!(drop_slot(&rects, 1, at(180.0), all).1, 1);
         // Tab 0 pinned, the others not: they stay apart.
-        assert_eq!(drop_slot(&rects, 0, 280.0, 0..=1), (1, 0));
-        assert_eq!(drop_slot(&rects, 2, 20.0, 1..=3), (1, 1));
+        assert_eq!(drop_slot(&rects, 0, at(280.0), 0..=1), (1, 0));
+        assert_eq!(drop_slot(&rects, 2, at(20.0), 1..=3), (1, 1));
+    }
+
+    #[test]
+    fn in_the_column_a_dragged_tab_lands_by_height() {
+        let rects: Vec<egui::Rect> = (0..3)
+            .map(|i| {
+                let top = i as f32 * 30.0;
+                egui::Rect::from_min_max(egui::pos2(0.0, top), egui::pos2(200.0, top + 30.0))
+            })
+            .collect();
+        // Whatever the x: the column's rows are full width.
+        let at = |y: f32| move |r: &egui::Rect| Axis::Column.before(r, egui::pos2(190.0, y));
+        assert_eq!(drop_slot(&rects, 0, at(80.0), 0..=3), (3, 2));
+        assert_eq!(drop_slot(&rects, 2, at(5.0), 0..=3), (0, 0));
+        assert_eq!(drop_slot(&rects, 1, at(40.0), 0..=3).1, 1);
+    }
+
+    #[test]
+    fn pinned_icons_in_rows_are_read_left_to_right_then_down() {
+        // Two rows of two icons.
+        let icon = |col: f32, row: f32| {
+            egui::Rect::from_min_size(egui::pos2(col * 40.0, row * 40.0), egui::vec2(36.0, 36.0))
+        };
+        let rects = [
+            icon(0.0, 0.0),
+            icon(1.0, 0.0),
+            icon(0.0, 1.0),
+            icon(1.0, 1.0),
+        ];
+        let at = |x: f32, y: f32| move |r: &egui::Rect| Axis::Grid.before(r, egui::pos2(x, y));
+        // Second row, right of its first icon: before the last one.
+        assert_eq!(drop_slot(&rects, 0, at(30.0, 50.0), 0..=4), (3, 2));
+        // First row, left: first.
+        assert_eq!(drop_slot(&rects, 3, at(5.0, 10.0), 0..=4), (0, 0));
     }
 
     #[test]
@@ -1028,11 +1137,17 @@ mod tests {
     fn a_tab_dropped_out_of_the_window_or_far_under_the_strip_detaches() {
         let window = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
         let tab = egui::Rect::from_min_max(egui::pos2(10.0, 6.0), egui::pos2(150.0, 36.0));
-        assert!(!detaches(window, tab, egui::pos2(300.0, 20.0)));
-        assert!(!detaches(window, tab, egui::pos2(300.0, 100.0)));
-        assert!(detaches(window, tab, egui::pos2(300.0, 200.0)));
-        assert!(detaches(window, tab, egui::pos2(900.0, 20.0)));
-        assert!(detaches(window, tab, egui::pos2(300.0, -5.0)));
+        let row = |p| detaches(window, tab, p, Axis::Row);
+        assert!(!row(egui::pos2(300.0, 20.0)));
+        assert!(!row(egui::pos2(300.0, 100.0)));
+        assert!(row(egui::pos2(300.0, 200.0)));
+        assert!(row(egui::pos2(900.0, 20.0)));
+        assert!(row(egui::pos2(300.0, -5.0)));
+        // In the column: far to its right.
+        let column = |p| detaches(window, tab, p, Axis::Column);
+        assert!(!column(egui::pos2(100.0, 500.0)));
+        assert!(!column(egui::pos2(200.0, 20.0)));
+        assert!(column(egui::pos2(300.0, 20.0)));
     }
 
     #[test]

@@ -20,6 +20,7 @@ mod profiles;
 mod settings_panel;
 mod shield;
 mod shortcuts;
+mod side_tabs;
 mod site_info;
 mod sync;
 mod sync_panel;

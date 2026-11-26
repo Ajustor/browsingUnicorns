@@ -25,7 +25,7 @@ use super::tab_search::TabSearch;
 use super::toolbar::ShieldButton;
 use super::updates::{Notice, Updates};
 use super::user_scripts::UserScriptsRunner;
-use super::{APP_NAME, bookmarks_bar, tab_strip, toolbar};
+use super::{APP_NAME, bookmarks_bar, side_tabs, tab_strip, toolbar};
 use infrastructure::extension_hub::{BrowserHub, Hub};
 
 /// What `main` runs once the window is gone (apply an update).
@@ -593,6 +593,16 @@ impl BrowserApp {
                 let device = self.browser.settings().device.clone();
                 self.browser.engine_mut().apply_device_settings(&device);
             }
+            Command::SetTabPosition(position) => {
+                self.change_device(|d| d.tab_position = position);
+            }
+            Command::SetSideTabsWidth(width) => {
+                let (min, _, max) = domain::SIDE_TABS_WIDTH;
+                self.change_device(|d| d.side_tabs_width = width.clamp(min, max));
+            }
+            Command::SetSideTabsCollapsed(collapsed) => {
+                self.change_device(|d| d.side_tabs_collapsed = collapsed);
+            }
             Command::NewTab
             | Command::ReopenClosedTab
             | Command::UpdateSettings(_)
@@ -778,6 +788,17 @@ impl BrowserApp {
         self.browser.engine_mut().show_panel_page(Some(&url), area);
     }
 
+    /// Changes this device's settings (saved when they changed).
+    fn change_device(&mut self, f: impl FnOnce(&mut domain::DeviceSettings)) {
+        let mut device = self.browser.settings().device.clone();
+        f(&mut device);
+        if device != self.browser.settings().device
+            && let Err(e) = self.browser.update_device_settings(device)
+        {
+            self.report(e);
+        }
+    }
+
     fn persist(&mut self) {
         self.last_persist = Instant::now();
         if let Err(e) = self.browser.persist() {
@@ -935,30 +956,37 @@ impl BrowserApp {
         {
             self.naming_group = None;
         }
-        let strip = TopBottomPanel::top("tabs")
-            .frame(egui::Frame::NONE.inner_margin(egui::Margin {
-                left: 8,
-                right: 8,
-                top: tab_strip::TOP_MARGIN,
-                bottom: 0,
-            }))
-            .show_separator_line(false)
-            .show(ctx, |ui| {
-                super::theme::gradient(ui.painter(), tab_strip::area(ui), &chrome);
-                self.favicons.update(ui.ctx(), self.browser.session());
-                tab_strip::show(
-                    ui,
-                    self.browser.session(),
-                    &self.favicons,
-                    &chrome,
-                    self.is_private(),
-                    &mut self.naming_group,
-                    self.browser.settings().device.shrink_tabs,
-                    commands,
-                );
-            })
-            .response
-            .rect;
+        let device = &self.browser.settings().device;
+        let side = device.tab_position == domain::TabPosition::Left;
+        let (side_width, folded) = (device.side_tabs_width, device.side_tabs_collapsed);
+        // The tabs at the top: their strip is the title bar. On the left,
+        // the toolbar is (see below).
+        let strip = (!side).then(|| {
+            TopBottomPanel::top("tabs")
+                .frame(egui::Frame::NONE.inner_margin(egui::Margin {
+                    left: 8,
+                    right: 8,
+                    top: tab_strip::TOP_MARGIN,
+                    bottom: 0,
+                }))
+                .show_separator_line(false)
+                .show(ctx, |ui| {
+                    super::theme::gradient(ui.painter(), tab_strip::area(ui), &chrome);
+                    self.favicons.update(ui.ctx(), self.browser.session());
+                    tab_strip::show(
+                        ui,
+                        self.browser.session(),
+                        &self.favicons,
+                        &chrome,
+                        self.is_private(),
+                        &mut self.naming_group,
+                        self.browser.settings().device.shrink_tabs,
+                        commands,
+                    );
+                })
+                .response
+                .rect
+        });
         let actions = if infrastructure::builtin_extensions() {
             self.bar.actions(ctx, self.extensions.extensions())
         } else {
@@ -976,25 +1004,62 @@ impl BrowserApp {
             .and_then(|a| a.host())
             .map(|h| self.browser.settings().device.zoom_of(h))
             .filter(|&z| z != 100);
-        TopBottomPanel::top("toolbar")
-            .frame(super::theme::chrome_frame(&chrome))
+        let toolbar_frame = if side {
+            // Up to the window's top edge, which it now grabs.
+            super::theme::chrome_frame(&chrome).inner_margin(egui::Margin {
+                left: 8,
+                right: 0,
+                top: 6,
+                bottom: 6,
+            })
+        } else {
+            super::theme::chrome_frame(&chrome)
+        };
+        let toolbar = TopBottomPanel::top("toolbar")
+            .frame(toolbar_frame)
             .show_separator_line(false)
             .show(ctx, |ui| {
                 super::theme::chrome_style(ui, &chrome);
-                toolbar::show(
-                    ui,
-                    self.browser.session().active(),
-                    self.browser.is_active_bookmarked(),
-                    &shield,
-                    &mut self.omnibox,
-                    &actions,
-                    self.profiles.current(),
-                    downloads_tip.as_deref().map(|tip| (tip, downloads_running)),
-                    zoom,
-                    &self.updates.updater.state,
-                    commands,
-                );
-            });
+                if side {
+                    // The title bar: its empty space moves the window, the
+                    // window's buttons end it (macOS: its own, on the left).
+                    let r = ui.max_rect();
+                    let bar = egui::Rect::from_min_max(
+                        egui::pos2(0.0, 0.0),
+                        egui::pos2(r.right(), r.bottom() + 6.0),
+                    );
+                    tab_strip::drag_window_by(ui, bar);
+                }
+                ui.horizontal(|ui| {
+                    if side && cfg!(target_os = "macos") {
+                        ui.add_space(tab_strip::MACOS_BUTTONS);
+                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if side && !cfg!(target_os = "macos") {
+                            // In a scope: they set their spacing to 0.
+                            ui.scope(tab_strip::window_buttons);
+                            ui.add_space(6.0);
+                        }
+                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                            toolbar::show(
+                                ui,
+                                self.browser.session().active(),
+                                self.browser.is_active_bookmarked(),
+                                &shield,
+                                &mut self.omnibox,
+                                &actions,
+                                self.profiles.current(),
+                                downloads_tip.as_deref().map(|tip| (tip, downloads_running)),
+                                zoom,
+                                &self.updates.updater.state,
+                                commands,
+                            );
+                        });
+                    });
+                });
+            })
+            .response
+            .rect;
         if let Some(query) = self.omnibox.stale_query().map(str::to_owned) {
             let found = self.browser.suggest(&query, super::omnibox::SUGGESTIONS);
             self.omnibox.set_suggestions(query, found);
@@ -1002,7 +1067,7 @@ impl BrowserApp {
         self.omnibox.show_suggestions(ctx, &chrome, commands);
         self.tab_search.show(
             ctx,
-            strip.bottom() + 6.0,
+            strip.map_or(toolbar.bottom(), |s| s.bottom()) + 6.0,
             self.browser.session(),
             &self.favicons,
             &chrome,
@@ -1027,6 +1092,22 @@ impl BrowserApp {
                         egui::Stroke::new(super::theme::HAIRLINE, chrome.hover),
                     );
                 });
+        }
+        if side {
+            self.favicons.update(ctx, self.browser.session());
+            side_tabs::show(
+                ctx,
+                side_tabs::SideTabs {
+                    session: self.browser.session(),
+                    favicons: &self.favicons,
+                    chrome: &chrome,
+                    private: self.is_private(),
+                    width: side_width,
+                    folded,
+                },
+                &mut self.naming_group,
+                commands,
+            );
         }
         self.updates.banner(ctx, commands);
         self.default_browser.banner(ctx, commands);

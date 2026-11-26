@@ -38,6 +38,12 @@ pub enum Command {
     ResetDrm,
     /// Applies the zoom by site to the open tabs.
     ApplyZoom,
+    /// Shows the tabs at the top or in a column on the left (this device).
+    SetTabPosition(domain::TabPosition),
+    /// The tabs' column's width, in points (this device).
+    SetSideTabsWidth(u32),
+    /// The tabs' column shows only the icons, or the titles too.
+    SetSideTabsCollapsed(bool),
     /// Back to 100% on the active tab's site.
     ResetZoom,
     /// Mutes a tab's page, or lets it play sound again.

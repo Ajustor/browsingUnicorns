@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use application::ports::{Repository, RepositoryError};
-use domain::{DeviceSettings, SearchEngine, Settings, WebAddress};
+use domain::{DeviceSettings, SIDE_TABS_WIDTH, SearchEngine, Settings, TabPosition, WebAddress};
 use serde::{Deserialize, Serialize};
 
 use crate::files;
@@ -37,6 +37,11 @@ struct SettingsFile {
     /// the 0.23 `shrink_tabs`, false for everyone then: shrinking became
     /// the default.)
     tab_overflow: String,
+    /// Where the tabs are: "top" or "left".
+    tabs: String,
+    /// The tabs' column width, and whether it shows only the icons.
+    side_tabs_width: u32,
+    side_tabs_collapsed: bool,
     /// The last version whose release notes were offered.
     seen_release: String,
 }
@@ -94,6 +99,13 @@ impl From<&Settings> for SettingsFile {
                 "scroll"
             }
             .into(),
+            tabs: match s.device.tab_position {
+                TabPosition::Top => "top",
+                TabPosition::Left => "left",
+            }
+            .into(),
+            side_tabs_width: s.device.side_tabs_width,
+            side_tabs_collapsed: s.device.side_tabs_collapsed,
             seen_release: s.device.seen_release.clone(),
         }
     }
@@ -121,6 +133,15 @@ impl SettingsFile {
                     .map(|z| (z.host, z.percent))
                     .collect(),
                 shrink_tabs: self.tab_overflow != "scroll",
+                tab_position: if self.tabs == "left" {
+                    TabPosition::Left
+                } else {
+                    TabPosition::Top
+                },
+                side_tabs_width: self
+                    .side_tabs_width
+                    .clamp(SIDE_TABS_WIDTH.0, SIDE_TABS_WIDTH.2),
+                side_tabs_collapsed: self.side_tabs_collapsed,
                 seen_release: self.seen_release,
             },
         })
@@ -193,6 +214,9 @@ mod tests {
                 sync_cookies: false,
                 site_zoom: vec![("example.com".into(), 125), ("b.org".into(), 80)],
                 shrink_tabs: false,
+                tab_position: TabPosition::Left,
+                side_tabs_width: 300,
+                side_tabs_collapsed: true,
                 seen_release: "0.23.1".into(),
             },
         };
@@ -211,6 +235,25 @@ mod tests {
         assert!(loaded.blocker);
         assert!(loaded.blocker_allowlist.is_empty());
         assert!(loaded.device.shrink_tabs);
+        assert_eq!(loaded.device.tab_position, TabPosition::Top);
+        assert_eq!(loaded.device.side_tabs_width, 220);
+        assert!(!loaded.device.side_tabs_collapsed);
+    }
+
+    #[test]
+    fn the_tabs_column_width_stays_in_bounds() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = repo(&dir);
+        files::write(
+            repo.path(),
+            "tabs = \"left\"
+side_tabs_width = 9000
+",
+        )
+        .unwrap();
+        let loaded = repo.load().unwrap();
+        assert_eq!(loaded.device.tab_position, TabPosition::Left);
+        assert_eq!(loaded.device.side_tabs_width, 400);
     }
 
     #[test]

@@ -2,7 +2,7 @@
 //! downloads, passwords, zoom by site, clearing what pages left, and
 //! resetting the protected videos' data.
 
-use domain::{LanguageChoice, SearchEngine, Settings, WebAddress};
+use domain::{LanguageChoice, SearchEngine, Settings, TabPosition, WebAddress};
 use egui::{Button, RichText, TextEdit};
 use egui_phosphor::regular as icon;
 
@@ -155,17 +155,36 @@ impl SettingsPanel {
             i18n::settings::tabs(),
             Some(i18n::settings::tabs_hint()),
             |ui| {
-                let shrink = settings.device.shrink_tabs;
-                let options = [
-                    (icon::ARROWS_LEFT_RIGHT, i18n::settings::tabs_scroll()),
-                    (
-                        icon::ARROWS_IN_LINE_HORIZONTAL,
-                        i18n::settings::tabs_shrink(),
-                    ),
+                ui.weak(i18n::settings::tabs_position());
+                let left = settings.device.tab_position == TabPosition::Left;
+                let positions = [
+                    (icon::TABS, i18n::settings::tabs_top()),
+                    (icon::SIDEBAR_SIMPLE, i18n::settings::tabs_left()),
                 ];
-                if let Some(picked) = segmented(ui, &options, usize::from(shrink)) {
-                    let choice = picked == 1;
-                    change(&|s| s.device.shrink_tabs = choice);
+                if let Some(picked) = segmented(ui, &positions, usize::from(left)) {
+                    let choice = if picked == 1 {
+                        TabPosition::Left
+                    } else {
+                        TabPosition::Top
+                    };
+                    change(&|s| s.device.tab_position = choice);
+                }
+                // The column scrolls: only the strip has a choice.
+                if !left {
+                    ui.add_space(6.0);
+                    ui.weak(i18n::settings::tabs_overflow());
+                    let shrink = settings.device.shrink_tabs;
+                    let options = [
+                        (icon::ARROWS_LEFT_RIGHT, i18n::settings::tabs_scroll()),
+                        (
+                            icon::ARROWS_IN_LINE_HORIZONTAL,
+                            i18n::settings::tabs_shrink(),
+                        ),
+                    ];
+                    if let Some(picked) = segmented(ui, &options, usize::from(shrink)) {
+                        let choice = picked == 1;
+                        change(&|s| s.device.shrink_tabs = choice);
+                    }
                 }
             },
         );

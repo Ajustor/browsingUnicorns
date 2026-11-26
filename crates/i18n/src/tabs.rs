@@ -58,4 +58,12 @@ messages! {
         en: "{arrows} choose · Enter go · Esc close",
         fr: "{arrows} choisir · Entrée aller · Échap fermer",
     }
+    /// Tab menu: show the tabs in a column on the left.
+    fn tabs_on_left() { en: "Show tabs on the left", fr: "Afficher les onglets à gauche" }
+    /// Tab menu: show the tabs in the strip at the top.
+    fn tabs_on_top() { en: "Show tabs at the top", fr: "Afficher les onglets en haut" }
+    /// Tooltip of the button that narrows the tabs' column to their icons.
+    fn collapse_column() { en: "Show icons only", fr: "N’afficher que les icônes" }
+    /// Tooltip of the button that widens the tabs' column again.
+    fn expand_column() { en: "Show tab titles", fr: "Afficher les titres des onglets" }
 }
