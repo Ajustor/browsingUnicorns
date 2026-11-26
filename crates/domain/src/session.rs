@@ -7,6 +7,8 @@ use crate::{GroupColor, GroupId, Tab, TabGroup, TabId, WebAddress};
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SessionSnapshot {
     pub tabs: Vec<WebAddress>,
+    /// The tabs' titles, side by side with `tabs` (shorter in old files).
+    pub titles: Vec<String>,
     /// Index into `tabs`.
     pub active: Option<usize>,
     /// The first `pinned` tabs are pinned.
@@ -504,6 +506,7 @@ impl Session {
                 None => last_group = None,
             }
             snapshot.tabs.push(address.clone());
+            snapshot.titles.push(tab.title().to_owned());
         }
         let at = |id: TabId| saved.iter().find(|(t, _)| *t == id).map(|(_, i)| *i);
         for split in &self.splits {

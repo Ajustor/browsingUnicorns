@@ -66,6 +66,8 @@ pub struct BrowserApp {
     /// The language chosen on this computer (the Settings view's).
     language: domain::LanguageChoice,
     last_persist: Instant,
+    /// When idle tabs were last looked for, to put them to sleep.
+    last_sleep_check: Instant,
     close_requested: bool,
     /// The DRM data this window can reset (Windows, the profile's window).
     drm: Option<infrastructure::DrmReset>,
@@ -90,6 +92,11 @@ pub struct AddOns {
 
 /// History and session are written at most this often (and on exit).
 const PERSIST_EVERY: Duration = Duration::from_secs(5);
+
+/// A tab unseen this long goes to sleep (its page unloaded).
+const SLEEP_AFTER: Duration = Duration::from_secs(30 * 60);
+/// How often the idle tabs are looked for.
+const SLEEP_CHECK_EVERY: Duration = Duration::from_secs(30);
 
 impl BrowserApp {
     #[allow(clippy::too_many_arguments)]
@@ -144,6 +151,7 @@ impl BrowserApp {
             window_title: String::new(),
             language: super::device_language(),
             last_persist: Instant::now(),
+            last_sleep_check: Instant::now(),
             close_requested: false,
             drm,
             relaunch: false,
@@ -797,6 +805,37 @@ impl BrowserApp {
         self.browser.engine_mut().show_panel_page(Some(&url), area);
     }
 
+    /// Puts the tabs left unseen [`SLEEP_AFTER`] to sleep, every
+    /// [`SLEEP_CHECK_EVERY`] (unless the user turned it off). Those playing
+    /// sound stay awake.
+    fn sleep_idle_tabs(&mut self, ctx: &egui::Context) {
+        if self.last_sleep_check.elapsed() < SLEEP_CHECK_EVERY {
+            ctx.request_repaint_after(SLEEP_CHECK_EVERY);
+            return;
+        }
+        self.last_sleep_check = Instant::now();
+        if !self.browser.settings().device.sleep_tabs {
+            return;
+        }
+        let playing: Vec<domain::TabId> = self
+            .browser
+            .session()
+            .tabs()
+            .iter()
+            .map(|t| t.id())
+            .filter(|&t| self.favicons.sound(t).is_some())
+            .collect();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        let asleep = self
+            .browser
+            .discard_idle(now, SLEEP_AFTER.as_secs(), &playing);
+        if !asleep.is_empty() {
+            log::info!("{} tab(s) put to sleep", asleep.len());
+        }
+    }
+
     /// Changes this device's settings (saved when they changed).
     fn change_device(&mut self, f: impl FnOnce(&mut domain::DeviceSettings)) {
         let mut device = self.browser.settings().device.clone();
@@ -1309,6 +1348,7 @@ impl eframe::App for BrowserApp {
             ctx.send_viewport_cmd(ViewportCommand::Close);
         }
         self.sync_window_title(ctx);
+        self.sleep_idle_tabs(ctx);
         if self.browser.has_unsaved_changes() {
             match PERSIST_EVERY.checked_sub(self.last_persist.elapsed()) {
                 Some(wait) if !wait.is_zero() => ctx.request_repaint_after(wait),

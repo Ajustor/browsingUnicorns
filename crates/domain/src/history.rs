@@ -33,6 +33,15 @@ impl History {
         self.entries.is_empty()
     }
 
+    /// Forgets all but the current page (it is loaded again in a new
+    /// view, which has nothing before nor after it).
+    pub fn keep_current(&mut self) {
+        if let Some(current) = self.current().cloned() {
+            self.entries = vec![current];
+            self.cursor = 0;
+        }
+    }
+
     /// Records that the engine now shows `address`.
     pub fn observe(&mut self, address: WebAddress) {
         if self.entries.is_empty() {

@@ -212,7 +212,7 @@ pub fn show(
         session: &Session,
         commands: &mut Vec<Command>,
     ) -> egui::Response {
-        let text = tab_text(active);
+        let text = tab_ink(tab, active);
         // Narrow: its icon alone (and its close button when active).
         let compact = width.is_some_and(|w| w < COMPACT_BELOW);
         // The whole tab is clickable, and dragged to move it; sensed before
@@ -346,7 +346,7 @@ pub fn show(
         session: &Session,
         commands: &mut Vec<Command>,
     ) -> egui::Response {
-        let text = tab_text(active);
+        let text = tab_ink(tab, active);
         let response = ui
             .scope_builder(
                 egui::UiBuilder::new()
@@ -477,6 +477,16 @@ fn fixed_room(ui: &egui::Ui, session: &Session, naming: Option<GroupId>) -> f32 
         .map(|g| label_room(ui, session, g, naming == Some(g.id())))
         .sum();
     pinned + labels
+}
+
+/// A tab's text: [`tab_text`], fainter for a tab asleep.
+pub(super) fn tab_ink(tab: &Tab, active: bool) -> Color32 {
+    let text = tab_text(active);
+    if tab.is_discarded() && !active {
+        text.gamma_multiply(0.55)
+    } else {
+        text
+    }
 }
 
 pub(super) fn tab_text(active: bool) -> Color32 {

@@ -87,7 +87,7 @@ impl<E: WebEngine> HubHost for BrowserHub<'_, E> {
 
     fn update_tab(&mut self, tab: TabId, url: Option<&str>, active: bool) {
         if let Some(address) = url.and_then(|u| WebAddress::parse(u).ok()) {
-            let _ = self.browser.engine_mut().navigate(tab, &address);
+            let _ = self.browser.load_in_tab(tab, &address);
         }
         if active {
             self.browser.activate(tab);
@@ -99,7 +99,7 @@ impl<E: WebEngine> HubHost for BrowserHub<'_, E> {
     }
 
     fn reload_tab(&mut self, tab: TabId) {
-        self.browser.engine_mut().reload(tab);
+        self.browser.reload_tab(tab);
     }
 
     fn deliver(&mut self, to: &PageSource, message: &str) {

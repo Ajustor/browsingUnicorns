@@ -34,6 +34,12 @@ messages! {
     fn tabs_top() { en: "Top", fr: "En haut" }
     /// The tabs in a column on the left.
     fn tabs_left() { en: "Left", fr: "À gauche" }
+    /// Puts the tabs left unseen a while to sleep.
+    fn sleep_tabs() { en: "Put inactive tabs to sleep", fr: "Endormir les onglets inactifs" }
+    fn sleep_tabs_hint() {
+        en: "After 30 minutes unseen, a tab's page is unloaded to free memory; it loads again when you come back to it. Tabs playing sound stay awake.",
+        fr: "Après 30 minutes sans être affichée, la page d’un onglet est déchargée pour libérer la mémoire\u{a0}; elle se recharge quand vous revenez dessus. Les onglets qui jouent du son restent éveillés.",
+    }
     /// What to do when the tabs no longer fit the strip.
     fn tabs_overflow() { en: "Too many tabs", fr: "Trop d’onglets" }
 

@@ -42,6 +42,8 @@ struct SettingsFile {
     /// The tabs' column width, and whether it shows only the icons.
     side_tabs_width: u32,
     side_tabs_collapsed: bool,
+    /// Tabs left unseen a while are put to sleep.
+    sleep_tabs: bool,
     /// The last version whose release notes were offered.
     seen_release: String,
 }
@@ -106,6 +108,7 @@ impl From<&Settings> for SettingsFile {
             .into(),
             side_tabs_width: s.device.side_tabs_width,
             side_tabs_collapsed: s.device.side_tabs_collapsed,
+            sleep_tabs: s.device.sleep_tabs,
             seen_release: s.device.seen_release.clone(),
         }
     }
@@ -142,6 +145,7 @@ impl SettingsFile {
                     .side_tabs_width
                     .clamp(SIDE_TABS_WIDTH.0, SIDE_TABS_WIDTH.2),
                 side_tabs_collapsed: self.side_tabs_collapsed,
+                sleep_tabs: self.sleep_tabs,
                 seen_release: self.seen_release,
             },
         })
@@ -217,6 +221,7 @@ mod tests {
                 tab_position: TabPosition::Left,
                 side_tabs_width: 300,
                 side_tabs_collapsed: true,
+                sleep_tabs: false,
                 seen_release: "0.23.1".into(),
             },
         };
@@ -238,6 +243,7 @@ mod tests {
         assert_eq!(loaded.device.tab_position, TabPosition::Top);
         assert_eq!(loaded.device.side_tabs_width, 220);
         assert!(!loaded.device.side_tabs_collapsed);
+        assert!(loaded.device.sleep_tabs);
     }
 
     #[test]

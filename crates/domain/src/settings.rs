@@ -42,6 +42,8 @@ pub struct DeviceSettings {
     pub side_tabs_width: u32,
     /// The tabs' column shows only the icons.
     pub side_tabs_collapsed: bool,
+    /// Tabs left unseen a while are put to sleep (their page unloaded).
+    pub sleep_tabs: bool,
     /// The last version whose release notes were offered (empty: none
     /// yet): after an update, the side panel opens on what changed.
     pub seen_release: String,
@@ -80,6 +82,7 @@ impl Default for DeviceSettings {
             tab_position: TabPosition::Top,
             side_tabs_width: SIDE_TABS_WIDTH.1,
             side_tabs_collapsed: false,
+            sleep_tabs: true,
             seen_release: String::new(),
         }
     }

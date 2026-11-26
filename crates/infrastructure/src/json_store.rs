@@ -79,6 +79,9 @@ impl Repository<Bookmarks> for JsonRepository {
 #[derive(Default, Serialize, Deserialize)]
 struct SessionFile {
     tabs: Vec<String>,
+    /// Side by side with `tabs`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    titles: Vec<String>,
     active: Option<usize>,
     /// The first `pinned` tabs are pinned.
     #[serde(default, skip_serializing_if = "is_zero")]
@@ -129,6 +132,9 @@ impl Repository<SessionSnapshot> for JsonRepository {
                     snapshot.pinned += 1;
                 }
                 snapshot.tabs.push(address);
+                snapshot
+                    .titles
+                    .push(file.titles.get(i).cloned().unwrap_or_default());
             }
         }
         kept.push(snapshot.tabs.len());
@@ -168,6 +174,7 @@ impl Repository<SessionSnapshot> for JsonRepository {
     fn save(&self, snapshot: &SessionSnapshot) -> Result<(), RepositoryError> {
         self.save_file(&SessionFile {
             tabs: snapshot.tabs.iter().map(ToString::to_string).collect(),
+            titles: snapshot.titles.clone(),
             active: snapshot.active,
             pinned: snapshot.pinned,
             groups: snapshot
@@ -323,6 +330,7 @@ mod tests {
                 .iter()
                 .map(|p| addr(&format!("https://{p}.com/")))
                 .collect(),
+            titles: vec!["A".into(), String::new(), "C".into(), "D".into()],
             active: Some(3),
             pinned: 1,
             groups: vec![SavedGroup {

@@ -186,6 +186,16 @@ impl SettingsPanel {
                         change(&|s| s.device.shrink_tabs = choice);
                     }
                 }
+                ui.add_space(6.0);
+                let mut sleep = settings.device.sleep_tabs;
+                if switch_row(
+                    ui,
+                    i18n::settings::sleep_tabs(),
+                    Some(i18n::settings::sleep_tabs_hint()),
+                    &mut sleep,
+                ) {
+                    change(&|s| s.device.sleep_tabs = sleep);
+                }
             },
         );
 

@@ -247,7 +247,7 @@ fn tab_row(
     commands: &mut Vec<Command>,
 ) -> egui::Response {
     let active = tabs.session.active_id() == Some(tab.id());
-    let text = tab_strip::tab_text(active);
+    let text = tab_strip::tab_ink(tab, active);
     let (rect, response) = ui.allocate_exact_size(
         egui::vec2(ui.available_width(), ROW_HEIGHT),
         Sense::click_and_drag(),
@@ -366,7 +366,7 @@ fn tab_icon(
     size: f32,
 ) {
     let rect = egui::Rect::from_center_size(at, egui::vec2(size, size));
-    let text = tab_strip::tab_text(active);
+    let text = tab_strip::tab_ink(tab, active);
     if tab.is_loading() {
         ui.put(rect, Spinner::new().size(size - 2.0).color(text));
     } else if let Some(icon) = favicons.get(tab.id()) {

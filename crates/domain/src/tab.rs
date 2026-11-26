@@ -42,6 +42,9 @@ pub struct Tab {
     /// Kept first in the tab strip, small, out of any group.
     pub(crate) pinned: bool,
     pub(crate) group: Option<GroupId>,
+    /// Asleep: its page is not loaded (restored and not shown yet, or left
+    /// unseen a while), to load again once shown.
+    discarded: bool,
 }
 
 impl Tab {
@@ -55,6 +58,7 @@ impl Tab {
             opener: None,
             pinned: false,
             group: None,
+            discarded: false,
         }
     }
 
@@ -133,6 +137,33 @@ impl Tab {
         self.load_state = LoadState::Loading;
     }
 
+    /// Asleep (see [`Self::discard`]).
+    pub fn is_discarded(&self) -> bool {
+        self.discarded
+    }
+
+    /// A tab of the last run, reopened asleep on `address`: its page loads
+    /// once it is shown.
+    pub fn restore(&mut self, address: WebAddress, title: impl Into<String>) {
+        self.history.observe(address);
+        self.title = title.into();
+        self.load_state = LoadState::Idle;
+        self.discarded = true;
+    }
+
+    /// Puts the tab to sleep: its page is no longer loaded, its address and
+    /// title stay.
+    pub fn discard(&mut self) {
+        self.load_state = LoadState::Idle;
+        self.discarded = true;
+    }
+
+    /// Wakes the tab: its page loads again, in a new view.
+    pub fn wake(&mut self) {
+        self.discarded = false;
+        self.history.keep_current();
+    }
+
     /// The engine finished loading `address` (after possible redirects).
     pub fn load_finished(&mut self, address: WebAddress) {
         self.history.observe(address);
@@ -182,5 +213,33 @@ mod tests {
         tab.set_title("A");
         tab.load_started(addr("https://b.com"));
         assert_eq!(tab.display_title(), "b.com");
+    }
+
+    #[test]
+    fn a_restored_tab_sleeps_with_its_page_and_title() {
+        let mut tab = Tab::new(TabId::new(1));
+        tab.restore(addr("https://a.com/x"), "A page");
+        assert!(tab.is_discarded());
+        assert!(!tab.is_loading());
+        assert_eq!(tab.address(), Some(&addr("https://a.com/x")));
+        assert_eq!(tab.display_title(), "A page");
+    }
+
+    #[test]
+    fn a_tab_put_to_sleep_wakes_on_its_page_alone() {
+        let mut tab = Tab::new(TabId::new(1));
+        tab.load_started(addr("https://a.com"));
+        tab.load_finished(addr("https://a.com"));
+        tab.load_started(addr("https://b.com"));
+        tab.set_title("B");
+        tab.discard();
+        assert!(tab.is_discarded());
+        assert!(!tab.is_loading());
+        assert_eq!(tab.display_title(), "B");
+        // Its page is loaded again in a new view: nothing to go back to.
+        tab.wake();
+        assert!(!tab.is_discarded());
+        assert_eq!(tab.address(), Some(&addr("https://b.com")));
+        assert!(!tab.history().can_go_back());
     }
 }
