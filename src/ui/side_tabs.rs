@@ -253,6 +253,19 @@ fn tab_row(
         Sense::click_and_drag(),
     );
     paint_background(ui, rect, active, &response, tabs.chrome);
+    // Shown beside the active tab (a split view).
+    if tab_strip::is_split_partner(tabs.session, tab) {
+        ui.painter().rect_filled(
+            rect,
+            egui::CornerRadius::same(8),
+            Color32::from_white_alpha(36),
+        );
+    }
+    if tabs.session.split_of(tab.id()).is_some()
+        && (active || tab_strip::is_split_partner(tabs.session, tab))
+    {
+        tab_strip::split_mark(ui, rect);
+    }
     if let Some(group) = group {
         // Its group's colour, down its left side.
         let bar = egui::Rect::from_min_size(rect.min + egui::vec2(1.0, 6.0), egui::vec2(3.0, 20.0));

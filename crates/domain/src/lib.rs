@@ -40,7 +40,7 @@ pub use omnibox::resolve_omnibox;
 pub use page_scripts::{RunAt, UrlPattern, UserScript, UserScriptId, UserScriptMeta, UserScripts};
 pub use profiles::{PROFILE_COLORS, Profile, ProfileError, ProfileId, Profiles};
 pub use search::SearchEngine;
-pub use session::{SavedGroup, Session, SessionSnapshot};
+pub use session::{SPLIT_RATIO, SavedGroup, SavedSplit, Session, SessionSnapshot, Split};
 pub use settings::{
     DeviceSettings, LanguageChoice, SIDE_TABS_WIDTH, Settings, TabPosition, allowlisted,
 };

@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use application::ports::{Repository, RepositoryError};
 use domain::{
     Bookmarks, BrowsingHistory, Extension, ExtensionId, Extensions, GroupColor, SavedGroup,
-    SessionSnapshot, WebAddress,
+    SavedSplit, SessionSnapshot, WebAddress,
 };
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -85,6 +85,16 @@ struct SessionFile {
     pinned: usize,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     groups: Vec<GroupDto>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    splits: Vec<SplitDto>,
+}
+
+/// Two tabs side by side: `first` and the next one.
+#[derive(Serialize, Deserialize)]
+struct SplitDto {
+    first: usize,
+    /// The first tab's share of the width, per thousand.
+    ratio: u16,
 }
 
 fn is_zero(n: &usize) -> bool {
@@ -136,6 +146,22 @@ impl Repository<SessionSnapshot> for JsonRepository {
                 });
             }
         }
+        for split in file.splits {
+            // Both tabs kept, still side by side.
+            let (Some(&first), Some(&next), Some(&after)) = (
+                kept.get(split.first),
+                kept.get(split.first + 1),
+                kept.get(split.first + 2),
+            ) else {
+                continue;
+            };
+            if next == first + 1 && after == next + 1 {
+                snapshot.splits.push(SavedSplit {
+                    first,
+                    ratio: split.ratio,
+                });
+            }
+        }
         Ok(snapshot)
     }
 
@@ -153,6 +179,14 @@ impl Repository<SessionSnapshot> for JsonRepository {
                     collapsed: g.collapsed,
                     first: g.tabs.start,
                     len: g.tabs.len(),
+                })
+                .collect(),
+            splits: snapshot
+                .splits
+                .iter()
+                .map(|s| SplitDto {
+                    first: s.first,
+                    ratio: s.ratio,
                 })
                 .collect(),
         })
@@ -297,6 +331,10 @@ mod tests {
                 collapsed: true,
                 tabs: 1..3,
             }],
+            splits: vec![SavedSplit {
+                first: 1,
+                ratio: 400,
+            }],
         };
         r.save(&snapshot).unwrap();
         assert_eq!(Repository::<SessionSnapshot>::load(&r).unwrap(), snapshot);
@@ -320,6 +358,27 @@ mod tests {
         assert_eq!(snapshot.groups.len(), 1, "a group left without tabs");
         assert_eq!(snapshot.groups[0].tabs, 1..2);
         assert_eq!(snapshot.groups[0].color, GroupColor::Blue);
+    }
+
+    #[test]
+    fn a_split_with_a_tab_left_out_is_dropped() {
+        let dir = tempfile::tempdir().unwrap();
+        let r = repo(&dir, "session.json");
+        files::write(
+            r.path(),
+            r#"{"tabs":["https://a.com/","javascript:x","https://b.com/","https://c.com/"],
+                "active":null,
+                "splits":[{"first":0,"ratio":500},{"first":2,"ratio":300}]}"#,
+        )
+        .unwrap();
+        let snapshot: SessionSnapshot = r.load().unwrap();
+        assert_eq!(
+            snapshot.splits,
+            vec![SavedSplit {
+                first: 1,
+                ratio: 300
+            }]
+        );
     }
 
     #[test]

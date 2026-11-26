@@ -66,4 +66,12 @@ messages! {
     fn collapse_column() { en: "Show icons only", fr: "N’afficher que les icônes" }
     /// Tooltip of the button that widens the tabs' column again.
     fn expand_column() { en: "Show tab titles", fr: "Afficher les titres des onglets" }
+    /// Tab menu (another tab than the active one): split view with it.
+    fn split_with_active() { en: "Show beside the active tab", fr: "Afficher à côté de l’onglet actif" }
+    /// Tab menu (the active tab): split view with a new tab.
+    fn split_with_new_tab() { en: "Split with a new tab", fr: "Scinder avec un nouvel onglet" }
+    /// Tab menu (a tab of a split view): back to one tab at a time.
+    fn unsplit() { en: "Close split view", fr: "Fermer l’écran scindé" }
+    /// Tooltip of the bar between the two pages of a split view.
+    fn split_divider() { en: "Drag to resize · double-click: half and half", fr: "Tirer pour redimensionner · double-clic\u{a0}: moitié-moitié" }
 }

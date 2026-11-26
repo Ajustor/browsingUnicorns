@@ -46,7 +46,21 @@ pub trait WebEngine {
     }
     fn close_view(&mut self, tab: TabId);
     /// Shows the view of `tab` (hides the others); `None` hides them all.
+    /// A view already shown in [`Self::show_panes`] keeps its place.
     fn show(&mut self, tab: Option<TabId>);
+    /// Shows `panes` side by side (a split view), each view in its own
+    /// area (in [`Self::set_viewport`]'s coordinates), the others hidden;
+    /// `focused` is the one the keyboard goes to. One pane: `focused` alone,
+    /// on the whole viewport. Engines that show one view at a time show
+    /// `focused` only.
+    fn show_panes(&mut self, panes: &[(TabId, Viewport)], focused: TabId) {
+        let _ = panes;
+        self.show(Some(focused));
+    }
+    /// Whether [`Self::show_panes`] shows more than one view.
+    fn can_split(&self) -> bool {
+        false
+    }
     fn navigate(&mut self, tab: TabId, address: &WebAddress) -> Result<(), EngineError>;
     fn go_back(&mut self, tab: TabId);
     fn go_forward(&mut self, tab: TabId);
@@ -199,6 +213,11 @@ pub enum EngineEvent {
         url: String,
         file: Option<std::path::PathBuf>,
         ok: bool,
+    },
+    /// The user went into `tab`'s page (clicked it): in a split view, its
+    /// pane becomes the active one.
+    PageFocused {
+        tab: TabId,
     },
 }
 

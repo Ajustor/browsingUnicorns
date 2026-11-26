@@ -44,6 +44,14 @@ pub enum Command {
     SetSideTabsWidth(u32),
     /// The tabs' column shows only the icons, or the titles too.
     SetSideTabsCollapsed(bool),
+    /// Shows a tab beside the active one (a split view).
+    SplitWithActive(TabId),
+    /// Opens a new tab beside the active one, in a split view.
+    SplitWithNewTab,
+    /// Shows the tabs of a split view one at a time again.
+    Unsplit(TabId),
+    /// The first tab's share of a split view's width, per thousand.
+    SetSplitRatio(TabId, u16),
     /// Back to 100% on the active tab's site.
     ResetZoom,
     /// Mutes a tab's page, or lets it play sound again.

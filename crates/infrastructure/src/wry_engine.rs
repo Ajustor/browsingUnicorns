@@ -81,8 +81,12 @@ pub struct WryEngine {
     /// This device's preferences: download folder, passwords, zoom.
     device: std::rc::Rc<std::cell::RefCell<domain::DeviceSettings>>,
     views: HashMap<TabId, WebView>,
+    /// The view with the keyboard (the only one shown, but in a split).
     shown: Option<TabId>,
     viewport: Viewport,
+    /// A split view's panes, each in its area; empty: `shown` alone, on the
+    /// whole viewport.
+    panes: Vec<(TabId, Viewport)>,
     events: Sender<EngineEvent>,
     waker: Waker,
     /// Where the web views keep cookies, cache and storage.
@@ -161,7 +165,7 @@ pub struct WryEngine {
     #[cfg(windows)]
     page_holes: Vec<Viewport>,
     #[cfg(windows)]
-    page_cut: Option<(TabId, Viewport, Vec<Viewport>)>,
+    page_cut: Vec<(TabId, Viewport, Vec<Viewport>)>,
 }
 
 fn engine_error(e: wry::Error) -> EngineError {
@@ -399,6 +403,7 @@ impl WryEngine {
             device: Default::default(),
             shown: None,
             viewport: Viewport::default(),
+            panes: Vec::new(),
             events,
             #[cfg(any(target_os = "macos", target_os = "linux"))]
             rule_lists: crate::webkit_rules::RuleLists::new(
@@ -452,36 +457,56 @@ impl WryEngine {
             #[cfg(windows)]
             page_holes: Vec::new(),
             #[cfg(windows)]
-            page_cut: None,
+            page_cut: Vec::new(),
         }
     }
 
-    /// Cuts the shown page where the browser's tooltips and menus fall
-    /// (the page left whole without them), when that changed.
+    /// The views shown, each in its area.
+    fn shown_panes(&self) -> Vec<(TabId, Viewport)> {
+        if self.panes.is_empty() {
+            self.shown
+                .map(|tab| (tab, self.viewport))
+                .into_iter()
+                .collect()
+        } else {
+            self.panes.clone()
+        }
+    }
+
+    /// Cuts the shown pages where the browser's tooltips and menus fall
+    /// (the pages left whole without them), when that changed.
     #[cfg(windows)]
     fn cut_page(&mut self) {
         use wry::WebViewExtWindows as _;
-        let wanted = self
-            .shown
-            .filter(|_| !self.page_holes.is_empty())
-            .map(|tab| (tab, self.viewport, self.page_holes.clone()));
+        let wanted: Vec<(TabId, Viewport, Vec<Viewport>)> = self
+            .shown_panes()
+            .into_iter()
+            .filter_map(|(tab, area)| {
+                let holes = holes_in(&self.page_holes, self.viewport, area);
+                (!holes.is_empty()).then_some((tab, area, holes))
+            })
+            .collect();
         if wanted == self.page_cut {
             return;
         }
-        // Another tab, or none: the one cut before is made whole again.
-        if let Some((old, ..)) = self.page_cut
-            && wanted.as_ref().is_none_or(|(tab, ..)| *tab != old)
-            && let Some(view) = self.views.get(&old)
-        {
-            crate::webview2_region::cut(view.hwnd(), self.viewport, &[]);
+        // Views no longer cut are made whole again.
+        for (old, area, _) in &self.page_cut {
+            if !wanted.iter().any(|(tab, ..)| tab == old)
+                && let Some(view) = self.views.get(old)
+            {
+                crate::webview2_region::cut(view.hwnd(), *area, &[]);
+            }
         }
-        if let Some((tab, viewport, holes)) = &wanted
-            && let Some(view) = self.views.get(tab)
-        {
-            crate::webview2_region::cut(view.hwnd(), *viewport, holes);
+        for (tab, area, holes) in &wanted {
+            if let Some(view) = self.views.get(tab) {
+                crate::webview2_region::cut(view.hwnd(), *area, holes);
+            }
         }
         // Only what was cut: a view that appears later is cut then.
-        self.page_cut = wanted.filter(|(tab, ..)| self.views.contains_key(tab));
+        self.page_cut = wanted
+            .into_iter()
+            .filter(|(tab, ..)| self.views.contains_key(tab))
+            .collect();
     }
 
     /// Advances the platform's own event loop where the web view needs it
@@ -803,6 +828,27 @@ impl WryEngine {
     }
 }
 
+/// `holes` (relative to the page area `page`) as they fall in the pane
+/// `area`, relative to it; those outside it left out.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn holes_in(holes: &[Viewport], page: Viewport, area: Viewport) -> Vec<Viewport> {
+    holes
+        .iter()
+        .filter_map(|h| {
+            let left = (page.x + h.x - area.x).max(0);
+            let top = (page.y + h.y - area.y).max(0);
+            let right = (page.x + h.x + h.width as i32 - area.x).min(area.width as i32);
+            let bottom = (page.y + h.y + h.height as i32 - area.y).min(area.height as i32);
+            (right > left && bottom > top).then(|| Viewport {
+                x: left,
+                y: top,
+                width: (right - left) as u32,
+                height: (bottom - top) as u32,
+            })
+        })
+        .collect()
+}
+
 impl WebEngine for WryEngine {
     fn open_view(&mut self, tab: TabId, address: &WebAddress) -> Result<(), EngineError> {
         let emit = self.emitter();
@@ -823,6 +869,8 @@ impl WebEngine for WryEngine {
         let on_favicon = emit.clone();
         #[cfg(windows)]
         let on_audio = emit.clone();
+        #[cfg(windows)]
+        let on_focus = emit.clone();
         let device_for_downloads = self.device.clone();
         // Downloads the browser stopped before they began.
         let refused = std::rc::Rc::new(std::cell::RefCell::new(std::collections::HashSet::new()));
@@ -1037,6 +1085,7 @@ impl WebEngine for WryEngine {
             let (focused, waker) = (self.page_focused.clone(), self.waker.clone());
             if let Err(e) = crate::webview2_keys::on_focus(&view, move || {
                 focused.set(true);
+                on_focus(EngineEvent::PageFocused { tab });
                 waker();
             }) {
                 log::warn!("focus of tab {tab}: {e}");
@@ -1084,16 +1133,27 @@ impl WebEngine for WryEngine {
         if self.shown == Some(tab) {
             self.shown = None;
         }
+        self.panes.retain(|(t, _)| *t != tab);
+        // Its window is gone with it.
         #[cfg(windows)]
-        if self.page_cut.as_ref().is_some_and(|(cut, ..)| *cut == tab) {
-            // Its window is gone with it.
-            self.page_cut = None;
-        }
+        self.page_cut.retain(|(cut, ..)| *cut != tab);
     }
 
     fn show(&mut self, tab: Option<TabId>) {
+        // A pane of the split view: it keeps its place, and the keyboard.
+        if let Some(t) = tab
+            && self.panes.iter().any(|(p, _)| *p == t)
+        {
+            self.shown = tab;
+            return;
+        }
         if self.shown == tab {
             return;
+        }
+        for (old, _) in std::mem::take(&mut self.panes) {
+            if Some(old) != self.shown {
+                self.with_view(old, "hide", |v| v.set_visible(false));
+            }
         }
         if let Some(old) = self.shown {
             self.with_view(old, "hide", |v| v.set_visible(false));
@@ -1146,8 +1206,9 @@ impl WebEngine for WryEngine {
             return;
         }
         self.viewport = viewport;
-        // Hidden views are resized when shown.
-        if let Some(tab) = self.shown {
+        // Hidden views are resized when shown; a split's panes by
+        // show_panes.
+        if let Some(tab) = self.shown.filter(|_| self.panes.is_empty()) {
             self.with_view(tab, "resize", |v| v.set_bounds(bounds(viewport)));
         }
         #[cfg(windows)]
@@ -1162,6 +1223,60 @@ impl WebEngine for WryEngine {
         }
         #[cfg(not(windows))]
         let _ = holes;
+    }
+
+    fn show_panes(&mut self, panes: &[(TabId, Viewport)], focused: TabId) {
+        if panes.len() < 2 {
+            if self.panes.is_empty() {
+                self.show(Some(focused));
+                return;
+            }
+            // Out of the split: `focused` alone, on the whole page.
+            for (old, _) in std::mem::take(&mut self.panes) {
+                if old != focused {
+                    self.with_view(old, "hide", |v| v.set_visible(false));
+                }
+            }
+            let viewport = self.viewport;
+            self.with_view(focused, "show", |v| {
+                v.set_bounds(bounds(viewport))?;
+                v.set_visible(true)
+            });
+            self.shown = Some(focused);
+        } else {
+            if self.panes == panes && self.shown == Some(focused) {
+                return;
+            }
+            let wanted: Vec<TabId> = panes.iter().map(|(tab, _)| *tab).collect();
+            let mut gone: Vec<TabId> = self
+                .panes
+                .iter()
+                .map(|(tab, _)| *tab)
+                .chain(self.shown)
+                .filter(|tab| !wanted.contains(tab))
+                .collect();
+            gone.dedup();
+            for tab in gone {
+                self.with_view(tab, "hide", |v| v.set_visible(false));
+            }
+            for &(tab, area) in panes {
+                if self.panes.contains(&(tab, area)) {
+                    continue;
+                }
+                self.with_view(tab, "show", |v| {
+                    v.set_bounds(bounds(area))?;
+                    v.set_visible(true)
+                });
+            }
+            self.panes = panes.to_vec();
+            self.shown = Some(focused);
+        }
+        #[cfg(windows)]
+        self.cut_page();
+    }
+
+    fn can_split(&self) -> bool {
+        true
     }
 
     fn extension_support(&self) -> ExtensionSupport {
@@ -1391,5 +1506,30 @@ impl WebEngine for WryEngine {
             }
             Err(e) => log::warn!("panel: {e}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn holes_are_cut_in_the_panes_they_fall_in() {
+        let v = |x, y, width, height| Viewport {
+            x,
+            y,
+            width,
+            height,
+        };
+        let page = v(10, 100, 1000, 600);
+        let (left, right) = (v(10, 100, 497, 600), v(513, 100, 497, 600));
+        // A menu across the divider, 50 px down the page.
+        let holes = [v(450, 50, 120, 40)];
+        assert_eq!(holes_in(&holes, page, left), vec![v(450, 50, 47, 40)]);
+        assert_eq!(holes_in(&holes, page, right), vec![v(0, 50, 67, 40)]);
+        // A tooltip all in the left pane: none in the right one.
+        assert!(holes_in(&[v(20, 20, 50, 20)], page, right).is_empty());
+        // The whole page: as given.
+        assert_eq!(holes_in(&holes, page, page), holes.to_vec());
     }
 }

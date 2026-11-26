@@ -395,6 +395,15 @@ pub fn show(
             ui.painter()
                 .rect_filled(response.rect, TAB_CORNERS, Color32::from_white_alpha(28));
         }
+        // Shown beside the active tab (a split view).
+        let partner = is_split_partner(session, tab);
+        if partner {
+            ui.painter()
+                .rect_filled(response.rect, TAB_CORNERS, Color32::from_white_alpha(36));
+        }
+        if partner || (active && session.split_of(tab.id()).is_some()) {
+            split_mark(ui, response.rect);
+        }
         if response.clicked() {
             commands.push(Command::Activate(tab.id()));
         }
@@ -403,6 +412,20 @@ pub fn show(
         }
         response.context_menu(|ui| tab_menu(ui, tab, session, TabPosition::Top, commands));
     }
+}
+
+/// Whether `tab` shows beside the active tab, in its split view.
+pub(super) fn is_split_partner(session: &Session, tab: &Tab) -> bool {
+    session.active_id().and_then(|a| session.split_partner(a)) == Some(tab.id())
+}
+
+/// A tab of the active split view: a cyan line along its bottom.
+pub(super) fn split_mark(ui: &egui::Ui, rect: egui::Rect) {
+    ui.painter().hline(
+        rect.x_range().shrink(8.0),
+        rect.bottom() - 1.5,
+        egui::Stroke::new(2.0_f32, super::theme::CYAN),
+    );
 }
 
 const TAB_CORNERS: egui::CornerRadius = egui::CornerRadius {
@@ -566,6 +589,36 @@ pub(super) fn tab_menu(
             icon::SQUARE_SPLIT_HORIZONTAL,
             i18n::tabs::remove_from_group(),
             Command::RemoveFromGroup(tab.id()),
+            commands,
+        );
+    }
+    ui.separator();
+    // Split view: end it, or start one.
+    let active = session.active_id();
+    if session.split_of(tab.id()).is_some() {
+        item(
+            ui,
+            icon::RECTANGLE,
+            i18n::tabs::unsplit(),
+            Command::Unsplit(tab.id()),
+            commands,
+        );
+    } else if active == Some(tab.id()) {
+        item(
+            ui,
+            icon::SQUARE_SPLIT_HORIZONTAL,
+            i18n::tabs::split_with_new_tab(),
+            Command::SplitWithNewTab,
+            commands,
+        );
+    } else if let Some(active) = active
+        && session.split_of(active).is_none()
+    {
+        item(
+            ui,
+            icon::SQUARE_SPLIT_HORIZONTAL,
+            i18n::tabs::split_with_active(),
+            Command::SplitWithActive(tab.id()),
             commands,
         );
     }

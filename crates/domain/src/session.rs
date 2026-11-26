@@ -12,7 +12,29 @@ pub struct SessionSnapshot {
     /// The first `pinned` tabs are pinned.
     pub pinned: usize,
     pub groups: Vec<SavedGroup>,
+    pub splits: Vec<SavedSplit>,
 }
+
+/// A split of a [`SessionSnapshot`]: its tabs are `first` and the next one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SavedSplit {
+    pub first: usize,
+    /// The first tab's share of the width, per thousand.
+    pub ratio: u16,
+}
+
+/// Two tabs shown side by side: `first` on the left, `second` right after
+/// it in the tabs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Split {
+    pub first: TabId,
+    pub second: TabId,
+    /// The first tab's share of the width, per thousand.
+    pub ratio: u16,
+}
+
+/// A split's ratio: (narrowest, default, widest), per thousand.
+pub const SPLIT_RATIO: (u16, u16, u16) = (100, 500, 900);
 
 /// A group of a [`SessionSnapshot`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,7 +55,8 @@ impl SessionSnapshot {
 /// The open tabs of a window and which one is shown.
 ///
 /// The pinned tabs come first; the tabs of a group are side by side, and a
-/// group has at least one tab.
+/// group has at least one tab. A split's two tabs follow each other, in the
+/// same group and pinned alike; a tab is in one split at most.
 #[derive(Debug, Clone, Default)]
 pub struct Session {
     tabs: Vec<Tab>,
@@ -41,6 +64,7 @@ pub struct Session {
     next_id: u64,
     groups: Vec<TabGroup>,
     next_group: u64,
+    splits: Vec<Split>,
 }
 
 impl Session {
@@ -106,6 +130,9 @@ impl Session {
         let private = self.tabs[index].is_private();
         let start = if self.tabs[index].pinned {
             self.pinned_count()
+        } else if self.splits.iter().any(|s| s.first == opener) {
+            // After its split, kept whole.
+            index + 2
         } else {
             index + 1
         };
@@ -118,6 +145,7 @@ impl Session {
         let id = self.insert(at, private, Some(opener));
         self.tabs[at].group = group;
         self.settle(at);
+        self.prune_splits();
         Some(id)
     }
 
@@ -158,6 +186,7 @@ impl Session {
         self.shift(from, to);
         self.settle(to);
         self.prune_groups();
+        self.prune_splits();
         true
     }
 
@@ -220,6 +249,7 @@ impl Session {
             self.shift(from, count - 1);
         }
         self.prune_groups();
+        self.prune_splits();
         true
     }
 
@@ -256,6 +286,7 @@ impl Session {
         self.groups.push(TabGroup::new(group, color));
         let index = self.position(id)?;
         self.tabs[index].group = Some(group);
+        self.prune_splits();
         Some(group)
     }
 
@@ -279,6 +310,7 @@ impl Session {
         self.tabs[from].group = Some(group);
         self.tabs[from].opener = None;
         self.shift(from, to);
+        self.prune_splits();
         true
     }
 
@@ -300,6 +332,7 @@ impl Session {
         self.tabs[from].opener = None;
         self.shift(from, last);
         self.prune_groups();
+        self.prune_splits();
         true
     }
 
@@ -393,6 +426,13 @@ impl Session {
                 g.collapsed = saved.collapsed;
             }
         }
+        for saved in &snapshot.splits {
+            if let (Some(&first), Some(&second)) = (ids.get(saved.first), ids.get(saved.first + 1))
+                && self.split(first, second)
+            {
+                self.set_split_ratio(first, saved.ratio);
+            }
+        }
     }
 
     /// Closes `id`. When it was the active tab, its right neighbour (else its
@@ -403,6 +443,7 @@ impl Session {
         };
         self.tabs.remove(index);
         self.prune_groups();
+        self.prune_splits();
         if self.active == Some(id) {
             self.active = self
                 .tabs
@@ -431,11 +472,14 @@ impl Session {
     pub fn snapshot(&self) -> SessionSnapshot {
         let mut snapshot = SessionSnapshot::default();
         let mut last_group = None;
+        // Where each saved tab is in the snapshot.
+        let mut saved = Vec::new();
         for tab in self.tabs.iter().filter(|t| !t.is_private()) {
             let Some(address) = tab.address() else {
                 continue;
             };
             let index = snapshot.tabs.len();
+            saved.push((tab.id(), index));
             if Some(tab.id()) == self.active {
                 snapshot.active = Some(index);
             }
@@ -461,7 +505,99 @@ impl Session {
             }
             snapshot.tabs.push(address.clone());
         }
+        let at = |id: TabId| saved.iter().find(|(t, _)| *t == id).map(|(_, i)| *i);
+        for split in &self.splits {
+            // Both saved, still side by side.
+            if let (Some(first), Some(second)) = (at(split.first), at(split.second))
+                && second == first + 1
+            {
+                snapshot.splits.push(SavedSplit {
+                    first,
+                    ratio: split.ratio,
+                });
+            }
+        }
         snapshot
+    }
+
+    /// The split `id` is in.
+    pub fn split_of(&self, id: TabId) -> Option<&Split> {
+        self.splits.iter().find(|s| s.first == id || s.second == id)
+    }
+
+    /// The tab shown beside `id`, in its split.
+    pub fn split_partner(&self, id: TabId) -> Option<TabId> {
+        self.split_of(id)
+            .map(|s| if s.first == id { s.second } else { s.first })
+    }
+
+    /// Shows `second` beside `first`: it moves right after it (into its
+    /// group, pinned alike). Returns whether they are split now; neither may
+    /// be in a split already.
+    pub fn split(&mut self, first: TabId, second: TabId) -> bool {
+        if first == second
+            || self.split_of(first).is_some()
+            || self.split_of(second).is_some()
+            || self.position(first).is_none()
+            || self.position(second).is_none()
+        {
+            return false;
+        }
+        let (Some(a), Some(b)) = (self.position(first), self.position(second)) else {
+            return false;
+        };
+        let (pinned, group) = (self.tabs[a].pinned, self.tabs[a].group);
+        self.tabs[b].pinned = pinned;
+        self.tabs[b].group = group;
+        self.tabs[b].opener = None;
+        let to = if b > a { a + 1 } else { a };
+        self.shift(b, to);
+        self.prune_groups();
+        self.splits.push(Split {
+            first,
+            second,
+            ratio: SPLIT_RATIO.1,
+        });
+        self.prune_splits();
+        self.split_of(first).is_some()
+    }
+
+    /// Ends the split `id` is in. Returns whether it was in one.
+    pub fn unsplit(&mut self, id: TabId) -> bool {
+        let before = self.splits.len();
+        self.splits.retain(|s| s.first != id && s.second != id);
+        self.splits.len() != before
+    }
+
+    /// Sets the share of the width of the split `id` is in (its first tab's,
+    /// per thousand, kept within [`SPLIT_RATIO`]).
+    pub fn set_split_ratio(&mut self, id: TabId, ratio: u16) -> bool {
+        let (min, _, max) = SPLIT_RATIO;
+        match self
+            .splits
+            .iter_mut()
+            .find(|s| s.first == id || s.second == id)
+        {
+            Some(split) => {
+                split.ratio = ratio.clamp(min, max);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Forgets the splits whose tabs parted: closed, no longer side by side,
+    /// in different groups or pinned differently.
+    fn prune_splits(&mut self) {
+        let tabs = &self.tabs;
+        let index = |id: TabId| tabs.iter().position(|t| t.id() == id);
+        self.splits
+            .retain(|s| match (index(s.first), index(s.second)) {
+                (Some(a), Some(b)) => {
+                    b == a + 1 && tabs[a].group == tabs[b].group && tabs[a].pinned == tabs[b].pinned
+                }
+                _ => false,
+            });
     }
 
     /// The tab `offset` places away from the active one, wrapping around,
@@ -797,5 +933,103 @@ mod tests {
         restored.restore_layout(&ids, &snap);
         assert_eq!(restored.snapshot(), snap);
         assert_eq!(restored.groups()[0].name, "Work");
+    }
+
+    fn order(s: &Session) -> Vec<TabId> {
+        s.tabs().iter().map(Tab::id).collect()
+    }
+
+    #[test]
+    fn a_split_puts_its_second_tab_right_after_the_first() {
+        let mut s = Session::new();
+        let t = open(&mut s, 4);
+        assert!(s.split(t[0], t[3]));
+        assert_eq!(order(&s), vec![t[0], t[3], t[1], t[2]]);
+        let split = s.split_of(t[3]).unwrap();
+        assert_eq!((split.first, split.second, split.ratio), (t[0], t[3], 500));
+        assert_eq!(s.split_of(t[0]), s.split_of(t[3]));
+        assert_eq!(s.split_partner(t[0]), Some(t[3]));
+        assert!(s.split_of(t[1]).is_none());
+        // A tab is in one split at most; not with itself.
+        assert!(!s.split(t[1], t[0]));
+        assert!(!s.split(t[1], t[1]));
+        assert!(s.unsplit(t[3]));
+        assert!(s.split_of(t[0]).is_none());
+    }
+
+    #[test]
+    fn a_split_ends_when_its_tabs_part() {
+        let mut s = Session::new();
+        let t = open(&mut s, 4);
+        // Closed.
+        s.split(t[0], t[1]);
+        s.close_tab(t[1]);
+        assert!(s.split_of(t[0]).is_none());
+        // Moved away.
+        s.split(t[2], t[3]);
+        s.move_tab(t[3], 0);
+        assert!(s.split_of(t[2]).is_none());
+        // Pinned.
+        s.split(t[0], t[2]);
+        s.set_pinned(t[0], true);
+        assert!(s.split_of(t[2]).is_none());
+        // Grouped alone.
+        s.split(t[2], t[3]);
+        s.new_group(t[3]);
+        assert!(s.split_of(t[2]).is_none());
+    }
+
+    #[test]
+    fn a_splits_links_open_after_it() {
+        let mut s = Session::new();
+        let t = open(&mut s, 2);
+        s.split(t[0], t[1]);
+        let link = s.open_tab_from(t[0]).unwrap();
+        assert_eq!(order(&s), vec![t[0], t[1], link]);
+        assert!(s.split_of(t[0]).is_some());
+    }
+
+    #[test]
+    fn a_splits_ratio_stays_in_bounds() {
+        let mut s = Session::new();
+        let t = open(&mut s, 2);
+        s.split(t[0], t[1]);
+        s.set_split_ratio(t[1], 2000);
+        assert_eq!(s.split_of(t[0]).unwrap().ratio, 900);
+        s.set_split_ratio(t[0], 10);
+        assert_eq!(s.split_of(t[0]).unwrap().ratio, 100);
+    }
+
+    #[test]
+    fn splits_are_saved_and_restored() {
+        let mut s = Session::new();
+        let t = open(&mut s, 4);
+        let page = |p: &str| WebAddress::parse(&format!("https://x.com/{p}")).unwrap();
+        for (i, &id) in t.iter().enumerate() {
+            s.tab_mut(id).unwrap().load_started(page(&i.to_string()));
+        }
+        s.split(t[2], t[3]);
+        s.set_split_ratio(t[2], 300);
+        let snap = s.snapshot();
+        assert_eq!(
+            snap.splits,
+            vec![SavedSplit {
+                first: 2,
+                ratio: 300
+            }]
+        );
+
+        let mut restored = Session::new();
+        let ids: Vec<TabId> = snap
+            .tabs
+            .iter()
+            .map(|address| {
+                let id = restored.open_tab();
+                restored.tab_mut(id).unwrap().load_started(address.clone());
+                id
+            })
+            .collect();
+        restored.restore_layout(&ids, &snap);
+        assert_eq!(restored.snapshot(), snap);
     }
 }

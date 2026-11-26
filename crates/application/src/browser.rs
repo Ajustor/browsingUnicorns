@@ -625,6 +625,55 @@ impl<E: WebEngine> Browser<E> {
         self.session.remove_from_group(id);
     }
 
+    /// Shows tab `id` beside the active one (a split view), and activates
+    /// it. Nothing when the engine shows one page at a time.
+    pub fn split_with_active(&mut self, id: TabId) {
+        if !self.engine.can_split() {
+            return;
+        }
+        if let Some(active) = self.session.active_id()
+            && self.session.split(active, id)
+        {
+            self.activate(id);
+        }
+    }
+
+    /// Opens a new tab beside the active one, in a split view with it.
+    pub fn split_with_new_tab(&mut self) -> Result<(), BrowserError> {
+        let Some(active) = self.session.active_id() else {
+            return Ok(());
+        };
+        if !self.engine.can_split() || self.session.split_of(active).is_some() {
+            return Ok(());
+        }
+        let private = self.session.tab(active).is_some_and(|t| t.is_private());
+        let id = self.open_tab_in(None, private)?;
+        self.session.split(active, id);
+        Ok(())
+    }
+
+    /// Shows the tabs of `id`'s split one at a time again.
+    pub fn unsplit(&mut self, id: TabId) {
+        self.session.unsplit(id);
+    }
+
+    /// The first tab's share of the width of `id`'s split, per thousand.
+    pub fn set_split_ratio(&mut self, id: TabId, ratio: u16) {
+        self.session.set_split_ratio(id, ratio);
+    }
+
+    /// Whether the engine can show two pages side by side.
+    pub fn can_split(&self) -> bool {
+        self.engine.can_split()
+    }
+
+    /// See [`WebEngine::show_panes`]: the active tab has the keyboard.
+    pub fn show_panes(&mut self, panes: &[(TabId, Viewport)]) {
+        if let Some(active) = self.session.active_id() {
+            self.engine.show_panes(panes, active);
+        }
+    }
+
     /// Takes all the tabs of `group` out of it.
     pub fn ungroup(&mut self, group: GroupId) {
         self.session.ungroup(group);
@@ -880,6 +929,14 @@ impl<E: WebEngine> Browser<E> {
             EngineEvent::DownloadStarted { .. }
             | EngineEvent::DownloadFinished { .. }
             | EngineEvent::ExtensionOffered { .. } => {}
+            // The other pane of the split view: it becomes the active tab.
+            EngineEvent::PageFocused { tab } => {
+                if let Some(active) = self.session.active_id()
+                    && self.session.split_partner(active) == Some(tab)
+                {
+                    self.activate(tab);
+                }
+            }
         }
         Ok(())
     }
@@ -933,6 +990,9 @@ mod tests {
         }
         fn show(&mut self, tab: Option<TabId>) {
             self.calls.push(Call::Show(tab.map(TabId::get)));
+        }
+        fn can_split(&self) -> bool {
+            true
         }
         fn navigate(&mut self, tab: TabId, address: &WebAddress) -> Result<(), EngineError> {
             self.calls
@@ -1599,5 +1659,38 @@ mod tests {
             ]
         );
         assert_ne!(first, second);
+    }
+
+    #[test]
+    fn clicking_the_other_pane_of_a_split_activates_its_tab() {
+        let mut b = browser();
+        let t1 = b.open_tab(None).unwrap();
+        let t2 = b.open_tab(None).unwrap();
+        let t3 = b.open_tab(None).unwrap();
+        b.activate(t1);
+        b.split_with_active(t2);
+        assert_eq!(b.session().active_id(), Some(t2));
+        assert_eq!(b.session().split_partner(t1), Some(t2));
+
+        b.handle(EngineEvent::PageFocused { tab: t1 }).unwrap();
+        assert_eq!(b.session().active_id(), Some(t1));
+        // Not in the split: focusing it changes nothing.
+        b.handle(EngineEvent::PageFocused { tab: t3 }).unwrap();
+        assert_eq!(b.session().active_id(), Some(t1));
+    }
+
+    #[test]
+    fn a_new_tab_opens_beside_the_active_one() {
+        let mut b = browser();
+        let t1 = b.open_tab(None).unwrap();
+        b.open_tab(None).unwrap();
+        b.activate(t1);
+        b.split_with_new_tab().unwrap();
+        let new = b.session().active_id().unwrap();
+        assert_ne!(new, t1);
+        assert_eq!(b.session().split_partner(t1), Some(new));
+        assert_eq!(b.session().tabs()[1].id(), new);
+        b.unsplit(new);
+        assert!(b.session().split_of(t1).is_none());
     }
 }

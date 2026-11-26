@@ -25,7 +25,7 @@ use super::tab_search::TabSearch;
 use super::toolbar::ShieldButton;
 use super::updates::{Notice, Updates};
 use super::user_scripts::UserScriptsRunner;
-use super::{APP_NAME, bookmarks_bar, side_tabs, tab_strip, toolbar};
+use super::{APP_NAME, bookmarks_bar, side_tabs, split_view, tab_strip, toolbar};
 use infrastructure::extension_hub::{BrowserHub, Hub};
 
 /// What `main` runs once the window is gone (apply an update).
@@ -603,6 +603,15 @@ impl BrowserApp {
             Command::SetSideTabsCollapsed(collapsed) => {
                 self.change_device(|d| d.side_tabs_collapsed = collapsed);
             }
+            Command::SplitWithActive(tab) => self.browser.split_with_active(tab),
+            Command::SplitWithNewTab => {
+                if let Err(e) = self.browser.split_with_new_tab() {
+                    self.report(e);
+                }
+                self.omnibox.request_focus();
+            }
+            Command::Unsplit(tab) => self.browser.unsplit(tab),
+            Command::SetSplitRatio(tab, ratio) => self.browser.set_split_ratio(tab, ratio),
             Command::NewTab
             | Command::ReopenClosedTab
             | Command::UpdateSettings(_)
@@ -1255,10 +1264,17 @@ impl eframe::App for BrowserApp {
         let page = CentralPanel::default()
             .frame(page_frame)
             .show(ctx, |ui| {
-                // The active page's native view is laid over this area.
+                // The active page's native view is laid over this area (two
+                // views, side by side, in a split view).
                 let rect = ui.max_rect();
-                self.browser
-                    .set_viewport(page_viewport(rect, ctx.pixels_per_point()));
+                let ppp = ctx.pixels_per_point();
+                self.browser.set_viewport(page_viewport(rect, ppp));
+                let panes: Vec<_> =
+                    split_view::panes(ui, rect, self.browser.session(), &mut commands)
+                        .into_iter()
+                        .map(|(tab, area)| (tab, page_viewport(area, ppp)))
+                        .collect();
+                self.browser.show_panes(&panes);
                 rect
             })
             .inner;
