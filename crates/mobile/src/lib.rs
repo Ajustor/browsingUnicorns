@@ -93,6 +93,8 @@ pub struct TabInfo {
     /// Kept out of the history, the session and sync; its WebView has its
     /// own cookies and storage.
     pub private: bool,
+    /// Asleep: no WebView, its page loads once shown.
+    pub asleep: bool,
 }
 
 /// What the browser screen shows.
@@ -107,6 +109,8 @@ pub struct BrowserState {
     pub bookmarked: bool,
     /// A closed tab can be reopened.
     pub can_reopen_closed_tab: bool,
+    /// The active tab's page crashed: it waits to be reloaded.
+    pub active_crashed: bool,
 }
 
 /// The settings screen's general part.
@@ -485,6 +489,7 @@ impl MobileBrowser {
                     url: t.address().map(ToString::to_string),
                     loading: t.is_loading(),
                     private: t.is_private(),
+                    asleep: t.is_discarded(),
                 })
                 .collect(),
             active: session.active_id().map(TabId::get),
@@ -496,6 +501,7 @@ impl MobileBrowser {
             can_go_forward: active.is_some_and(|t| t.history().can_go_forward()),
             bookmarked: b.is_active_bookmarked(),
             can_reopen_closed_tab: b.can_reopen_closed_tab(),
+            active_crashed: session.active_id().is_some_and(|t| b.is_crashed(t)),
         }
     }
 
@@ -662,6 +668,32 @@ impl MobileBrowser {
             .map_err(MobileError::new)?;
         self.hub_tick();
         Ok(())
+    }
+
+    /// The page of `tab` died (`onRenderProcessGone`: crashed, or its
+    /// renderer killed by Android for memory): its WebView goes, the tab
+    /// waits to be reloaded.
+    pub fn on_page_crashed(&self, tab: u64) {
+        let _ = self
+            .lock()
+            .browser
+            .handle(application::ports::EngineEvent::PageCrashed {
+                tab: TabId::new(tab),
+                all: false,
+            });
+    }
+
+    /// Puts the tabs not seen for `idle_seconds` to sleep (their WebView
+    /// destroyed; 0: all but the one shown, Android short of memory).
+    /// Returns how many went to sleep.
+    pub fn sleep_idle_tabs(&self, idle_seconds: u64) -> u32 {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        self.lock()
+            .browser
+            .discard_idle(now, idle_seconds, &[])
+            .len() as u32
     }
 
     /// Saves history and open tabs (call when the app goes to background).

@@ -16,6 +16,7 @@ import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import java.io.ByteArrayInputStream
@@ -271,6 +272,13 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
         webViewClient = object : WebViewClient() {
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
                 extensionFile(request.url.toString())
+
+            // Its renderer died: without this, the whole app would go with it.
+            override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+                (view.parent as? ViewGroup)?.removeView(view)
+                view.destroy()
+                return true
+            }
         }
     }
 
@@ -554,6 +562,15 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
                         WebResourceResponse(verdict.mimeType, "utf-8", FileInputStream(File(verdict.path)))
                     }.getOrElse { blocked() }
                 }
+            }
+
+            // The page's renderer died (crashed, or killed by Android short
+            // of memory): without this, the whole app would go with it. Rust
+            // closes the view (closeView) and the tab waits to be reloaded.
+            override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+                browser.onPageCrashed(tab)
+                onChange()
+                return true
             }
 
             // mailto:, tel:, intent:... go to the app that handles them.

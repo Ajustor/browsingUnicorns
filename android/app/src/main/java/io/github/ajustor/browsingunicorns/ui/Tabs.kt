@@ -43,6 +43,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -141,7 +142,8 @@ fun TabsScreen(c: BrowserController) {
                         }
                     } else {
                         Modifier.animateItem()
-                    },
+                    // Asleep (its page unloaded): fainter.
+                    }.alpha(if (tab.asleep && tab.id != c.state.active) 0.6f else 1f),
                     title = tab.title.ifBlank { tab.url ?: stringResource(R.string.new_tab) },
                     host = tab.url?.let { android.net.Uri.parse(it).host } ?: "",
                     active = tab.id == c.state.active,

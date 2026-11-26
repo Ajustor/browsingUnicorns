@@ -415,6 +415,23 @@ class BrowserController(
      * While the app is in the foreground: a round 15 s after a change, and
      * at least every 5 minutes.
      */
+    /**
+     * While the app is shown, every minute: the tabs unseen half an hour
+     * go to sleep (their WebView destroyed, their page loaded again once
+     * shown), as on the desktop.
+     */
+    suspend fun sleepLoop() {
+        while (true) {
+            delay(60_000)
+            sleepIdleTabs(SLEEP_AFTER_S)
+        }
+    }
+
+    /** Puts the tabs unseen `idleSeconds` to sleep (0: all but the one shown). */
+    fun sleepIdleTabs(idleSeconds: Long) {
+        if (browser.sleepIdleTabs(idleSeconds.toULong()) > 0u) refresh()
+    }
+
     suspend fun syncLoop() {
         while (true) {
             if (sync.enabled && !syncing) {
@@ -426,6 +443,9 @@ class BrowserController(
     }
 
     companion object {
+        /** A tab unseen this long goes to sleep (seconds). */
+        private const val SLEEP_AFTER_S = 30L * 60
+
         /** Scrolled this far (dp) one way, the bars fold or come back. */
         private const val SCROLL_THRESHOLD_DP = 48
 

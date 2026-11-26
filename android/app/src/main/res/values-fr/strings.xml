@@ -204,4 +204,8 @@
     <string name="password_never_saved">Jamais enregistré</string>
     <string name="password_no_username">(sans identifiant)</string>
     <string name="password_remove">Supprimer (sur vos appareils synchronisés aussi)</string>
+    <!-- Une page dont le moteur de rendu est mort (plantage, ou tué par Android). -->
+    <string name="page_crashed">Cette page a planté</string>
+    <string name="page_crashed_hint">Elle n’est pas rechargée toute seule, au cas où elle planterait de nouveau.</string>
+    <string name="reload_page">Recharger</string>
 </resources>

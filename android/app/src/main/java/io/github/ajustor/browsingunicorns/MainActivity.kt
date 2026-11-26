@@ -1,5 +1,6 @@
 package io.github.ajustor.browsingunicorns
 
+import android.content.ComponentCallbacks2
 import android.content.Intent
 import android.content.res.Configuration
 import android.os.Build
@@ -65,8 +66,20 @@ class MainActivity : ComponentActivity() {
                 controller.updates.checkIfDue()
                 controller.updateBlockerLists()
                 controller.updateExtensions()
+                launch { controller.sleepLoop() }
                 controller.syncLoop()
             }
+        }
+    }
+
+    /**
+     * In the background with Android short of memory: every tab but the one
+     * shown goes to sleep now (rather than the whole app being killed).
+     */
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND && ::controller.isInitialized) {
+            controller.sleepIdleTabs(0)
         }
     }
 

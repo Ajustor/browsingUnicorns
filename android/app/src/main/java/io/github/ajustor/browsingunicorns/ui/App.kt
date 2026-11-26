@@ -7,6 +7,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -39,6 +40,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -71,6 +73,7 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -140,6 +143,9 @@ private fun BrowserScreen(c: BrowserController) {
                 modifier = Modifier.fillMaxSize(),
             )
             PullIndicator(c.pull, c.views.pullDistance)
+            // The page crashed (or Android killed it): said, not reloaded
+            // behind the user's back.
+            if (c.state.activeCrashed) CrashedPage(onReload = { c.act { reload() } })
         }
         CredentialBanner(c)
         StoreBanner(c)
@@ -273,6 +279,26 @@ private fun StoreBanner(c: BrowserController) {
                 Text(stringResource(if (c.installing) R.string.installing else R.string.install))
             }
         }
+    }
+}
+
+/** Where a crashed page was: what happened, and Reload. */
+@Composable
+private fun CrashedPage(onReload: () -> Unit) {
+    Column(
+        Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(32.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(stringResource(R.string.page_crashed), style = MaterialTheme.typography.titleLarge)
+        Text(
+            stringResource(R.string.page_crashed_hint),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
+        )
+        Button(onClick = onReload) { Text(stringResource(R.string.reload_page)) }
     }
 }
 

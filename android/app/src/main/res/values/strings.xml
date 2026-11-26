@@ -216,4 +216,8 @@
     <string name="password_never_saved">Never saved</string>
     <string name="password_no_username">(no user name)</string>
     <string name="password_remove">Delete (on your synced devices too)</string>
+    <!-- A page whose renderer died (crashed, or killed by Android). -->
+    <string name="page_crashed">This page crashed</string>
+    <string name="page_crashed_hint">It is not loaded again by itself, in case it crashes again.</string>
+    <string name="reload_page">Reload</string>
 </resources>

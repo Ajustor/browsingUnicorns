@@ -728,3 +728,38 @@ fn sign_ins_are_offered_saved_filled_and_the_setting_drops_the_script() {
         .unwrap();
     assert!(b.saved_credentials().is_empty());
 }
+
+#[test]
+fn a_crashed_page_waits_and_idle_tabs_sleep() {
+    let dir = tempfile::tempdir().unwrap();
+    let http = Arc::new(FakeHttp::default());
+    let (b, host) = browser(&dir, "phone", &http);
+    b.restore_session().unwrap();
+    let first = b.state().active.unwrap();
+    b.on_load_finished(first, "https://a.com/".into());
+    let second = b.open_tab(Some("https://b.com/".into()), false).unwrap();
+    b.on_load_finished(second, "https://b.com/".into());
+
+    // Android killed the shown page's renderer: no reload behind its back.
+    host.0.lock().unwrap().clear();
+    b.on_page_crashed(second);
+    assert!(b.state().active_crashed);
+    assert_eq!(
+        host.0.lock().unwrap().clone(),
+        vec![format!("close {second}")]
+    );
+    b.reload();
+    assert!(!b.state().active_crashed);
+    assert!(
+        host.0
+            .lock()
+            .unwrap()
+            .contains(&format!("open {second} https://b.com/"))
+    );
+
+    // Short of memory: every tab but the one shown sleeps at once.
+    assert_eq!(b.sleep_idle_tabs(0), 1);
+    let state = b.state();
+    assert!(state.tabs.iter().find(|t| t.id == first).unwrap().asleep);
+    assert!(!state.tabs.iter().find(|t| t.id == second).unwrap().asleep);
+}
