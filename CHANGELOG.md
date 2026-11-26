@@ -4,6 +4,19 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.28.0] - 2026-11-26
+
+### Ajouté
+
+- Écran scindé : deux onglets côte à côte. Dans le menu d'un onglet,
+  « Afficher à côté de l'onglet actif », ou « Scinder avec un nouvel
+  onglet » sur l'onglet actif. La barre entre les deux pages se tire pour
+  changer leurs largeurs (double-clic : moitié-moitié), la page active est
+  entourée, et cliquer dans l'autre la rend active (Windows). Les deux
+  onglets restent l'un à côté de l'autre, et l'écran scindé est retrouvé au
+  prochain lancement. « Fermer l'écran scindé » (ou déplacer, épingler,
+  fermer l'un des deux) les sépare.
+
 ## [0.27.0] - 2026-11-26
 
 ### Ajouté
