@@ -619,18 +619,24 @@ fn about(
                     ui.add(egui::Label::new(status).wrap());
                 });
             }
-            if primary_button(
-                ui,
-                format!(
-                    "{} {}",
-                    icon::ARROW_CLOCKWISE,
-                    i18n::about::check_for_updates()
+            // An update there: install it or restart on it, as the
+            // toolbar's button; else look for one.
+            let (text, command) = match super::updates::update_action(&updater.state) {
+                Some((glyph, text, _, command)) => (format!("{glyph} {text}"), command),
+                None => (
+                    format!(
+                        "{} {}",
+                        icon::ARROW_CLOCKWISE,
+                        i18n::about::check_for_updates()
+                    ),
+                    (!updater.is_busy()).then_some(Command::CheckForUpdates),
                 ),
-                !updater.is_busy(),
-            )
-            .clicked()
+            };
+            let enabled = command.is_some();
+            if primary_button(ui, text, enabled).clicked()
+                && let Some(command) = command
             {
-                commands.push(Command::CheckForUpdates);
+                commands.push(command);
             }
             // What the update brings.
             if let UpdateState::Available(i) | UpdateState::Downloading(i) | UpdateState::Ready(i) =

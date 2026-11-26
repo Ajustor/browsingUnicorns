@@ -149,10 +149,12 @@ fn quiet_button(ui: &mut egui::Ui, text: &str) -> egui::Response {
     )
 }
 
-/// The toolbar's button while an update is there (even with its banner put
-/// off): filled, hard to miss. Installs it, or restarts on it.
-pub fn toolbar_button(ui: &mut egui::Ui, state: &UpdateState, commands: &mut Vec<Command>) {
-    let (glyph, text, tip, command) = match state {
+/// What to do with an update that is there: its button's glyph, text and
+/// tip, and its command (`None` while it downloads). `None`: no update.
+pub fn update_action(
+    state: &UpdateState,
+) -> Option<(&'static str, &'static str, String, Option<Command>)> {
+    Some(match state {
         UpdateState::Available(i) => (
             icon::ARROW_CIRCLE_UP,
             i18n::updates::update_button(),
@@ -171,7 +173,15 @@ pub fn toolbar_button(ui: &mut egui::Ui, state: &UpdateState, commands: &mut Vec
             i18n::updates::ready(&i.version),
             Some(Command::RestartToUpdate),
         ),
-        _ => return,
+        _ => return None,
+    })
+}
+
+/// The toolbar's button while an update is there (even with its banner put
+/// off): filled, hard to miss. Installs it, or restarts on it.
+pub fn toolbar_button(ui: &mut egui::Ui, state: &UpdateState, commands: &mut Vec<Command>) {
+    let Some((glyph, text, tip, command)) = update_action(state) else {
+        return;
     };
     let button = Button::new(
         RichText::new(format!("{glyph} {text}"))
