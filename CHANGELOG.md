@@ -15,7 +15,8 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 
 ### Modifié
 
-- Android : un APK par processeur, deux fois plus léger à télécharger.
+- Android : un APK par processeur, plus léger à télécharger (14 Mo au lieu
+  de 20).
   `browsingUnicorns-android-arm64.apk` pour les téléphones et tablettes,
   `browsingUnicorns-android-x86_64.apk` pour les émulateurs. La mise à jour
   intégrée télécharge celui de l'appareil ; l'APK universel reste publié.
