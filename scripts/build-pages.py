@@ -24,7 +24,9 @@ ICONS = {
 
 # (substring of the asset name, os, card title, detail) — first match wins.
 KINDS = [
-    (".apk", "android", "Android", "APK — Android 8 et suivants"),
+    ("android-arm64", "android", "Android", "APK — téléphones et tablettes, recommandé"),
+    ("android-x86_64", "android", "Android", "APK — émulateurs et PC x86_64"),
+    (".apk", "android", "Android", "APK universel — tous les processeurs"),
     (".msi", "windows", "Windows", "Installateur .msi — recommandé"),
     ("windows", "windows", "Windows", "Version portable .exe, sans installation"),
     (".AppImage", "linux", "Linux", "AppImage — recommandé, x86_64"),

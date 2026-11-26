@@ -265,14 +265,18 @@ jobs:
           export ANDROID_KEYSTORE="$RUNNER_TEMP/release.jks"
           echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$ANDROID_KEYSTORE"
           bash scripts/build-android.sh assembleRelease
-          cp android/app/build/outputs/apk/release/app-release.apk browsingUnicorns-android.apk
+          out=android/app/build/outputs/apk/release
+          cp "$out/app-arm64-v8a-release.apk" browsingUnicorns-android-arm64.apk
+          cp "$out/app-x86_64-release.apk" browsingUnicorns-android-x86_64.apk
+          # Both processors: what the updater of versions up to 0.30 fetches.
+          cp "$out/app-universal-release.apk" browsingUnicorns-android.apk
           rm -f "$ANDROID_KEYSTORE"
 
       - uses: actions/upload-artifact@v5
         if: env.HAS_KEYSTORE == 'true'
         with:
           name: browsingUnicorns-android-apk
-          path: browsingUnicorns-android.apk
+          path: browsingUnicorns-android*.apk
   release:
     name: Create GitHub Release
     needs: [build, android]

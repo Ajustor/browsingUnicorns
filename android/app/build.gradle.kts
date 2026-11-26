@@ -22,13 +22,24 @@ android {
         // 0.1.0 -> 100: grows with every release.
         versionCode = appVersion.substringBefore('-').split('.')
             .map(String::toInt).let { (a, b, c) -> a * 10_000 + b * 100 + c }
-        ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
         // `-PsyncRelay=http://10.0.2.2:8787` points the app at a local relay.
         buildConfigField(
             "String",
             "SYNC_RELAY",
             "\"${project.findProperty("syncRelay") ?: ""}\"",
         )
+    }
+
+    // One APK per processor (half the download: a phone gets only its own
+    // Rust library), and a universal one: the in-app updater of versions up
+    // to 0.30 downloads that one.
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "x86_64")
+            isUniversalApk = true
+        }
     }
 
     signingConfigs {

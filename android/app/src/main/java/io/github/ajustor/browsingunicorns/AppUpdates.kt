@@ -142,21 +142,20 @@ class AppUpdates(private val context: Context, private val scope: CoroutineScope
         prompt = false
     }
 
+    /** The release's APK for this device's processor, else the universal one. */
     private fun fetchLatest(): Release? {
         val json = JSONObject(get(MANIFEST_URL).use { it.readBytes().decodeToString() })
         val assets = json.getJSONArray("assets")
-        for (i in 0 until assets.length()) {
-            val asset = assets.getJSONObject(i)
-            if (asset.getString("name") == APK_NAME) {
-                return Release(
-                    version = json.getString("version"),
-                    notes = json.optString("notes"),
-                    apkUrl = asset.getString("url"),
-                    sha256 = asset.getString("sha256").lowercase(),
-                )
-            }
-        }
-        return null
+        val byName = (0 until assets.length()).map { assets.getJSONObject(it) }
+            .associateBy { it.getString("name") }
+        val asset = apkNames(Build.SUPPORTED_ABIS.toList()).firstNotNullOfOrNull { byName[it] }
+            ?: return null
+        return Release(
+            version = json.getString("version"),
+            notes = json.optString("notes"),
+            apkUrl = asset.getString("url"),
+            sha256 = asset.getString("sha256").lowercase(),
+        )
     }
 
     private fun download(release: Release) {
@@ -301,7 +300,18 @@ class AppUpdates(private val context: Context, private val scope: CoroutineScope
         private const val TAG = "AppUpdates"
         private const val DAY_MS = 24L * 60 * 60 * 1000
         const val MANIFEST_URL = "https://ajustor.github.io/browsingUnicorns/latest.json"
+        /** Both processors' libraries: the fallback (and older releases). */
         const val APK_NAME = "browsingUnicorns-android.apk"
+
+        /** The APKs to look for, best first: this device's processor's own. */
+        fun apkNames(abis: List<String>): List<String> =
+            abis.mapNotNull {
+                when (it) {
+                    "arm64-v8a" -> "browsingUnicorns-android-arm64.apk"
+                    "x86_64" -> "browsingUnicorns-android-x86_64.apk"
+                    else -> null
+                }
+            } + APK_NAME
 
         /** The instance the UI shows, if the process still has one. */
         @Volatile
