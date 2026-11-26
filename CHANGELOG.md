@@ -4,6 +4,13 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.28.1] - 2026-11-26
+
+### Corrigé
+
+- Le menu du clic droit sur un onglet restait ouvert quand on cliquait
+  dans la page : il se ferme désormais (Windows).
+
 ## [0.28.0] - 2026-11-26
 
 ### Ajouté
