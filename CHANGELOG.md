@@ -4,6 +4,37 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.30.0] - 2026-11-26
+
+### Ajouté
+
+- Le navigateur consomme beaucoup moins de mémoire : au démarrage, les
+  onglets restaurés gardent leur titre mais ne chargent leur page qu'une
+  fois affichés, et un onglet resté 30 minutes sans être affiché se met en
+  veille (sa page est déchargée, puis rechargée quand on y revient). Les
+  onglets endormis apparaissent grisés. Restent éveillés l'onglet affiché,
+  son voisin d'écran scindé, ceux qui jouent du son et les pages
+  d'extension. *Réglages › Onglets* permet de couper la mise en veille.
+  Sur Android, les onglets s'endorment aussi quand le système manque de
+  mémoire.
+- Une page qui plante affiche « Cette page a planté » avec un bouton
+  Recharger, au lieu de rester blanche. Si tout le moteur de pages plante
+  (Windows), l'onglet affiché repart tout seul.
+- Les fenêtres que les extensions ouvrent (la fenêtre de passkey de
+  Bitwarden…) flottent au milieu de la page, à leur taille, avec leur titre
+  et un bouton de fermeture, au lieu de s'ouvrir dans un onglet. Les fermer
+  ramène à l'onglet d'où elles viennent.
+- macOS et Linux : cliquer dans l'autre page de l'écran scindé la rend
+  active, et cliquer dans une page ferme les menus ouverts, comme sous
+  Windows.
+
+### Corrigé
+
+- Android : une page qui plantait, ou que le système arrêtait faute de
+  mémoire, fermait toute l'application.
+- La largeur de la colonne d'onglets retombait au minimum à chaque
+  lancement : elle ne change plus que lorsqu'on tire son bord.
+
 ## [0.29.0] - 2026-11-26
 
 ### Modifié
