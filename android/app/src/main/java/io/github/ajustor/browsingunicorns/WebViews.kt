@@ -5,6 +5,7 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.os.Message
 import android.util.Log
@@ -23,6 +24,7 @@ import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.FileInputStream
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.concurrent.thread
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -55,6 +57,49 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
 
     /** Each tab's favicon, as the page announced it. */
     val favicons = mutableStateMapOf<ULong, ImageBitmap>()
+
+    /** Each site's icon, kept small on disk: a tab asleep shows it. */
+    private val faviconDir = File(context.filesDir, "favicons")
+
+    /** The kept icons read so far, by host (null: none). */
+    private val keptIcons = HashMap<String, ImageBitmap?>()
+
+    /**
+     * [tab]'s icon: its page's, else (asleep, or loading) the one kept for
+     * the site of [url].
+     */
+    fun favicon(tab: ULong, url: String?): ImageBitmap? {
+        favicons[tab]?.let { return it }
+        val host = url?.let { faviconHost(it) } ?: return null
+        return keptIcons.getOrPut(host) {
+            // With or without "www.": sites redirect from one to the other.
+            val other = host.removePrefix("www.").let { if (it == host) "www.$host" else it }
+            listOf(host, other).firstNotNullOfOrNull {
+                File(faviconDir, "$it.png").takeIf(File::exists)
+                    ?.let { f -> BitmapFactory.decodeFile(f.path)?.asImageBitmap() }
+            }
+        }
+    }
+
+    /** Keeps [icon] for [url]'s site, once (off the main thread). */
+    private fun keepFavicon(url: String?, icon: Bitmap) {
+        val host = url?.let { faviconHost(it) } ?: return
+        val file = File(faviconDir, "$host.png")
+        if (file.exists()) return
+        val copy = icon.copy(Bitmap.Config.ARGB_8888, false) ?: return
+        thread(name = "favicon") {
+            runCatching {
+                faviconDir.mkdirs()
+                file.outputStream().use { copy.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            }
+        }
+    }
+
+    /** A plain host name, to name its icon's file by; else null. */
+    private fun faviconHost(url: String): String? {
+        val host = android.net.Uri.parse(url).host?.lowercase() ?: return null
+        return host.takeIf { h -> h.isNotEmpty() && !h.startsWith('.') && h.all { it.isLetterOrDigit() || it == '.' || it == '-' } }
+    }
 
     /** Captures [tab]'s page at a third of its size; nothing if it can't. */
     private fun capture(tab: ULong) {
@@ -607,7 +652,10 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
             }
 
             override fun onReceivedIcon(view: WebView, icon: Bitmap?) {
-                icon?.let { favicons[tab] = it.asImageBitmap() }
+                icon?.let {
+                    favicons[tab] = it.asImageBitmap()
+                    if (tab !in privateTabs) keepFavicon(view.url, it)
+                }
             }
 
             // target="_blank" / window.open: a throwaway WebView catches the

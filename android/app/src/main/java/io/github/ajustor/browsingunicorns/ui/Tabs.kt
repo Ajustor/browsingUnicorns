@@ -148,7 +148,7 @@ fun TabsScreen(c: BrowserController) {
                     host = tab.url?.let { android.net.Uri.parse(it).host } ?: "",
                     active = tab.id == c.state.active,
                     thumbnail = c.views.thumbnails[tab.id],
-                    favicon = c.views.favicons[tab.id],
+                    favicon = c.views.favicon(tab.id, tab.url),
                     onOpen = {
                         c.act { activate(tab.id) }
                         c.screen = Screen.Browser

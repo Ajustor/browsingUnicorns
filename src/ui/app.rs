@@ -114,6 +114,7 @@ impl BrowserApp {
         private_data: Option<PrivateDataDir>,
         default_browser: super::default_browser::DefaultBrowser,
         drm: Option<infrastructure::DrmReset>,
+        favicons_dir: Option<std::path::PathBuf>,
     ) -> Self {
         let AddOns {
             extensions,
@@ -143,7 +144,7 @@ impl BrowserApp {
             tab_search: TabSearch::default(),
             naming_group: None,
             page_fullscreen: None,
-            favicons: Default::default(),
+            favicons: super::favicons::Favicons::new(favicons_dir),
             window_fullscreen: None,
             library: Library::default(),
             notice: None,

@@ -316,6 +316,8 @@ pub fn build(
         private_data,
         default_browser,
         drm,
+        // The sites' icons, for the tabs asleep; none kept for a private one.
+        (!args.private).then(|| profile_dir.join("favicons")),
     ))
 }
 
