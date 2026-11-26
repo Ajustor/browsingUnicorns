@@ -2449,7 +2449,10 @@ mod tests {
             &mut host,
         );
         let (to, event) = host.delivered.pop().unwrap();
-        assert_eq!((to, event["event"].clone()), (page.clone(), json!("message")));
+        assert_eq!(
+            (to, event["event"].clone()),
+            (page.clone(), json!("message"))
+        );
         assert_eq!(event["payload"], "pick");
         // ...and its own messages reach the background, not itself.
         host.delivered.clear();
