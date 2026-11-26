@@ -661,6 +661,7 @@ impl BrowserApp {
                 // page, egui never sees that click).
                 m.close_popup();
             });
+            close_context_menu(ctx);
         }
         if ctx.input(|i| i.pointer.any_pressed()) {
             self.browser.engine().focus_window();
@@ -953,6 +954,16 @@ fn writes_profile(command: &Command) -> bool {
             | Command::AnswerCredential(_)
             | Command::RemoveCredential(..)
     )
+}
+
+/// Where egui keeps the open right-click menu (`egui::menu`'s
+/// `CONTEXT_MENU_ID_STR`, private to it).
+const CONTEXT_MENU_ID: &str = "__egui::context_menu";
+
+/// Closes the open right-click menu (a tab's): egui keeps it open until it
+/// sees a click elsewhere, and a click in the page is the web view's.
+fn close_context_menu(ctx: &egui::Context) {
+    ctx.data_mut(|d| d.remove::<egui::menu::BarState>(egui::Id::new(CONTEXT_MENU_ID)));
 }
 
 impl BrowserApp {
@@ -1320,5 +1331,54 @@ impl eframe::App for BrowserApp {
             .exit_slot
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = action;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A frame with a label that has a right-click menu; whether the menu
+    /// is open.
+    fn frame(ctx: &egui::Context, events: Vec<egui::Event>) -> bool {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(400.0, 300.0),
+            )),
+            events,
+            ..Default::default()
+        };
+        let mut open = false;
+        let _ = ctx.run(input, |ctx| {
+            CentralPanel::default().show(ctx, |ui| {
+                let label = ui.add(egui::Label::new("tab").sense(egui::Sense::click()));
+                label.context_menu(|ui| {
+                    let _ = ui.button("Close");
+                });
+                open = label.context_menu_opened();
+            });
+        });
+        open
+    }
+
+    #[test]
+    fn a_click_in_the_page_closes_a_right_click_menu() {
+        let ctx = egui::Context::default();
+        frame(&ctx, Vec::new());
+        let at = egui::pos2(15.0, 12.0);
+        let click = |pressed| egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        frame(&ctx, vec![egui::Event::PointerMoved(at)]);
+        frame(&ctx, vec![click(true)]);
+        frame(&ctx, vec![click(false)]);
+        assert!(frame(&ctx, Vec::new()), "the menu opened");
+        // The page took the click: egui saw none.
+        close_context_menu(&ctx);
+        assert!(!frame(&ctx, Vec::new()));
     }
 }
