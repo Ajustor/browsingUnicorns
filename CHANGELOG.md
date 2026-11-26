@@ -4,6 +4,24 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.26.0] - 2026-11-26
+
+### Ajouté
+
+- Quand une mise à jour est là, le panneau À propos propose directement
+  « Mettre à jour » puis « Redémarrer », à la place de « Rechercher des
+  mises à jour ».
+
+### Corrigé
+
+- La fenêtre de passkey de Bitwarden (PayPal, Amazon…) s'ouvrait vide :
+  une page d'extension ouverte dans un onglet ne recevait pas les messages
+  de son extension. Elle les reçoit désormais, comme la popup de la barre.
+- Les pages des extensions ne reçoivent plus les scripts injectés dans les
+  sites (ceux des extensions, du bloqueur et des mots de passe), comme dans
+  Chrome.
+- Le titre d'un onglet trop long ne s'affiche plus deux fois au survol.
+
 ## [0.25.0] - 2026-11-25
 
 ### Ajouté
