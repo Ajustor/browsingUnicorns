@@ -19,9 +19,11 @@ impl<E: WebEngine> Browser<E> {
         }
     }
 
-    /// Loads `address` in `tab` (an extension's `tabs.update`), waking it
-    /// first if it sleeps.
+    /// Loads `address` in `tab` (an extension's `tabs.update`, the address
+    /// bar), waking it first if it sleeps or crashed.
     pub fn load_in_tab(&mut self, tab: TabId, address: &WebAddress) -> Result<(), BrowserError> {
+        // Asked for a page: a crashed one gets another go.
+        self.crashed.remove(&tab);
         if self.session.tab(tab).is_some_and(|t| t.is_discarded()) {
             if let Some(t) = self.session.tab_mut(tab) {
                 t.restore(address.clone(), "");
@@ -197,6 +199,36 @@ mod tests {
         b.reload();
         assert!(!b.is_crashed(t1));
         assert!(take_calls(&mut b).contains(&Call::Open(t1.get(), "https://a.com/".into())));
+    }
+
+    #[test]
+    fn typing_an_address_in_a_crashed_or_sleeping_tab_loads_it() {
+        let mut b = browser();
+        let t1 = b.open_tab(None).unwrap();
+        finish(&mut b, t1, "https://a.com/");
+        b.handle(EngineEvent::PageCrashed {
+            tab: t1,
+            all: false,
+        })
+        .unwrap();
+        take_calls(&mut b);
+        b.submit_omnibox("https://b.com/").unwrap();
+        assert!(!b.is_crashed(t1));
+        assert_eq!(
+            take_calls(&mut b),
+            vec![Call::Open(t1.get(), "https://b.com/".into())]
+        );
+        assert!(!b.session().tab(t1).unwrap().is_discarded());
+
+        // Asleep: woken on the new address.
+        b.session.tab_mut(t1).unwrap().discard();
+        b.engine.close_view(t1);
+        take_calls(&mut b);
+        b.submit_omnibox("https://c.com/").unwrap();
+        assert_eq!(
+            take_calls(&mut b),
+            vec![Call::Open(t1.get(), "https://c.com/".into())]
+        );
     }
 
     #[test]

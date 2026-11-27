@@ -212,7 +212,8 @@ impl<E: WebEngine> Browser<E> {
     /// Loads `address` in the active tab or a new one.
     pub fn load(&mut self, address: WebAddress, target: Target) -> Result<(), BrowserError> {
         match (target, self.session.active_id()) {
-            (Target::ActiveTab, Some(id)) => self.engine.navigate(id, &address)?,
+            // Asleep or crashed, it has no view: woken on `address`.
+            (Target::ActiveTab, Some(id)) => self.load_in_tab(id, &address)?,
             _ => {
                 self.open_tab_in(Some(address), self.active_is_private())?;
             }
