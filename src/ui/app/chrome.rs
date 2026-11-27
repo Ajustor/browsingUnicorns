@@ -13,8 +13,8 @@ use crate::ui::shield::ShieldView;
 use crate::ui::sync_panel::SyncView;
 use crate::ui::toolbar::{self, ShieldButton};
 use crate::ui::{
-    bookmarks_bar, downloads, omnibox, panel_kit, passwords, permissions, settings_panel,
-    side_tabs, tab_common, tab_strip, theme,
+    downloads, omnibox, panel_kit, passwords, permissions, settings_panel, side_tabs, tab_common,
+    tab_strip, theme,
 };
 
 impl BrowserApp {
@@ -236,7 +236,8 @@ impl BrowserApp {
                 .show_separator_line(false)
                 .show(ctx, |ui| {
                     theme::chrome_style(ui, &chrome);
-                    bookmarks_bar::show(ui, self.browser.bookmarks(), commands);
+                    self.bookmarks_bar
+                        .show(ui, self.browser.bookmarks(), commands);
                     let r = ui.max_rect();
                     ui.painter().hline(
                         r.x_range(),

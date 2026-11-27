@@ -117,6 +117,7 @@ pub struct Library {
     whats_new: WhatsNewPanel,
     /// The bookmark being moved to a folder, and the folder typed.
     moving: Option<(WebAddress, String)>,
+    bookmark_groups: BookmarkGroups,
     /// The browser's icon, for the About view.
     logo: Option<egui::TextureHandle>,
 }
@@ -279,55 +280,95 @@ impl Library {
     }
 
     fn bookmarks(&mut self, ui: &mut egui::Ui, bookmarks: &Bookmarks, commands: &mut Vec<Command>) {
-        let filter = self.filter.to_lowercase();
-        let matches = |b: &&domain::Bookmark| {
-            filter.is_empty()
-                || format!("{} {} {}", b.title, b.address, b.folder)
-                    .to_lowercase()
-                    .contains(&filter)
-        };
-        let folders = bookmarks.folders();
-        let mut any = false;
+        self.bookmark_groups.refresh(bookmarks, &self.filter);
+        let groups = &self.bookmark_groups;
+        let filtered = !self.filter.is_empty();
+        let items = bookmarks.items();
         let moving = &mut self.moving;
-        // Those out of any folder first, then each folder's.
-        let mut rows = |ui: &mut egui::Ui, folder: &str| {
-            for b in bookmarks
-                .items()
-                .iter()
-                .filter(|b| b.folder == folder)
-                .filter(matches)
-            {
-                any = true;
-                bookmark_row(ui, b, &folders, moving, commands);
+        let mut rows = |ui: &mut egui::Ui, rows: &[usize]| {
+            for &i in rows {
+                bookmark_row(ui, &items[i], &groups.folders, moving, commands);
             }
         };
-        rows(ui, "");
-        for folder in &folders {
-            let count = bookmarks
-                .items()
-                .iter()
-                .filter(|b| &b.folder == folder)
-                .filter(matches)
-                .count();
-            if count == 0 {
+        // Those out of any folder first, then each folder's.
+        rows(ui, &groups.loose);
+        for (folder, matching) in groups.folders.iter().zip(&groups.in_folders) {
+            if matching.is_empty() {
                 continue;
             }
             let id = ui.make_persistent_id(("bookmark folder", folder));
             egui::collapsing_header::CollapsingState::load_with_default_open(
                 ui.ctx(),
                 id,
-                !filter.is_empty(),
+                filtered,
             )
             .show_header(ui, |ui| {
                 ui.label(RichText::new(icon::FOLDER).color(panel_kit::accent_text(ui)));
                 ui.label(RichText::new(folder).strong());
-                panel_kit::chip(ui, &count.to_string(), panel_kit::accent_text(ui));
+                panel_kit::chip(ui, &matching.len().to_string(), panel_kit::accent_text(ui));
             })
-            .body(|ui| rows(ui, folder));
+            .body(|ui| rows(ui, matching));
         }
-        if !any {
+        if groups.loose.is_empty() && groups.in_folders.iter().all(Vec::is_empty) {
             empty_state(ui, icon::STAR, &i18n::bookmarks::no_bookmarks(icon::STAR));
         }
+    }
+}
+
+/// The bookmarks matching the filter, by folder: worked out again only when
+/// the bookmarks or the filter change.
+#[derive(Default)]
+struct BookmarkGroups {
+    /// The bookmarks' [`fingerprint`](super::bookmarks_bar::fingerprint)
+    /// and the filter it was worked out for.
+    of: Option<(u64, String)>,
+    /// The folders that hold bookmarks, sorted, each once.
+    folders: Vec<String>,
+    /// The matching bookmarks out of any folder (their place in the list).
+    loose: Vec<usize>,
+    /// Those of each folder, in the order of `folders`.
+    in_folders: Vec<Vec<usize>>,
+}
+
+impl BookmarkGroups {
+    fn refresh(&mut self, bookmarks: &Bookmarks, filter: &str) {
+        let of = super::bookmarks_bar::fingerprint(bookmarks);
+        if self
+            .of
+            .as_ref()
+            .is_some_and(|(f, text)| *f == of && text == filter)
+        {
+            return;
+        }
+        self.of = Some((of, filter.to_owned()));
+        let items = bookmarks.items();
+        let mut folders: Vec<&str> = items
+            .iter()
+            .map(|b| b.folder.as_str())
+            .filter(|f| !f.is_empty())
+            .collect();
+        // Sorted without case, the same name once (a case-insensitive sort
+        // leaves "Foo", "foo", "Foo" apart).
+        folders.sort_by_cached_key(|f| (f.to_lowercase(), *f));
+        folders.dedup();
+        let filter = filter.to_lowercase();
+        let matches = |b: &domain::Bookmark| {
+            filter.is_empty()
+                || format!("{} {} {}", b.title, b.address, b.folder)
+                    .to_lowercase()
+                    .contains(&filter)
+        };
+        let place: std::collections::HashMap<&str, usize> =
+            folders.iter().enumerate().map(|(i, f)| (*f, i)).collect();
+        self.loose.clear();
+        self.in_folders = vec![Vec::new(); folders.len()];
+        for (i, b) in items.iter().enumerate().filter(|(_, b)| matches(b)) {
+            match place.get(b.folder.as_str()) {
+                Some(&at) => self.in_folders[at].push(i),
+                None => self.loose.push(i),
+            }
+        }
+        self.folders = folders.into_iter().map(str::to_owned).collect();
     }
 }
 
@@ -741,5 +782,25 @@ mod tests {
         assert_eq!(lib.open, Some(LibraryView::Bookmarks));
         lib.toggle(LibraryView::Bookmarks);
         assert_eq!(lib.open, None);
+    }
+
+    #[test]
+    fn bookmarks_are_grouped_by_folder_each_once() {
+        let mut bookmarks = Bookmarks::default();
+        for (i, (title, folder)) in [("a", "Foo"), ("b", "foo"), ("c", "Foo"), ("d", "")]
+            .into_iter()
+            .enumerate()
+        {
+            let address = WebAddress::parse(&format!("https://s{i}.example/")).unwrap();
+            bookmarks.add_in(address, title, folder, 0);
+        }
+        let mut groups = BookmarkGroups::default();
+        groups.refresh(&bookmarks, "");
+        assert_eq!(groups.folders, ["Foo", "foo"]);
+        assert_eq!(groups.in_folders, [vec![0, 2], vec![1]]);
+        assert_eq!(groups.loose, [3]);
+        groups.refresh(&bookmarks, "B");
+        assert_eq!(groups.in_folders, [vec![], vec![1]]);
+        assert!(groups.loose.is_empty());
     }
 }

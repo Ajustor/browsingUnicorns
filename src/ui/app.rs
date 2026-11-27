@@ -41,6 +41,7 @@ pub struct BrowserApp {
     page_fullscreen: Option<TabId>,
     /// The tabs' page icons.
     favicons: super::favicons::Favicons,
+    bookmarks_bar: super::bookmarks_bar::BookmarksBar,
     /// The window was put in full screen for it: whether it was maximized
     /// before, to be again after.
     window_fullscreen: Option<bool>,
@@ -153,6 +154,7 @@ impl BrowserApp {
             page_fullscreen: None,
             favicons: super::favicons::Favicons::new(favicons_dir),
             window_fullscreen: None,
+            bookmarks_bar: Default::default(),
             library: Library::default(),
             notice: None,
             downloads: Default::default(),
