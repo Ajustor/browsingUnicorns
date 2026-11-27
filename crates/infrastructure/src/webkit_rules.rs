@@ -31,6 +31,11 @@ enum State {
 struct Slot {
     identifier: &'static str,
     generation: u64,
+    /// The generation whose compiled rules are wanted: an earlier one when
+    /// the latest conversion gave the same rules (not compiled again).
+    wanted: u64,
+    /// The generation and hash of the last rules handed to WebKit.
+    sent: Option<(u64, u64)>,
     tx: Sender<(u64, Option<String>)>,
     rx: Receiver<(u64, Option<String>)>,
     /// Filled by WebKit's completion callback, on the UI thread.
@@ -39,12 +44,21 @@ struct Slot {
     current: Option<Compiled>,
 }
 
+fn hash_of(json: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    json.hash(&mut hasher);
+    hasher.finish()
+}
+
 impl Slot {
     fn new(identifier: &'static str) -> Self {
         let (tx, rx) = mpsc::channel();
         Self {
             identifier,
             generation: 0,
+            wanted: 0,
+            sent: None,
             tx,
             rx,
             compiled: Rc::default(),
@@ -71,8 +85,21 @@ impl Slot {
                 continue;
             }
             match json {
-                None => *self.compiled.borrow_mut() = State::Ready(generation, None),
+                None => {
+                    self.wanted = generation;
+                    self.sent = None;
+                    *self.compiled.borrow_mut() = State::Ready(generation, None);
+                }
+                // The same rules as last handed to WebKit: theirs are wanted,
+                // compiled or on their way (compiling is WebKit's costly part).
+                Some(json) if self.sent.is_some_and(|(_, hash)| hash == hash_of(&json)) => {
+                    if let Some((sent, _)) = self.sent {
+                        self.wanted = sent;
+                    }
+                }
                 Some(json) => {
+                    self.wanted = generation;
+                    self.sent = Some((generation, hash_of(&json)));
                     let slot = self.compiled.clone();
                     let waker = waker.clone();
                     let identifier = self.identifier;
@@ -97,7 +124,7 @@ impl Slot {
         }
         let state = std::mem::take(&mut *self.compiled.borrow_mut());
         match state {
-            State::Ready(generation, list) if generation == self.generation => {
+            State::Ready(generation, list) if generation == self.wanted => {
                 self.current = list;
                 true
             }

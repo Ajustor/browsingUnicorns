@@ -277,8 +277,16 @@ pub fn build(
     let ctx = cc.egui_ctx.clone();
     let blocker = BlockerRunner::start(
         blocker,
-        infrastructure::blocker_dir()
-            .map(|dir| BlockerLists::new(dir, infrastructure::extensions::ureq_download())),
+        infrastructure::blocker_dir().map(|dir| {
+            let lists = BlockerLists::new(dir, infrastructure::extensions::ureq_download());
+            // WebKit blocks the requests with its own content rules: the
+            // engine only hides ad slots and runs scriptlets there.
+            if cfg!(any(target_os = "macos", target_os = "linux")) {
+                lists.cosmetic_only()
+            } else {
+                lists
+            }
+        }),
         setup.blocker_refresh,
         move || ctx.request_repaint(),
     );

@@ -78,6 +78,8 @@ const NETFLIX: &str = include_str!("netflix_ads.js");
 const YOUTUBE: &str = include_str!("youtube_sponsors.js");
 
 const ENGINE_FILE: &str = "engine.dat";
+/// The engine without network rules ([`BlockerLists::cosmetic_only`]).
+const COSMETIC_ENGINE_FILE: &str = "engine-cosmetic.dat";
 const STATE_FILE: &str = "state.json";
 /// How often the lists are checked.
 const CHECK_EVERY: Duration = Duration::from_secs(24 * 60 * 60);
@@ -182,24 +184,25 @@ impl Blocker {
     /// Compiles `lists`; `None` when none has a rule.
     pub fn from_lists(lists: &[&str]) -> Option<Self> {
         let lists: Vec<(bool, &str)> = lists.iter().map(|l| (false, *l)).collect();
-        Self::compile(&lists)
+        Self::compile(&lists, RuleTypes::All)
     }
 
-    /// Compiles `lists`, each with whether its scriptlets are trusted;
-    /// `None` when none has a rule.
-    fn compile(lists: &[(bool, &str)]) -> Option<Self> {
+    /// Compiles `lists`, each with whether its scriptlets are trusted, their
+    /// rules of `rule_types`; `None` when none has a rule.
+    fn compile(lists: &[(bool, &str)], rule_types: RuleTypes) -> Option<Self> {
         if !lists.iter().any(|(_, l)| has_rules(l)) {
             return None;
         }
         let mut set = FilterSet::new(false);
         for (trusted, list) in lists {
-            let options = if *trusted {
-                ParseOptions {
-                    permissions: PermissionMask::from_bits(u8::MAX),
-                    ..ParseOptions::default()
-                }
-            } else {
-                ParseOptions::default()
+            let options = ParseOptions {
+                rule_types,
+                permissions: if *trusted {
+                    PermissionMask::from_bits(u8::MAX)
+                } else {
+                    PermissionMask::default()
+                },
+                ..ParseOptions::default()
             };
             set.add_filter_list(list.to_string(), options);
         }
@@ -499,8 +502,14 @@ pub fn webkit_rules(lists: &[&str], allowlist: &[String]) -> String {
     Value::Array(rules).to_string()
 }
 
+/// The last WebKit rules made, and what they were made from (a hash).
+const WEBKIT_RULES_FILE: &str = "webkit-rules.json";
+const WEBKIT_RULES_KEY: &str = "webkit-rules.key";
+
 /// WebKit's rules for the lists cached in `dir` under `policy`; `None` when
-/// the blocker is off or no list is cached yet.
+/// the blocker is off or no list is cached yet. Made once for given lists and
+/// allowlist: kept in `dir`, the same lists and allowlist give them back
+/// without converting the lists again.
 pub fn webkit_rules_in(dir: &Path, policy: &BlockerPolicy) -> Option<String> {
     if !policy.enabled {
         return None;
@@ -509,11 +518,34 @@ pub fn webkit_rules_in(dir: &Path, policy: &BlockerPolicy) -> Option<String> {
     if lists.is_empty() {
         return None;
     }
+    let key = webkit_rules_key(&lists, &policy.allowlist);
+    let (json_path, key_path) = (dir.join(WEBKIT_RULES_FILE), dir.join(WEBKIT_RULES_KEY));
+    if fs::read_to_string(&key_path).is_ok_and(|kept| kept == key)
+        && let Ok(json) = fs::read_to_string(&json_path)
+    {
+        return Some(json);
+    }
     let json = webkit_rules(
         &lists.iter().map(|(_, l)| l.as_str()).collect::<Vec<_>>(),
         &policy.allowlist,
     );
+    // The rules first: a key never names rules not written.
+    let kept = files::write(&json_path, &json).and_then(|()| files::write(&key_path, &key));
+    if let Err(e) = kept {
+        log::warn!("blocker: {e}");
+    }
     Some(json)
+}
+
+/// What WebKit's rules are made from, as a hash: the lists, the allowlist
+/// and the app's version (another version may convert otherwise).
+fn webkit_rules_key(lists: &[(bool, String)], allowlist: &[String]) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    env!("CARGO_PKG_VERSION").hash(&mut hasher);
+    lists.hash(&mut hasher);
+    allowlist.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
 }
 
 /// The lists cached in `dir`, with whether their scriptlets are trusted.
@@ -557,6 +589,8 @@ fn unix(t: SystemTime) -> u64 {
 pub struct BlockerLists {
     dir: PathBuf,
     download: Download,
+    /// The rules the engine is compiled with.
+    rule_types: RuleTypes,
 }
 
 impl BlockerLists {
@@ -564,6 +598,24 @@ impl BlockerLists {
         Self {
             dir: dir.into(),
             download,
+            rule_types: RuleTypes::All,
+        }
+    }
+
+    /// The engine without the network rules: where the web view blocks
+    /// requests itself (WebKit's content rules, see [`webkit_rules_in`]),
+    /// the engine only hides ad slots and runs scriptlets. Lighter, quicker
+    /// to compile.
+    pub fn cosmetic_only(mut self) -> Self {
+        self.rule_types = RuleTypes::CosmeticOnly;
+        self
+    }
+
+    /// The compiled engine's file (one per kind of engine).
+    fn engine_file(&self) -> &'static str {
+        match self.rule_types {
+            RuleTypes::CosmeticOnly => COSMETIC_ENGINE_FILE,
+            _ => ENGINE_FILE,
         }
     }
 
@@ -587,7 +639,8 @@ impl BlockerLists {
     }
 
     fn save_engine(&self, blocker: &Blocker) {
-        if let Err(e) = files::write_bytes(&self.dir.join(ENGINE_FILE), &blocker.serialize()) {
+        if let Err(e) = files::write_bytes(&self.dir.join(self.engine_file()), &blocker.serialize())
+        {
             log::warn!("blocker: {e}");
         }
     }
@@ -600,6 +653,7 @@ impl BlockerLists {
                 .iter()
                 .map(|(t, l)| (*t, l.as_str()))
                 .collect::<Vec<_>>(),
+            self.rule_types,
         )?;
         self.load_resources(&mut blocker);
         Some(blocker)
@@ -628,7 +682,7 @@ impl BlockerLists {
     }
 
     fn cached(&self, save: bool) -> Option<Blocker> {
-        let engine_path = self.dir.join(ENGINE_FILE);
+        let engine_path = self.dir.join(self.engine_file());
         let mut blocker = match fs::read(&engine_path)
             .ok()
             .and_then(|b| Blocker::deserialize(&b))
@@ -951,6 +1005,48 @@ b.test##.other-ad
             ..on
         };
         assert!(webkit_rules_in(dir.path(), &off).is_none());
+    }
+
+    #[test]
+    fn a_cosmetic_only_engine_hides_but_does_not_block() {
+        let dir = tempfile::tempdir().unwrap();
+        let lists = BlockerLists::new(dir.path(), fake(&[(EASYLIST, LIST)])).cosmetic_only();
+        let b = lists.refresh().unwrap();
+        assert!(!b.should_block("https://ads.test/x.js", PAGE, Some(ResourceType::Script)));
+        assert_eq!(
+            b.cosmetic_css("https://a.test/"),
+            ".ad{display:none!important}"
+        );
+        // Kept apart from the whole engine.
+        assert!(dir.path().join(COSMETIC_ENGINE_FILE).exists());
+        assert!(!dir.path().join(ENGINE_FILE).exists());
+        let b = lists.load_cached().unwrap();
+        assert!(!b.cosmetic_css("https://a.test/").is_empty());
+    }
+
+    #[test]
+    fn webkit_rules_are_made_once_for_the_same_lists_and_allowlist() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("easylist.txt"), LIST).unwrap();
+        let on = BlockerPolicy::default();
+        let made = webkit_rules_in(dir.path(), &on).unwrap();
+        // Kept: what is there comes back, not converted again.
+        fs::write(dir.path().join(WEBKIT_RULES_FILE), "[]").unwrap();
+        assert_eq!(webkit_rules_in(dir.path(), &on).unwrap(), "[]");
+        // Another allowlist, or other lists: made again.
+        let allowing = BlockerPolicy {
+            enabled: true,
+            allowlist: vec!["a.test".into()],
+        };
+        assert!(
+            webkit_rules_in(dir.path(), &allowing)
+                .unwrap()
+                .contains("a.test")
+        );
+        fs::write(dir.path().join(WEBKIT_RULES_FILE), "[]").unwrap();
+        fs::write(dir.path().join("easyprivacy.txt"), "||tracker.test^\n").unwrap();
+        assert_ne!(webkit_rules_in(dir.path(), &on).unwrap(), "[]");
+        assert!(!made.is_empty());
     }
 
     #[test]
