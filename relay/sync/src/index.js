@@ -48,7 +48,7 @@ export default {
     const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
     if (!TOKEN.test(token)) return json({ error: "Missing or malformed token." }, 401);
     const tokenHash = await sha256(token);
-    const known = await env.SYNC.get(authKey(group));
+    const { value: known, metadata: authMeta } = await env.SYNC.getWithMetadata(authKey(group));
 
     if (device === undefined) {
       if (request.method !== "GET") return json({ error: "Use GET." }, 405);
@@ -67,14 +67,23 @@ export default {
 
     const length = Number(request.headers.get("Content-Length") || 0);
     if (length > LIMITS.blobBytes) return json({ error: "Record too large." }, 413);
-    const blob = new Uint8Array(await request.arrayBuffer());
-    if (blob.length > LIMITS.blobBytes) return json({ error: "Record too large." }, 413);
+    // Counted as it comes: a body without Content-Length is not read whole
+    // before being found too large.
+    const blob = await readBody(request, LIMITS.blobBytes);
+    if (blob === null) return json({ error: "Record too large." }, 413);
     if (blob.length === 0) return json({ error: "Empty record." }, 400);
 
-    const existing = await env.SYNC.list({ prefix: blobPrefix(group) });
-    const isNew = !existing.keys.some((k) => k.name === blobKey(group, device));
-    if (isNew && existing.keys.length >= LIMITS.devicesPerGroup) {
-      return json({ error: `At most ${LIMITS.devicesPerGroup} devices per group.` }, 409);
+    // Writes and lists are the scarce operations (free tier): a device
+    // already known is checked with a read, the group listed only for a
+    // new one.
+    const own = await env.SYNC.get(blobKey(group, device), { type: "stream" });
+    if (own === null) {
+      const existing = await env.SYNC.list({ prefix: blobPrefix(group) });
+      if (existing.keys.length >= LIMITS.devicesPerGroup) {
+        return json({ error: `At most ${LIMITS.devicesPerGroup} devices per group.` }, 409);
+      }
+    } else {
+      await own.cancel?.();
     }
 
     const updated = Math.floor(Date.now() / 1000);
@@ -82,8 +91,15 @@ export default {
       expirationTtl: TTL_SECONDS,
       metadata: { updated },
     });
-    // Recorded on the first write, refreshed on every write.
-    await env.SYNC.put(authKey(group), tokenHash, { expirationTtl: TTL_SECONDS });
+    // Recorded on the first write; rewritten only once half its life is
+    // gone, not on every write.
+    const expires = authMeta?.expires ?? 0;
+    if (known === null || expires - updated < TTL_SECONDS / 2) {
+      await env.SYNC.put(authKey(group), tokenHash, {
+        expirationTtl: TTL_SECONDS,
+        metadata: { expires: updated + TTL_SECONDS },
+      });
+    }
     return json({ ok: true, updated }, 200);
   },
 };
@@ -91,6 +107,31 @@ export default {
 const authKey = (group) => `auth:${group}`;
 const blobPrefix = (group) => `blob:${group}:`;
 const blobKey = (group, device) => `${blobPrefix(group)}${device}`;
+
+/// The request's body, or `null` once it goes over `limit` bytes.
+async function readBody(request, limit) {
+  if (request.body === null) return new Uint8Array(0);
+  const reader = request.body.getReader();
+  const chunks = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > limit) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const body = new Uint8Array(size);
+  let at = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, at);
+    at += chunk.byteLength;
+  }
+  return body;
+}
 
 async function listBlobs(kv, group) {
   const prefix = blobPrefix(group);

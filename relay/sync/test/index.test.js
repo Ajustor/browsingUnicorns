@@ -9,15 +9,23 @@ class FakeKV {
     this.items = new Map();
   }
   async get(key) {
+    this.reads = (this.reads ?? 0) + 1;
     return this.items.has(key) ? this.items.get(key).value : null;
   }
+  async getWithMetadata(key) {
+    this.reads = (this.reads ?? 0) + 1;
+    const item = this.items.get(key);
+    return item ? { value: item.value, metadata: item.metadata ?? null } : { value: null, metadata: null };
+  }
   async put(key, value, options = {}) {
+    this.writes = (this.writes ?? 0) + 1;
     this.items.set(key, { value, metadata: options.metadata, ttl: options.expirationTtl });
   }
   async delete(key) {
     this.items.delete(key);
   }
   async list({ prefix }) {
+    this.lists = (this.lists ?? 0) + 1;
     const keys = [...this.items.entries()]
       .filter(([k]) => k.startsWith(prefix))
       .map(([name, v]) => ({ name, metadata: v.metadata }));
@@ -31,11 +39,12 @@ const OTHER = "b".repeat(64);
 
 function setup() {
   const env = { SYNC: new FakeKV() };
-  const call = (method, path, { token = TOKEN, body } = {}) =>
+  const call = (method, path, { token = TOKEN, body, duplex } = {}) =>
     worker.fetch(
       new Request(`https://relay.test${path}`, {
         method,
         body,
+        duplex,
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       }),
       env,
@@ -101,6 +110,53 @@ test("records expire unless refreshed", async () => {
   await put(call, "desktop", [1]);
   assert.ok(env.SYNC.items.get(`blob:${GROUP}:desktop`).ttl > 0);
   assert.ok(env.SYNC.items.get(`auth:${GROUP}`).ttl > 0);
+});
+
+test("a known device's write lists nothing and leaves the token alone", async () => {
+  const { env, call } = setup();
+  await put(call, "desktop", [1]);
+  const [lists, writes] = [env.SYNC.lists, env.SYNC.writes];
+  assert.equal(writes, 2, "the blob and the token's hash, the first time");
+  assert.equal((await put(call, "desktop", [2])).status, 200);
+  assert.equal(env.SYNC.lists, lists, "no list");
+  assert.equal(env.SYNC.writes, writes + 1, "the blob only");
+});
+
+test("the token's hash is rewritten once half its life is gone", async () => {
+  const { env, call } = setup();
+  await put(call, "desktop", [1]);
+  const auth = env.SYNC.items.get(`auth:${GROUP}`);
+  // Written by an older relay: no expiry known.
+  auth.metadata = undefined;
+  await put(call, "desktop", [2]);
+  const now = Math.floor(Date.now() / 1000);
+  assert.ok(env.SYNC.items.get(`auth:${GROUP}`).metadata.expires > now);
+  env.SYNC.items.get(`auth:${GROUP}`).metadata.expires = now + 1000;
+  const writes = env.SYNC.writes;
+  await put(call, "desktop", [3]);
+  assert.equal(env.SYNC.writes, writes + 2, "refreshed");
+});
+
+test("a body without length is refused as soon as it is too large", async () => {
+  const { call } = setup();
+  let pulled = 0;
+  const chunk = new Uint8Array(64 * 1024);
+  const body = new ReadableStream({
+    pull(controller) {
+      pulled += chunk.length;
+      controller.enqueue(chunk);
+    },
+  });
+  const res = await call("PUT", `/v1/groups/${GROUP}/devices/desktop`, { body, duplex: "half" });
+  assert.equal(res.status, 413);
+  assert.ok(pulled < LIMITS.blobBytes * 2, "not read to the end");
+  const small = new ReadableStream({
+    start(controller) {
+      controller.enqueue(new Uint8Array([1, 2]));
+      controller.close();
+    },
+  });
+  assert.equal((await call("PUT", `/v1/groups/${GROUP}/devices/desktop`, { body: small, duplex: "half" })).status, 200);
 });
 
 test("bad paths, ids and methods are refused", async () => {
