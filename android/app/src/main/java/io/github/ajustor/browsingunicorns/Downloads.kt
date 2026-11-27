@@ -19,6 +19,8 @@ import android.webkit.JavascriptInterface
 import android.webkit.URLUtil
 import android.webkit.WebView
 import androidx.core.content.ContextCompat
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -70,7 +72,7 @@ class Downloads(private val context: Context) {
         val name = URLUtil.guessFileName(url, contentDisposition, mimeType)
         withStorage {
             when (Uri.parse(url).scheme?.lowercase()) {
-                "http", "https" -> enqueue(url, name, userAgent, mimeType, page)
+                "http", "https" -> enqueue(url, name, userAgent, mimeType, page, cookies(view, url))
                 "data" -> Thread {
                     runCatching { write(name, mimeType, decodeDataUrl(url)) }
                         .onSuccess { tell(context.getString(R.string.download_saved, it)) }
@@ -82,10 +84,23 @@ class Downloads(private val context: Context) {
         }
     }
 
-    private fun enqueue(url: String, name: String, userAgent: String?, mimeType: String?, page: String?) {
+    /**
+     * [view]'s cookies for [url]: those of its profile, a private tab's own
+     * (not the normal tabs', which would tell who the user is).
+     */
+    private fun cookies(view: WebView, url: String): String? = runCatching {
+        val manager = if (WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
+            WebViewCompat.getProfile(view).cookieManager
+        } else {
+            CookieManager.getInstance()
+        }
+        manager.getCookie(url)
+    }.getOrNull()
+
+    private fun enqueue(url: String, name: String, userAgent: String?, mimeType: String?, page: String?, cookies: String?) {
         try {
             val request = DownloadManager.Request(Uri.parse(url)).apply {
-                CookieManager.getInstance().getCookie(url)?.let { addRequestHeader("Cookie", it) }
+                cookies?.let { addRequestHeader("Cookie", it) }
                 userAgent?.let { addRequestHeader("User-Agent", it) }
                 page?.let { addRequestHeader("Referer", it) }
                 mimeType?.takeIf { it.isNotBlank() }?.let { setMimeType(it) }
