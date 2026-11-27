@@ -463,32 +463,60 @@ impl UrlFilter {
             let (start, end) = host;
             (start..end)
                 .filter(|&i| i == start || bytes[i - 1] == b'.')
-                .any(|i| self.match_from(bytes, i, 0))
-        } else if self.start_anchor {
-            self.match_from(bytes, 0, 0)
+                .any(|i| self.match_from(bytes, i, false))
         } else {
-            (0..=bytes.len()).any(|i| self.match_from(bytes, i, 0))
+            // Unanchored: as if the pattern started with `*`.
+            self.match_from(bytes, 0, !self.start_anchor)
         }
     }
 
-    fn match_from(&self, url: &[u8], at: usize, token: usize) -> bool {
-        let Some(t) = self.pattern.get(token) else {
-            return !self.end_anchor || at == url.len();
-        };
-        match t {
-            Token::Literal(l) => {
-                url.get(at..at + l.len()) == Some(l.as_bytes())
-                    && self.match_from(url, at + l.len(), token + 1)
-            }
-            Token::Separator => {
-                if at == url.len() {
-                    // `^` also matches the end, once.
-                    self.match_from(url, at, token + 1)
-                } else {
-                    is_separator(url[at]) && self.match_from(url, at + 1, token + 1)
+    /// Whether the pattern matches `url` from `at` (anywhere from `at` on
+    /// when `float`). Wildcard matching that backtracks to the last `*`
+    /// only: O(url × pattern), where trying every split for every `*`
+    /// grows as a power of their number.
+    fn match_from(&self, url: &[u8], mut at: usize, float: bool) -> bool {
+        let mut token = 0;
+        // After the last `*` met: the token after it, and where its match
+        // starts in `url` (it takes one more byte on each failure).
+        let mut star = float.then_some((0, at));
+        loop {
+            let advanced = match self.pattern.get(token) {
+                None if !self.end_anchor || at == url.len() => return true,
+                None => false,
+                Some(Token::Any) => {
+                    token += 1;
+                    star = Some((token, at));
+                    continue;
                 }
+                Some(Token::Literal(l)) => {
+                    let found = url.get(at..at + l.len()) == Some(l.as_bytes());
+                    if found {
+                        at += l.len();
+                    }
+                    found
+                }
+                // `^` also matches the end.
+                Some(Token::Separator) if at == url.len() => true,
+                Some(Token::Separator) => {
+                    let found = is_separator(url[at]);
+                    if found {
+                        at += 1;
+                    }
+                    found
+                }
+            };
+            if advanced {
+                token += 1;
+                continue;
             }
-            Token::Any => (at..=url.len()).any(|i| self.match_from(url, i, token + 1)),
+            match star {
+                Some((after, from)) if from < url.len() => {
+                    star = Some((after, from + 1));
+                    token = after;
+                    at = from + 1;
+                }
+                _ => return false,
+            }
         }
     }
 }
@@ -753,6 +781,24 @@ mod tests {
         assert_eq!(filter("||ads.com^").anchored_domain(), Some("ads.com"));
         assert_eq!(filter("||ads.com/x").anchored_domain(), None);
         assert_eq!(filter("||a.b^*x|").source(), "||a.b^*x|");
+        // Backtracking past a `*` to a later start.
+        assert!(matches("a*b*c|", "https://x.org/aXbYbZc"));
+        assert!(!matches("a*b*c|", "https://x.org/aXbYbZcd"));
+        assert!(matches("*/ads^", "https://x.org/ads"));
+        assert!(matches("/ads^*.js", "https://x.org/a/ads/x.js"));
+        assert!(matches("^ads^", "https://x.org/ads/"));
+        assert!(!matches("|x.org", "https://x.org/"));
+    }
+
+    #[test]
+    fn many_stars_on_a_long_address_stay_quick() {
+        // Exponential with a recursive matcher: this would not finish.
+        let f = format!("{}b|", "a*".repeat(10));
+        let url = format!("https://b.org/{}", "a".repeat(5_000));
+        let start = std::time::Instant::now();
+        assert!(!matches(&f, &url));
+        assert!(matches(&f, &format!("{url}b")));
+        assert!(start.elapsed() < std::time::Duration::from_secs(2));
     }
 
     #[test]
