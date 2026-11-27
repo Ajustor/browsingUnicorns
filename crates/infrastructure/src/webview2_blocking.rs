@@ -27,7 +27,7 @@ use windows_core::{HSTRING, Interface, PWSTR};
 use wry::{WebView, WebViewExtWindows};
 
 use crate::blocker::BlockerHandle;
-use crate::extension_server::mime_type;
+use crate::extension_server::{mime_type, safe_relative};
 use crate::extensions::extension_dir;
 
 fn resource_type(context: COREWEBVIEW2_WEB_RESOURCE_CONTEXT) -> Option<ResourceType> {
@@ -50,13 +50,10 @@ fn resource_type(context: COREWEBVIEW2_WEB_RESOURCE_CONTEXT) -> Option<ResourceT
     })
 }
 
-/// `path` of extension `id`'s folder, refusing `..`.
+/// `path` of extension `id`'s folder: plain names only, so that neither
+/// `..` nor an absolute path (`C:/…`, `\\server\share`) leaves it.
 fn stand_in(dir: &Path, id: &domain::ExtensionId, path: &str) -> Option<Vec<u8>> {
-    let relative = path.trim_start_matches('/');
-    if relative.split(['/', '\\']).any(|p| p == "..") {
-        return None;
-    }
-    fs::read(extension_dir(dir, id).join(relative)).ok()
+    fs::read(extension_dir(dir, id).join(safe_relative(path)?)).ok()
 }
 
 /// Filters every request of `view` through `rules`, then `blocker`. `page`
@@ -182,4 +179,35 @@ pub fn attach(
     }));
     let mut token = 0;
     unsafe { webview.add_WebResourceRequested(&handler, &mut token) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stand_ins_stay_in_the_extension_folder() {
+        let root = tempfile::tempdir().unwrap();
+        let id = domain::ExtensionId::parse("ddkjiahejlhfcafbddmgiahcphecmpfh").unwrap();
+        let dir = root.path().join("extensions");
+        fs::create_dir_all(extension_dir(&dir, &id).join("war")).unwrap();
+        fs::write(extension_dir(&dir, &id).join("war/noop.js"), "ok").unwrap();
+        let outside = root.path().join("secret.txt");
+        fs::write(&outside, "secret").unwrap();
+
+        assert_eq!(stand_in(&dir, &id, "/war/noop.js").unwrap(), b"ok");
+        let absolute = outside.to_string_lossy().into_owned();
+        for path in [
+            absolute.as_str(),
+            "C:/Windows/win.ini",
+            "/C:/Windows/win.ini",
+            "\\\\server\\x",
+            "//server/x",
+            "/war/../../secret.txt",
+            "/war/%2e%2e/%2e%2e/secret.txt",
+            "a/../../b",
+        ] {
+            assert_eq!(stand_in(&dir, &id, path), None, "{path}");
+        }
+    }
 }

@@ -137,11 +137,10 @@ impl Hub {
         .to_string()
     }
 
+    /// `path` of extension `ext`'s folder: plain names only, so that neither
+    /// `..` nor an absolute path (`C:/…`, `\\server\share`) leaves it.
     fn extension_file(&self, ext: &ExtensionId, path: &str) -> Option<String> {
-        let relative = path.trim_start_matches('/');
-        if relative.split(['/', '\\']).any(|p| p == "..") {
-            return None;
-        }
+        let relative = crate::extension_server::safe_relative(path)?;
         fs::read_to_string(extension_dir(&self.extensions_dir, ext).join(relative)).ok()
     }
 

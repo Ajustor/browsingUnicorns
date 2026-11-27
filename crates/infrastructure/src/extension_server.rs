@@ -163,7 +163,7 @@ fn background_path(background: &manifest::Background) -> String {
 }
 const RUNTIME_PATH: &str = "/__bu/runtime.js";
 
-fn safe_relative(path: &str) -> Option<PathBuf> {
+pub(crate) fn safe_relative(path: &str) -> Option<PathBuf> {
     let path = path.split(['?', '#']).next().unwrap_or(path);
     let decoded = percent_decode(path.trim_start_matches('/'));
     let relative = PathBuf::from(decoded);

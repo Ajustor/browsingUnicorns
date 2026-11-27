@@ -167,7 +167,10 @@ pub fn read_rules(
         Some(ids) => ids.contains(&r.id),
         None => r.enabled,
     }) {
-        let path = dir.join(set.path.trim_start_matches('/'));
+        // Plain names only: an absolute path would read any file.
+        let relative = crate::extension_server::safe_relative(&set.path)
+            .ok_or_else(|| format!("{}: not a file of the extension", set.path))?;
+        let path = dir.join(relative);
         let text = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", set.path))?;
         let dtos: Vec<Value> =
             serde_json::from_str(&text).map_err(|e| format!("{}: {e}", set.path))?;

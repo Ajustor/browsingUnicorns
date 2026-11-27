@@ -390,6 +390,58 @@ mod tests {
 
     use super::*;
 
+    /// The paths extensions name (network rules' stand-ins, content
+    /// scripts, rulesets) never lead out of their folder.
+    #[test]
+    fn extension_paths_stay_in_the_folder() {
+        use crate::extension_server::safe_relative;
+
+        let dir = Path::new("profile").join("extensions").join("x");
+        for path in [
+            "C:/Windows/win.ini",
+            "/C:/Windows/win.ini",
+            "C:win.ini",
+            "\\\\server\\x",
+            "//server/x",
+            "/etc/passwd",
+            "a/../../b",
+            "/war/%2e%2e/%2e%2e/b",
+            "..",
+        ] {
+            if let Some(relative) = safe_relative(path) {
+                assert!(relative.is_relative(), "{path}");
+                assert!(
+                    relative
+                        .components()
+                        .all(|c| matches!(c, std::path::Component::Normal(_))),
+                    "{path}"
+                );
+                assert!(dir.join(&relative).starts_with(&dir), "{path}");
+            }
+        }
+        for path in ["a/../../b", "/war/%2e%2e/%2e%2e/b", ".."] {
+            assert_eq!(safe_relative(path), None, "{path}");
+        }
+        // Windows: a drive or a share would replace the folder.
+        #[cfg(windows)]
+        for path in [
+            "C:/Windows/win.ini",
+            "/C:/Windows/win.ini",
+            "C:win.ini",
+            "\\\\server\\x",
+        ] {
+            assert_eq!(safe_relative(path), None, "{path}");
+        }
+        assert_eq!(
+            safe_relative("/etc/passwd"),
+            Some(Path::new("etc").join("passwd"))
+        );
+        assert_eq!(
+            safe_relative("/war/noop.js?x#y"),
+            Some(Path::new("war").join("noop.js"))
+        );
+    }
+
     fn no_download() -> Download {
         Arc::new(|_: &str| Err("offline".to_owned()))
     }
