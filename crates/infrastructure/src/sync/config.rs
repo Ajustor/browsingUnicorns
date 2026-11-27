@@ -63,6 +63,8 @@ impl SyncConfigFile {
                 return None;
             }
         };
+        // Unix: written readable by all by older versions.
+        files::make_private(&self.path);
         let dto: ConfigDto = serde_json::from_str(&text)
             .inspect_err(|e| log::warn!("sync settings: {e}"))
             .ok()?;
@@ -149,6 +151,12 @@ mod tests {
         let raw = std::fs::read_to_string(&path).unwrap();
         assert_eq!(raw.contains(&key.code()), !seal::AVAILABLE);
         assert_eq!(file.load(), Some(loaded));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
     }
 
     #[test]

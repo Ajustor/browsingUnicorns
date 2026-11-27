@@ -68,7 +68,7 @@ impl ProfileDirs {
 impl ProfileStore for ProfileDirs {
     fn create(&self, id: &ProfileId) -> Result<(), RepositoryError> {
         let dir = self.dir(id);
-        std::fs::create_dir_all(&dir).map_err(|e| files::error(&dir, e))
+        files::create_dir_all(&dir).map_err(|e| files::error(&dir, e))
     }
 
     fn delete(&self, id: &ProfileId) -> Result<(), RepositoryError> {
@@ -137,7 +137,9 @@ pub struct ProfileLock {
 impl ProfileLock {
     /// `None` when another window holds it (or the folder is unusable).
     pub fn acquire(dir: &Path) -> Option<Self> {
-        std::fs::create_dir_all(dir).ok()?;
+        files::create_dir_all(dir).ok()?;
+        // A folder made by an older version was readable by all (Unix).
+        files::make_private(dir);
         let file = open_lock(dir).ok()?;
         match file.try_lock() {
             Ok(()) => Some(Self { _file: file }),

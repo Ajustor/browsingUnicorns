@@ -1,8 +1,10 @@
 //! File helpers shared by the repositories.
 //!
 //! Everything written here is the user's own data (history, cookies,
-//! passwords, sync key...): on Unix the files are created `0600`. On
-//! Windows they inherit the ACL of the user's profile folder.
+//! passwords, sync key...). On Unix the files are created `0600` and the
+//! folders `0700`: there, protection at rest relies on these permissions
+//! (no keychain is used). On Windows the files inherit the ACL of the
+//! user's profile folder, which only the user (and administrators) can read.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{ErrorKind, Write};
@@ -15,6 +17,10 @@ use application::ports::RepositoryError;
 #[cfg(unix)]
 const FILE_MODE: u32 = 0o600;
 
+/// Owner only.
+#[cfg(unix)]
+const DIR_MODE: u32 = 0o700;
+
 pub fn error(path: &Path, e: impl std::fmt::Display) -> RepositoryError {
     RepositoryError(format!("{}: {e}", path.display()))
 }
@@ -26,6 +32,38 @@ pub fn read(path: &Path) -> Result<Option<String>, RepositoryError> {
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
         Err(e) => Err(error(path, e)),
     }
+}
+
+/// Creates `dir` and its missing parents, private to the user on Unix
+/// (`0700`; folders that already exist keep their mode).
+pub fn create_dir_all(dir: &Path) -> std::io::Result<()> {
+    let mut builder = fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, DIR_MODE);
+    builder.create(dir)
+}
+
+/// Narrows an existing file (`0600`) or folder (`0700`) to its owner on
+/// Unix: older versions left them readable by all (`0644`, `0755`).
+/// Nothing elsewhere.
+pub fn make_private(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let Ok(meta) = fs::metadata(path) else {
+            return;
+        };
+        if meta.permissions().mode() & 0o077 == 0 {
+            return;
+        }
+        let mode = if meta.is_dir() { DIR_MODE } else { FILE_MODE };
+        if let Err(e) = fs::set_permissions(path, fs::Permissions::from_mode(mode)) {
+            log::warn!("{}: {e}", path.display());
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = path;
 }
 
 /// Replaces the file in one step (temporary file, flushed to the disk, then
@@ -41,7 +79,7 @@ pub fn write_bytes(path: &Path, contents: &[u8]) -> Result<(), RepositoryError> 
         Some(dir) if !dir.as_os_str().is_empty() => dir,
         _ => Path::new("."),
     };
-    fs::create_dir_all(dir).map_err(|e| error(path, e))?;
+    create_dir_all(dir).map_err(|e| error(path, e))?;
     let (tmp, mut file) = create_temp(path).map_err(|e| error(path, e))?;
     let written = file
         .write_all(contents)
@@ -149,12 +187,26 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn files_are_private() {
+    fn files_and_folders_are_private() {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("secret.json");
+        let folder = dir.path().join("profile");
+        let path = folder.join("secret.json");
         write(&path, "{}").unwrap();
-        let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode, 0o600);
+        let mode = |p: &Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&path), 0o600);
+        assert_eq!(mode(&folder), 0o700);
+
+        let old = dir.path().join("old.json");
+        fs::write(&old, "{}").unwrap();
+        fs::set_permissions(&old, fs::Permissions::from_mode(0o644)).unwrap();
+        make_private(&old);
+        assert_eq!(mode(&old), 0o600);
+
+        let old_folder = dir.path().join("old");
+        fs::create_dir(&old_folder).unwrap();
+        fs::set_permissions(&old_folder, fs::Permissions::from_mode(0o755)).unwrap();
+        make_private(&old_folder);
+        assert_eq!(mode(&old_folder), 0o700);
     }
 }

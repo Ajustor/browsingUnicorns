@@ -31,6 +31,8 @@ impl Repository<Credentials> for CredentialsRepository {
         let Some(text) = files::read(&self.path)? else {
             return Ok(Credentials::default());
         };
+        // Unix: written readable by all by older versions.
+        files::make_private(&self.path);
         let json = seal::open(&text).map_err(|e| files::error(&self.path, e))?;
         let dto: CredentialsDto =
             serde_json::from_str(&json).map_err(|e| files::error(&self.path, e))?;
