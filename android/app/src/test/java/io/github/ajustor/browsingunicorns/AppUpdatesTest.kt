@@ -23,4 +23,12 @@ class AppUpdatesTest {
         assertEquals(true, AppUpdates.isNewer("0.31.0", "0.30.0"))
         assertEquals(false, AppUpdates.isNewer("0.30.0", "0.30.0"))
     }
+
+    @Test
+    fun anInstalledUpdatesApkIsStale() {
+        assertEquals(true, AppUpdates.isStale("browsingUnicorns-0.32.0.apk", "0.32.0"))
+        assertEquals(true, AppUpdates.isStale("browsingUnicorns-0.31.0.apk", "0.32.0"))
+        assertEquals(false, AppUpdates.isStale("browsingUnicorns-0.33.0.apk", "0.32.0"))
+        assertEquals(true, AppUpdates.isStale("something.tmp", "0.32.0"))
+    }
 }

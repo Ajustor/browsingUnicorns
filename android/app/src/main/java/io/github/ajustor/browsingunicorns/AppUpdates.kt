@@ -66,6 +66,10 @@ class AppUpdates(private val context: Context, private val scope: CoroutineScope
 
     init {
         live = WeakReference(this)
+        // The APK of an update installed since (or older) is no use now.
+        scope.launch(Dispatchers.IO) {
+            dir.listFiles()?.filter { isStale(it.name, currentVersion) }?.forEach { it.delete() }
+        }
     }
 
     /** Checks if the last check is a day old (at start, back to the app). */
@@ -165,7 +169,7 @@ class AppUpdates(private val context: Context, private val scope: CoroutineScope
                 runCatching {
                     dir.mkdirs()
                     dir.listFiles()?.forEach { it.delete() }
-                    val apk = File(dir, "browsingUnicorns-${release.version}.apk")
+                    val apk = File(dir, apkFile(release.version))
                     val connection = open(release.apkUrl)
                     val total = connection.contentLengthLong
                     val digest = MessageDigest.getInstance("SHA-256")
@@ -316,6 +320,19 @@ class AppUpdates(private val context: Context, private val scope: CoroutineScope
         /** The instance the UI shows, if the process still has one. */
         @Volatile
         internal var live: WeakReference<AppUpdates>? = null
+
+        /** The name of a downloaded update's APK in the cache. */
+        fun apkFile(version: String) = "browsingUnicorns-$version.apk"
+
+        /**
+         * A file of the updates' cache that can go: an APK of a version not
+         * newer than [current] (installed already), or anything else.
+         */
+        fun isStale(name: String, current: String): Boolean {
+            val version = name.removePrefix("browsingUnicorns-").removeSuffix(".apk")
+            if (name != apkFile(version) || version.isEmpty()) return true
+            return !isNewer(version, current)
+        }
 
         /** `0.10.0` > `0.9.3`; a pre-release suffix (`-rc.1`) is ignored. */
         fun isNewer(candidate: String, current: String): Boolean {
