@@ -5406,6 +5406,7 @@ version = "0.1.0"
 dependencies = [
  "i18n",
  "log",
+ "ring",
  "self-replace",
  "semver",
  "serde",

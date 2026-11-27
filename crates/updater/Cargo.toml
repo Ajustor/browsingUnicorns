@@ -12,6 +12,9 @@ description = "Self-update from the release manifest published on GitHub Pages (
 ureq = { version = "3", features = ["platform-verifier"] }
 semver = "1"
 sha2 = "0.10"
+# Ed25519 check of the manifest's signature. Already linked through rustls
+# (ureq's TLS), so it costs next to nothing in the binary.
+ring = { version = "0.17", default-features = false }
 self-replace = "1"
 tempfile = "3"
 serde = { version = "1", features = ["derive"] }

@@ -1,8 +1,9 @@
 //! Self-update from the release manifest published on GitHub Pages.
 //!
 //! The release workflow deploys `latest.json` plus the binaries to GitHub Pages.
-//! [`fetch_latest`] reads the manifest and compares its version with the
-//! app's; [`download_and_apply`] downloads the asset for this platform,
+//! [`fetch_latest`] reads the manifest, checks its Ed25519 signature against
+//! the release key built into the app (see [`signature`]), and compares its
+//! version with the app's; [`download_and_apply`] downloads the asset for this platform,
 //! verifies its SHA-256 against the manifest, then either replaces the running
 //! executable (portable installs, the macOS `.app` bundle), replaces the
 //! `.AppImage` file the app runs from (Linux AppImage), or stages the `.msi` to
@@ -14,6 +15,7 @@
 
 mod background;
 mod memory;
+mod signature;
 
 pub use background::{UpdateEvent, UpdateState, Updater};
 pub use memory::UpdateMemory;
@@ -83,6 +85,10 @@ struct Manifest {
     page_url: String,
     #[serde(default)]
     assets: Vec<ManifestAsset>,
+    /// Hex Ed25519 signature of the fields above ([`signature`]). Absent
+    /// from manifests published before 0.33: those are refused.
+    #[serde(default)]
+    signature: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -209,15 +215,19 @@ pub fn fetch_latest(app: &AppInfo) -> Result<Option<ReleaseInfo>, String> {
         .body_mut()
         .read_to_string()
         .map_err(|e| msg::manifest_unread(&e))?;
-    release_from_manifest(app, &text, install_kind())
+    release_from_manifest(app, &text, install_kind(), signature::UPDATE_PUBLIC_KEY)
 }
 
+/// Parse `text` and, once its signature checks against `public_key_hex`,
+/// pick the update for `kind`.
 fn release_from_manifest(
     app: &AppInfo,
     text: &str,
     kind: InstallKind,
+    public_key_hex: &str,
 ) -> Result<Option<ReleaseInfo>, String> {
     let manifest: Manifest = serde_json::from_str(text).map_err(|e| msg::manifest_unparsed(&e))?;
+    signature::verify_manifest(&manifest, public_key_hex)?;
     let current = semver::Version::parse(app.version).map_err(|e| msg::bad_current_version(&e))?;
     select_update(app, manifest, &current, kind)
 }
@@ -614,9 +624,15 @@ pub(crate) mod tests {
         let json = format!(
             r#"{{"version":"{version}","notes":"","page_url":"p","assets":[{{"name":"testApp-setup.msi","url":"u","sha256":"00"}}]}}"#
         );
-        release_from_manifest(&APP, &json, InstallKind::Msi)
+        release(&signature::tests::sign_json(&json), InstallKind::Msi)
             .unwrap()
             .unwrap()
+    }
+
+    /// [`release_from_manifest`] trusting the test key.
+    fn release(json: &str, kind: InstallKind) -> Result<Option<ReleaseInfo>, String> {
+        let key = signature::tests::test_public_key_hex();
+        release_from_manifest(&APP, json, kind, &key)
     }
 
     fn manifest(version: &str, assets: &[&str]) -> Manifest {
@@ -632,6 +648,7 @@ pub(crate) mod tests {
                     sha256: "ab".into(),
                 })
                 .collect(),
+            signature: String::new(),
         }
     }
 
@@ -718,7 +735,27 @@ pub(crate) mod tests {
         let json = r#"{"version":"0.9.0","notes":"n","page_url":"https://p/","assets":[{"name":"a","url":"https://u/a","sha256":"00"}]}"#;
         let m: Manifest = serde_json::from_str(json).unwrap();
         assert_eq!(m.assets[0].name, "a");
-        assert!(release_from_manifest(&APP, "{not json", InstallKind::Msi).is_err());
+        assert!(release("{not json", InstallKind::Msi).is_err());
+    }
+
+    #[test]
+    fn manifest_is_trusted_only_once_signed() {
+        let json = r#"{"version":"9.0.0","notes":"","page_url":"p","assets":[{"name":"testApp-setup.msi","url":"https://u/a","sha256":"00"}]}"#;
+        let signed = signature::tests::sign_json(json);
+        assert!(release(&signed, InstallKind::Msi).unwrap().is_some());
+        let en = |json: &str| i18n::with_lang(i18n::Lang::En, || release(json, InstallKind::Msi));
+        // Unsigned: refused before its version or assets are looked at.
+        assert!(en(json).unwrap_err().contains("not signed"));
+        let tampered = signed.replace("https://u/a", "https://evil/a");
+        assert!(en(&tampered).unwrap_err().contains("signature is invalid"));
+        // The release key did not sign the test manifest.
+        let real = release_from_manifest(
+            &APP,
+            &signed,
+            InstallKind::Msi,
+            signature::UPDATE_PUBLIC_KEY,
+        );
+        assert!(real.is_err());
     }
 
     #[test]

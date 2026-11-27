@@ -4,7 +4,8 @@
 # Usage: build-site.sh <tag> <base-url> <artifacts-dir>
 #
 # Copies the release files found (recursively) in <artifacts-dir>, writes
-# `latest.json` (read by the in-app updater, src/updater/mod.rs) and
+# `latest.json` (read by the in-app updater, crates/updater; signed with the
+# UPDATE_SIGNING_KEY environment variable by scripts/sign-manifest.py) and
 # `SHA256SUMS` (read by scripts/install.sh), renders the download page from
 # pages/index.html and publishes the install scripts. Release notes come from
 # CHANGELOG.md, falling back to the GitHub release text (needs GH_TOKEN and
@@ -39,6 +40,8 @@ jq -n --arg version "${TAG#v}" --arg notes "$notes" --arg page "$BASE_URL/" \
   --argjson assets "$assets" \
   '{version: $version, notes: $notes, page_url: $page, assets: $assets}' \
   > site/latest.json
+# The updater refuses an unsigned manifest (needs UPDATE_SIGNING_KEY).
+python3 scripts/sign-manifest.py site/latest.json crates/updater/update-signing-key.pub
 
 cp assets/icon.png site/icon.png
 cp scripts/install.sh scripts/install.ps1 scripts/install-macos.sh site/

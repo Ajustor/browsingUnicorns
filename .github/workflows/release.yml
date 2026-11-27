@@ -332,6 +332,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           BASE_URL: ${{ steps.pages.outputs.base_url }}
+          # Ed25519 key signing latest.json (scripts/sign-manifest.py).
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
         run: bash scripts/build-site.sh "$GITHUB_REF_NAME" "$BASE_URL" artifacts
       # One artifact name per attempt: a re-run would otherwise find the
       # previous attempt's "github-pages" too, and deploy-pages refuses two.

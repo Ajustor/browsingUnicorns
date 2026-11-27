@@ -17,6 +17,16 @@ messages! {
         en: "parsing release manifest: {e}",
         fr: "manifeste de publication illisible\u{a0}: {e}",
     }
+    /// The manifest carries no signature.
+    fn manifest_unsigned() {
+        en: "release manifest is not signed; refusing to update",
+        fr: "le manifeste de publication n’est pas signé\u{a0}; mise à jour refusée",
+    }
+    /// The manifest's signature does not match its content or our key.
+    fn manifest_bad_signature() {
+        en: "release manifest signature is invalid; refusing to update",
+        fr: "la signature du manifeste de publication est invalide\u{a0}; mise à jour refusée",
+    }
     /// The running version is not a semantic version.
     fn bad_current_version(e: &dyn std::fmt::Display) {
         en: "bad current version: {e}",
