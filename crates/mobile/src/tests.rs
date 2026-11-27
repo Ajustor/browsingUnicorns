@@ -761,8 +761,24 @@ fn sign_ins_are_offered_saved_filled_and_the_setting_drops_the_script() {
     let (b, host) = browser(&dir, "phone", &http);
     let tab = b.open_tab(None, false).unwrap();
     b.on_load_finished(tab, "https://a.com/login".into());
-    let submit = r#"{"op":"credentials.submit","username":"me","password":"pw"}"#;
-    b.page_message(PageTarget::Tab { tab }, submit.into());
+    // A frame's report (BUBridge is in every frame): no token, refused.
+    let forged = r#"{"op":"credentials.submit","username":"evil","password":"x"}"#;
+    b.page_message(PageTarget::Tab { tab }, forged.into());
+    assert!(b.pending_credential().is_none());
+    // The top frame's script has the token.
+    let scripts = host.1.lock().unwrap().clone();
+    let capture = scripts
+        .iter()
+        .find(|s| s.contains("captureSignIns();"))
+        .unwrap();
+    let token = capture
+        .split("const TOKEN = \"")
+        .nth(1)
+        .and_then(|rest| rest.split('"').next())
+        .unwrap();
+    let submit =
+        format!(r#"{{"t":"{token}","op":"credentials.submit","username":"me","password":"pw"}}"#);
+    b.page_message(PageTarget::Tab { tab }, submit);
     let offer = b.pending_credential().unwrap();
     assert_eq!(
         (offer.origin.as_str(), offer.username.as_str()),

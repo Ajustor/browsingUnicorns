@@ -1,7 +1,7 @@
 // The browser's password manager in pages: tells the browser what a sign-in
 // form sent (it offers to save it), and fills such forms in. Top frame only.
-// Prepended with `const BRIDGE = "ipc" | "android";` (capture) or run with
-// the sign-in to fill (see credentials.rs).
+// Prepended with `const BRIDGE = "ipc" | "android"; const TOKEN = "…";`
+// (capture) or run with the sign-in to fill (see credentials.rs).
 
 const USER_FIELD =
   'input[autocomplete~="username"], input[type="email"], input[name*="user" i], ' +
@@ -40,16 +40,29 @@ function isNewPassword(el) {
   return /new-password/.test(el.getAttribute("autocomplete") || "");
 }
 
+// Top frame only: a frame (an ad's) never gets to TOKEN, so it cannot offer
+// to save a password for the site around it. What sending uses is taken
+// now, before the page's scripts run, so that the page never sees TOKEN go
+// by either.
 function captureSignIns() {
   if (window.top !== window || window.__buSignIns) return;
   Object.defineProperty(window, "__buSignIns", { value: true });
+  const stringify = JSON.stringify;
+  const createObject = Object.create;
   let post = null;
   if (BRIDGE === "android") {
     const bridge = window.BUBridge;
-    if (bridge) post = (m) => bridge.call(m);
+    if (bridge && bridge.call) post = bridge.call.bind(bridge);
   } else {
+    // The web view's own channel (wry's `ipc.postMessage` looks it up at
+    // each call, after the page could replace it).
+    const webview = window.chrome && window.chrome.webview;
+    const handlers = window.webkit && window.webkit.messageHandlers;
+    const webkit = handlers && handlers.ipc;
     const ipc = window.ipc;
-    if (ipc && ipc.postMessage) post = ipc.postMessage.bind(ipc);
+    if (webview && webview.postMessage) post = webview.postMessage.bind(webview);
+    else if (webkit && webkit.postMessage) post = webkit.postMessage.bind(webkit);
+    else if (ipc && ipc.postMessage) post = ipc.postMessage.bind(ipc);
   }
   if (!post) return;
   let last = "";
@@ -57,8 +70,14 @@ function captureSignIns() {
     const key = username + "\n" + password;
     if (key === last) return;
     last = key;
+    // No prototype: no `toJSON` nor setter of the page's sees it.
+    const msg = createObject(null);
+    msg.t = TOKEN;
+    msg.op = "credentials.submit";
+    msg.username = username;
+    msg.password = password;
     try {
-      post(JSON.stringify({ op: "credentials.submit", username, password }));
+      post(stringify(msg));
     } catch (e) {}
   };
   const grab = (scope) => {

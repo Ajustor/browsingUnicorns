@@ -4,7 +4,7 @@
 
 use application::CredentialAnswer;
 use domain::SiteCookie;
-use infrastructure::page_scripts::credentials::submitted;
+use infrastructure::page_scripts::credentials::{is_report, submitted};
 
 use crate::{MobileBrowser, MobileError, PageTarget};
 
@@ -80,10 +80,16 @@ impl From<&SiteCookie> for CookieInfo {
 
 impl MobileBrowser {
     /// A sign-in reported by the password manager's page script, handled
-    /// here; `false` for any other message.
+    /// here; `false` for any other message. `BUBridge` is in every frame:
+    /// a report without the token (that only the script of the top frame
+    /// has) is dropped, so a frame cannot offer a password for the site it
+    /// sits in.
     pub(crate) fn credential_message(&self, from: &PageTarget, message: &str) -> bool {
-        let Some((username, password)) = submitted(message) else {
+        if !is_report(message) {
             return false;
+        }
+        let Some((username, password)) = submitted(message) else {
+            return true;
         };
         if let PageTarget::Tab { tab } = from {
             self.lock()

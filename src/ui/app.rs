@@ -346,11 +346,12 @@ impl BrowserApp {
     fn drain_engine_events(&mut self) {
         while let Ok(event) = self.events.try_recv() {
             if let EngineEvent::PageMessage { from, url, body } = &event {
-                // The password manager's page script: a sign-in was sent.
-                if let Some((username, password)) =
-                    infrastructure::page_scripts::credentials::submitted(body)
-                {
-                    if let PageSource::Tab(tab) = from
+                // The password manager's page script: a sign-in was sent
+                // (in the top frame: only its script there has the token).
+                if infrastructure::page_scripts::credentials::is_report(body) {
+                    if let Some((username, password)) =
+                        infrastructure::page_scripts::credentials::submitted(body)
+                        && let PageSource::Tab(tab) = from
                         && !self.is_private()
                     {
                         self.browser.offer_credential(*tab, &username, &password);
