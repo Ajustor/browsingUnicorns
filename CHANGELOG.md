@@ -4,6 +4,73 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.33.0] - 2026-11-27
+
+### Ajouté
+
+- Android : un téléchargement terminé propose de l'ouvrir (« Ouvrir »),
+  ou la liste des téléchargements si aucune application ne sait le lire.
+
+### Sécurité
+
+- Les mises à jour sont signées : le navigateur refuse une mise à jour
+  dont la signature ne correspond pas à sa clé.
+- Une page web ne peut plus lire les fichiers des extensions ni se faire
+  passer pour l'une d'elles ; chaque extension a sa propre clé, et ce
+  qu'une extension injecte dans une page n'a que les droits d'un script
+  de contenu.
+- Les paquets d'extension (.crx) sont vérifiés par leur signature ; un
+  paquet ne peut plus prendre l'identité d'une autre extension. Leur
+  taille une fois décompressés est bornée.
+- Une extension ne peut plus lire de fichier hors de son dossier, ni
+  atteindre le réseau local par une redirection.
+- Une iframe (une pub, par exemple) ne peut plus proposer d'enregistrer
+  ou de remplacer un mot de passe.
+- La clé de synchronisation est chiffrée comme les mots de passe
+  (Windows) ; sous macOS et Linux, le profil n'est lisible que par son
+  utilisateur.
+- Android : les fenêtres et les liens vers d'autres applications ne
+  s'ouvrent qu'après un geste de l'utilisateur ; un téléchargement depuis
+  un onglet privé n'envoie plus les cookies du profil normal.
+
+### Corrigé
+
+- Taper une adresse dans un onglet planté ou endormi ne faisait rien.
+- Un fichier de session illisible faisait perdre tous les onglets ; il est
+  mis de côté (`.bak`).
+- « Jamais pour ce site » effaçait le mot de passe enregistré sans nom
+  d'utilisateur.
+- Le bloqueur prenait les sous-domaines de sites aux noms courts
+  (`zdf.de`, `ovh.fr`, `t.co`) pour des tiers.
+- Un historique plein était réécrit à chaque synchronisation, et un échec
+  de synchronisation retardait la suivante de 5 minutes.
+- Fermer un groupe d'onglets réveillait ses onglets endormis ; Ctrl+Maj+T
+  rouvrait les fenêtres d'extension comme des onglets.
+- Les dossiers de favoris de même nom pouvaient apparaître en double.
+- Une option inconnue sur la ligne de commande était ouverte comme une
+  adresse.
+- Android : un changement de langue ou de taille de police lançait un
+  second navigateur sur le même profil ; ouvrir un onglet depuis une
+  extension pouvait planter ; l'APK universel s'installait sur les
+  appareils 32 bits sans y démarrer ; la page de fond d'une extension ne
+  revenait pas après un plantage ; un gros fichier généré par une page
+  pouvait saturer la mémoire.
+
+### Performances
+
+- Au repos, le navigateur ne se réveille plus : plus de dessin 60 fois par
+  seconde sous Linux, plus de réveil chaque seconde avec la synchro, ni
+  pendant le chargement d'une page.
+- Moins de travail à chaque image (session, favoris, bibliothèque,
+  bloqueur, icônes) et plus d'écriture disque sur le fil de l'interface.
+- Icônes de sites réduites à 32 px et gardées pour les onglets ouverts
+  seulement.
+- macOS et Linux : les règles du bloqueur ne sont recompilées que si elles
+  changent, et le moteur ne garde que les règles cosmétiques.
+- La synchronisation n'envoie plus rien quand rien n'a changé.
+- Android : APK d'environ 8 Mo plus léger ; les pages sont mises en pause
+  quand l'application passe en arrière-plan.
+
 ## [0.32.0] - 2026-11-26
 
 ### Ajouté
