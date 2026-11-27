@@ -64,11 +64,53 @@ impl DeviceRecord {
     /// What its cookies may weigh at most, roughly (bytes): the relay takes
     /// records of 1 MiB at most.
     pub const COOKIES_BUDGET: usize = 256 * 1024;
+    /// A record the relay has, unchanged, is sent again once this old
+    /// (seconds): it shows the device is still there, and keeps it from
+    /// expiring.
+    pub const REFRESH_AFTER: Timestamp = 12 * 60 * 60;
+
+    /// Whether `other` carries what `self` does, whenever it was taken.
+    /// The device's own settings (never synced) are left out.
+    pub fn same_content(&self, other: &Self) -> bool {
+        let shared = |s: &Settings| Settings {
+            device: Default::default(),
+            ..s.clone()
+        };
+        self.device == other.device
+            && self.name == other.name
+            && self.tabs == other.tabs
+            && self.history == other.history
+            && self.bookmarks == other.bookmarks
+            && self.credentials == other.credentials
+            && self.cookies == other.cookies
+            && shared(&self.settings) == shared(&other.settings)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn same_content_whenever_taken_and_whatever_the_device_settings() {
+        let record = DeviceRecord {
+            device: DeviceId::new("d").unwrap(),
+            name: "D".into(),
+            updated_at: 1,
+            bookmarks: Bookmarks::default(),
+            history: vec![],
+            tabs: vec![],
+            settings: Settings::default(),
+            credentials: Credentials::default(),
+            cookies: vec![],
+        };
+        let mut later = record.clone();
+        later.updated_at = 99;
+        later.settings.device.sync_cookies = !later.settings.device.sync_cookies;
+        assert!(record.same_content(&later));
+        later.name = "E".into();
+        assert!(!record.same_content(&later));
+    }
 
     #[test]
     fn device_ids_are_url_safe() {

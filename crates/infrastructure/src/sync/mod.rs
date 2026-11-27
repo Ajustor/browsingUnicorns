@@ -318,6 +318,43 @@ mod tests {
     }
 
     #[test]
+    fn a_record_comes_back_with_the_same_content() {
+        // What lets a round skip sending a record the relay has already.
+        let relay = FakeRelay::default();
+        let store = EncryptedSyncStore::new(SyncKey::generate(), &relay);
+        let address = |s: &str| WebAddress::parse(s).unwrap();
+        let mut own = record("desktop");
+        own.bookmarks.add(address("https://b.com/"), "B", 8);
+        own.bookmarks.remove(&address("https://b.com/"), 9);
+        own.history = vec![domain::Visit {
+            address: address("https://h.com/"),
+            title: "H".into(),
+            at: 3,
+        }];
+        own.tabs = vec![domain::RemoteTab {
+            address: address("https://t.com/"),
+            title: "T".into(),
+        }];
+        own.settings.device.sync_cookies = true;
+        own.credentials.save("https://a.com", "me", "pw", 1);
+        own.credentials.never_for("https://n.com", 2);
+        own.credentials.remove("https://a.com", "old", false, 3);
+        own.cookies = vec![domain::SiteCookie {
+            domain: ".a.com".into(),
+            name: "sid".into(),
+            value: "v".into(),
+            path: "/".into(),
+            secure: true,
+            http_only: true,
+            same_site: "Lax".into(),
+            expires: Some(99),
+        }];
+        store.push(&own).unwrap();
+        let pulled = store.pull().unwrap();
+        assert!(pulled[0].same_content(&own), "{:#?}\n{own:#?}", pulled[0]);
+    }
+
+    #[test]
     fn another_group_cannot_read_or_overwrite() {
         let relay = FakeRelay::default();
         let mine = EncryptedSyncStore::new(SyncKey::generate(), &relay);
