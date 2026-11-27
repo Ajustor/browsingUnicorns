@@ -53,7 +53,7 @@ pub struct SettingsView<'a> {
     /// window).
     pub reset_drm: bool,
     /// Where downloads go when no folder is chosen.
-    pub default_download_dir: Option<std::path::PathBuf>,
+    pub default_download_dir: Option<&'a std::path::Path>,
 }
 
 impl SettingsPanel {
@@ -204,7 +204,7 @@ impl SettingsPanel {
                     .device
                     .download_dir
                     .clone()
-                    .or(view.default_download_dir.clone());
+                    .or_else(|| view.default_download_dir.map(std::path::Path::to_path_buf));
                 ui.weak(i18n::settings::save_to());
                 let shown = folder.as_ref().map_or_else(
                     || i18n::settings::system_downloads_folder().to_owned(),

@@ -142,7 +142,7 @@ impl BrowserApp {
                 .response
                 .rect
         });
-        let actions = if infrastructure::builtin_extensions() {
+        let actions = if crate::ui::builtin_extensions() {
             self.bar.actions(ctx, self.extensions.extensions())
         } else {
             Vec::new()
@@ -293,6 +293,10 @@ impl BrowserApp {
         if unseen_notes && self.library.open == Some(LibraryView::WhatsNew) {
             self.mark_notes_seen();
         }
+        // Closed: nothing to gather for it.
+        if self.library.open.is_none() {
+            return;
+        }
         self.library.show(
             ctx,
             LibraryData {
@@ -307,7 +311,7 @@ impl BrowserApp {
                 },
                 extensions: ExtensionsView {
                     support: self.browser.engine().extension_support(),
-                    origins: infrastructure::builtin_extensions()
+                    origins: crate::ui::builtin_extensions()
                         .then(infrastructure::extension_server::Origins::desktop),
                     runner: &self.extensions,
                     engine: self.browser.engine(),
@@ -327,7 +331,7 @@ impl BrowserApp {
                     credentials: self.browser.credentials(),
                     clear_site_data: self.browser.engine().can_clear_site_data(),
                     reset_drm: self.drm.is_some(),
-                    default_download_dir: infrastructure::downloads_dir(),
+                    default_download_dir: crate::ui::downloads_dir(),
                 },
                 unseen_notes,
                 update_waiting: matches!(

@@ -51,3 +51,17 @@ pub use user_scripts::UserScriptsRunner;
 pub use app::{AddOns, BrowserApp, ExitSlot};
 
 pub const APP_NAME: &str = "Browsing Unicorns";
+
+/// [`infrastructure::builtin_extensions`], looked up once (an environment
+/// variable read: not each frame).
+fn builtin_extensions() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(infrastructure::builtin_extensions)
+}
+
+/// The system's downloads folder, looked up once (on Linux, a read of
+/// `user-dirs.dirs`: not each frame).
+fn downloads_dir() -> Option<&'static std::path::Path> {
+    static DIR: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
+    DIR.get_or_init(infrastructure::downloads_dir).as_deref()
+}
