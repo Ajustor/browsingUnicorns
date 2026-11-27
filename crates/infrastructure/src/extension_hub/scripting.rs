@@ -11,7 +11,7 @@ use super::{Answer, Call, Hub, HubHost, Pending, tab_id, unsupported};
 use crate::extensions::extension_dir;
 use crate::extensions::state::ExtensionState;
 use crate::page_scripts::{self, Bridge};
-use crate::script_storage::new_token;
+use crate::script_storage::{new_token, owner_token};
 
 impl Hub {
     pub(super) fn scripting_call(&mut self, call: &Call<'_>, host: &mut dyn HubHost) -> Answer {
@@ -52,7 +52,7 @@ impl Hub {
                     }
                 };
                 let code = page_scripts::injected_script(
-                    &self.token,
+                    &owner_token(&self.token, &format!("ext:{ext}")),
                     self.bridge,
                     &self.injected_config(ext),
                     &body,

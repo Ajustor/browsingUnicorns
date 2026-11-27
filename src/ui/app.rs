@@ -345,7 +345,7 @@ impl BrowserApp {
 
     fn drain_engine_events(&mut self) {
         while let Ok(event) = self.events.try_recv() {
-            if let EngineEvent::PageMessage { from, body } = &event {
+            if let EngineEvent::PageMessage { from, url, body } = &event {
                 // The password manager's page script: a sign-in was sent.
                 if let Some((username, password)) =
                     infrastructure::page_scripts::credentials::submitted(body)
@@ -381,7 +381,7 @@ impl BrowserApp {
                     browser: &mut self.browser,
                     extensions: self.extensions.extensions(),
                 };
-                self.hub.handle(from, body, &mut host);
+                self.hub.handle_at(from, url.as_deref(), body, &mut host);
                 continue;
             }
             if self.downloads.handle(&event) {

@@ -93,9 +93,9 @@ mod tests {
     use std::sync::Arc;
 
     use application::ports::PageSource;
-    use domain::TabId;
     use serde_json::json;
 
+    use super::super::HubHost;
     use super::super::tests::{Host, ext, hub, msg};
     use super::*;
     use crate::extensions::extension_dir;
@@ -167,14 +167,12 @@ mod tests {
             &mut host,
         );
         assert_eq!(host.delivered.pop().unwrap().1["error"], "not permitted");
+        // A content script saying it is the extension's page: the browser
+        // knows the tab shows a web page.
+        let tab = host.create_tab(Some("https://news.test/"), true).unwrap();
         hub.handle(
-            &PageSource::Tab(TabId::new(1)),
-            &msg(
-                3,
-                "content",
-                "net.fetch",
-                json!({"url": "https://api.test/x"}),
-            ),
+            &PageSource::Tab(tab),
+            &msg(3, "page", "net.fetch", json!({"url": "https://api.test/x"})),
             &mut host,
         );
         assert_eq!(host.delivered.pop().unwrap().1["error"], "not permitted");

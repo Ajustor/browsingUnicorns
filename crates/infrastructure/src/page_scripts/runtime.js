@@ -7,6 +7,13 @@
 // page but the hook Rust answers through (`__buReply`), which the page cannot
 // replace and which only delivers to the channels the scripts registered.
 
+// What sending a message uses, taken now, before the page's scripts run: a
+// page replacing them later (JSON.stringify, Object.assign, a `toJSON` or a
+// setter on Object.prototype...) would see the token go by.
+const stringify = JSON.stringify;
+const keysOf = Object.keys;
+const createObject = Object.create;
+
 const pending = new Map();
 let nextId = 1;
 const eventHandlers = [];
@@ -60,41 +67,62 @@ function onEvents(owner, f) {
 let post;
 if (BRIDGE === "android") {
   const bridge = window.BUBridge;
+  // Bound now: `bridge.call` looked up at each call could be the page's.
+  const call = bridge && bridge.call ? bridge.call.bind(bridge) : null;
   post = (msg) => {
-    if (!bridge) return deliver({ id: msg.id, error: "no bridge" });
+    if (!call) return deliver({ id: msg.id, error: "no bridge" });
     try {
       // The answer comes back through the hook, like on the desktop.
-      bridge.call(JSON.stringify(msg));
+      call(stringify(msg));
     } catch (e) {
       deliver({ id: msg.id, error: String(e) });
     }
   };
 } else {
-  // WebView2's channel, taken now: wry's `ipc.postMessage` reads
-  // `window.chrome.webview` at each call, and a content script loads with
-  // `window.chrome` being its extension's API (see `asExtension`), so a
-  // message sent as it loads (Bitwarden's first one) would find no channel.
+  // The web view's own channel, taken now: wry's `ipc.postMessage` reads
+  // `window.chrome.webview` (WebView2) or `window.webkit` (WebKit) at each
+  // call, which the page may have replaced by then; and a content script
+  // loads with `window.chrome` being its extension's API (see
+  // `asExtension`), so a message sent as it loads (Bitwarden's first one)
+  // would find no channel.
   const webview = window.chrome && window.chrome.webview;
+  const handlers = window.webkit && window.webkit.messageHandlers;
+  const webkit = handlers && handlers.ipc;
   const ipc = window.ipc;
   const postMessage =
     webview && webview.postMessage
       ? webview.postMessage.bind(webview)
-      : ipc && ipc.postMessage
-        ? ipc.postMessage.bind(ipc)
-        : null;
+      : webkit && webkit.postMessage
+        ? webkit.postMessage.bind(webkit)
+        : ipc && ipc.postMessage
+          ? ipc.postMessage.bind(ipc)
+          : null;
   post = (msg) => {
-    if (postMessage) postMessage(JSON.stringify(msg));
+    if (postMessage) postMessage(stringify(msg));
     else deliver({ id: msg.id, error: "no bridge" });
   };
 }
 
 let context = "content";
 
+// The browser tells what a script runs as (content script, extension page)
+// by where its message comes from, not by anything it says.
 function send(owner, op, fields) {
   return new Promise((resolve, reject) => {
     const id = nextId++;
     pending.set(id, { resolve, reject });
-    post(Object.assign({ t: TOKEN, ch: CHANNEL, id, owner, ctx: context, op }, fields));
+    // No prototype: no `toJSON` nor setter of the page's sees it.
+    const msg = createObject(null);
+    msg.t = TOKEN;
+    msg.ch = CHANNEL;
+    msg.id = id;
+    msg.owner = owner;
+    msg.op = op;
+    if (fields) {
+      const keys = keysOf(fields);
+      for (let i = 0; i < keys.length; i++) if (!(keys[i] in msg)) msg[keys[i]] = fields[keys[i]];
+    }
+    post(msg);
   });
 }
 

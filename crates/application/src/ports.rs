@@ -178,6 +178,9 @@ pub enum EngineEvent {
     /// storage, messages...), for the presentation to answer.
     PageMessage {
         from: PageSource,
+        /// The address of the document that sent it, as the web view
+        /// tells (not the page): `None` when it does not.
+        url: Option<String>,
         body: String,
     },
     /// A page's store button ("Add to Chrome") fetched the package of

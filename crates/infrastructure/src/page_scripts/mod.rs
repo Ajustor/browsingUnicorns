@@ -17,7 +17,7 @@ use crate::extension_server::Origins;
 use crate::extensions::catalog::ExtensionCatalog;
 use crate::extensions::extension_dir;
 use crate::extensions::state::ExtensionState;
-use crate::script_storage::new_token;
+use crate::script_storage::{new_token, owner_token};
 use crate::user_scripts::read_code;
 
 pub mod credentials;
@@ -52,6 +52,8 @@ pub struct Sources<'a> {
     pub extensions: Option<&'a Extensions>,
     pub user_scripts_dir: &'a Path,
     pub user_scripts: &'a UserScripts,
+    /// The run's secret: each owner's scripts get their own token, made
+    /// from it ([`owner_token`]).
     pub token: &'a str,
     pub bridge: Bridge,
     /// Where the extensions' files are served (`runtime.getURL`).
@@ -98,10 +100,12 @@ fn regexes(patterns: &[UrlPattern]) -> String {
     )
 }
 
-fn wrap(token: &str, bridge: Bridge, call: &str) -> String {
+/// `call` with the runtime, speaking as `owner`: its own token, from the
+/// run's `secret`.
+fn wrap(secret: &str, owner: &str, bridge: Bridge, call: &str) -> String {
     format!(
         "{MARKER}(function () {{\nconst TOKEN = {};\nconst CHANNEL = {};\nconst BRIDGE = {};\n{RUNTIME}\n{call}\n}})();\n",
-        json!(token),
+        json!(owner_token(secret, owner)),
         json!(new_token()),
         json!(bridge.name()),
     )
@@ -110,7 +114,8 @@ fn wrap(token: &str, bridge: Bridge, call: &str) -> String {
 /// What an extension runs in a tab (`scripting.executeScript`): `body` (a
 /// function body) with the extension's `chrome.*`, as its content scripts
 /// get it. An expression whose value is what `body` returns. `config` is
-/// the extension's `owner`, `origin`, `messages` and `manifest`, as JSON.
+/// the extension's `owner`, `origin`, `messages` and `manifest`, as JSON;
+/// `token`, that owner's ([`owner_token`]).
 pub fn injected_script(token: &str, bridge: Bridge, config: &str, body: &str) -> String {
     format!(
         "(function () {{\nconst TOKEN = {};\nconst CHANNEL = {};\nconst BRIDGE = {};\n{RUNTIME}\n\
@@ -129,9 +134,9 @@ const EXTENSION_SCRIPT: &str = "bu-extension-script";
 
 /// The runtime of an extension page (background, popup, options), with
 /// its configuration (`owner`, `context`, `origin`, `messages`, `manifest`,
-/// `installReason`) as JSON.
-pub fn extension_page_runtime(token: &str, bridge: Bridge, config: &str) -> String {
-    wrap(token, bridge, &format!("extensionPage({config});"))
+/// `installReason`) as JSON, speaking as `owner` (`ext:<id>`).
+pub fn extension_page_runtime(secret: &str, owner: &str, bridge: Bridge, config: &str) -> String {
+    wrap(secret, owner, bridge, &format!("extensionPage({config});"))
 }
 
 /// The files' contents, one after the other, `separator` between them.
@@ -152,7 +157,12 @@ fn read_files(root: &Path, files: &[String], separator: &str) -> Option<String> 
 pub fn page_scripts(sources: &Sources<'_>) -> Vec<String> {
     let mut out = Vec::new();
     if sources.blocker {
-        out.push(wrap(sources.token, sources.bridge, "blockerCosmetic();"));
+        out.push(wrap(
+            sources.token,
+            BLOCKER_OWNER,
+            sources.bridge,
+            "blockerCosmetic();",
+        ));
     }
     if sources.credentials {
         out.push(credentials::capture_script(sources.bridge));
@@ -185,6 +195,7 @@ pub fn page_scripts(sources: &Sources<'_>) -> Vec<String> {
         let messages = parsed
             .as_ref()
             .map_or_else(|| json!({}), |p| json!(p.messages()));
+        let owner = format!("ext:{}", e.id);
         for cs in entries {
             let (Some(js), Some(css_text)) = (
                 read_files(&dir, &cs.js, "\n;\n"),
@@ -200,7 +211,7 @@ pub fn page_scripts(sources: &Sources<'_>) -> Vec<String> {
             };
             let config = format!(
                 "{{owner: {}, origin: {}, match: {}, exclude: {}, runAt: {}, allFrames: {}, css: {}, messages: {}, manifest: {}}}",
-                json!(format!("ext:{}", e.id)),
+                json!(owner),
                 json!(sources.origins.origin(&e.id)),
                 regexes(&cs.matches),
                 regexes(&cs.excludes),
@@ -217,6 +228,7 @@ pub fn page_scripts(sources: &Sources<'_>) -> Vec<String> {
             };
             let mut script = wrap(
                 sources.token,
+                &owner,
                 sources.bridge,
                 &format!("contentScript({config}, {code});"),
             );
@@ -243,6 +255,7 @@ pub fn page_scripts(sources: &Sources<'_>) -> Vec<String> {
         );
         out.push(wrap(
             sources.token,
+            &format!("us:{}", s.id),
             sources.bridge,
             &format!(
                 "userScript({config}, function (GM, GM_info, GM_addStyle, GM_getValue, GM_setValue, \
@@ -340,7 +353,17 @@ mod tests {
             "{}",
             scripts[1]
         );
-        assert!(scripts[1].contains("const TOKEN = \"tok\";"));
+        // Each owner's scripts get their own token, never the secret.
+        let us_owner = format!("us:{}", user_scripts.items()[0].id);
+        assert!(scripts[1].contains(&format!(
+            "const TOKEN = \"{}\";",
+            owner_token("tok", &us_owner)
+        )));
+        assert!(scripts[0].contains(&format!(
+            "const TOKEN = \"{}\";",
+            owner_token("tok", "ext:ddkjiahejlhfcafbddmgiahcphecmpfh")
+        )));
+        assert!(scripts.iter().all(|s| !s.contains("\"tok\"")));
         // WebView2 runs the extensions itself: only the user script.
         assert_eq!(page_scripts(&sources(false)).len(), 1);
         // The ad blocker's cosmetic filters come first.

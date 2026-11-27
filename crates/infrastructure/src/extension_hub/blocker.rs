@@ -32,7 +32,7 @@ mod tests {
     use crate::blocker::BlockerHandle;
 
     fn cosmetic(hub: &mut Hub, host: &mut Host, url: &str) -> Value {
-        let m = json!({"t": "tok", "ch": "c", "id": 1, "owner": "blocker", "ctx": "content",
+        let m = json!({"t": crate::script_storage::owner_token("tok", "blocker"), "ch": "c", "id": 1, "owner": "blocker",
             "op": "blocker.cosmetic", "url": url});
         hub.handle(&PageSource::Tab(TabId::new(1)), &m.to_string(), host);
         host.delivered.pop().unwrap().1
@@ -91,7 +91,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut hub = hub(dir.path());
         let mut host = Host::default();
-        let m = json!({"t": "tok", "ch": "c", "id": 1, "owner": "blocker", "ctx": "content",
+        let m = json!({"t": crate::script_storage::owner_token("tok", "blocker"), "ch": "c", "id": 1, "owner": "blocker",
             "op": "set", "items": {"a": 1}});
         hub.handle(&PageSource::Tab(TabId::new(1)), &m.to_string(), &mut host);
         assert!(host.delivered.pop().unwrap().1["error"].is_string());

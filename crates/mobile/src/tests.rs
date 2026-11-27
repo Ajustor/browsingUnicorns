@@ -531,8 +531,18 @@ fn user_scripts_run_in_pages_with_their_storage() {
     assert!(scripts[2].contains("GM_setValue('n', 1);"));
     assert!(scripts[2].contains("const BRIDGE = \"android\";"));
 
-    // The page script's storage goes through `page_message`, with its token.
-    let token = scripts[0]
+    // The page script's storage goes through `page_message`, with its own
+    // token (the ad blocker's, in the same page, is not it).
+    let token_of = |script: &str| {
+        script
+            .split("const TOKEN = \"")
+            .nth(1)
+            .and_then(|rest| rest.split('"').next())
+            .unwrap()
+            .to_owned()
+    };
+    let blocker_token = token_of(&scripts[0]);
+    let token = scripts[2]
         .split("const TOKEN = \"")
         .nth(1)
         .and_then(|rest| rest.split('"').next())
@@ -548,8 +558,12 @@ fn user_scripts_run_in_pages_with_their_storage() {
     assert_eq!(host.last_reply(), r#"{"id":2,"result":{"n":1}}"#);
     let posted = host.2.lock().unwrap().len();
     b.page_message(
-        tab,
+        tab.clone(),
         r#"{"t":"guess","id":3,"owner":"us:x","op":"get"}"#.into(),
+    );
+    b.page_message(
+        tab,
+        format!(r#"{{"t":"{blocker_token}","id":4,"owner":"us:{id}","op":"get"}}"#),
     );
     assert_eq!(
         host.2.lock().unwrap().len(),

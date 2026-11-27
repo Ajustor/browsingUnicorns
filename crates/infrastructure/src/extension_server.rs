@@ -568,7 +568,12 @@ impl ExtensionServer {
             "manifest": manifest,
             "installReason": install,
         });
-        extension_page_runtime(&self.token, self.bridge, &config.to_string())
+        extension_page_runtime(
+            &self.token,
+            &format!("ext:{id}"),
+            self.bridge,
+            &config.to_string(),
+        )
     }
 }
 
@@ -683,7 +688,11 @@ mod tests {
             .serve(&url(&format!("/__bu/runtime.js?n={nonce}")))
             .unwrap();
         let js = String::from_utf8(runtime.body).unwrap();
-        assert!(js.contains("const TOKEN = \"tok\";"));
+        let token = crate::script_storage::owner_token("tok", &format!("ext:{ID}"));
+        assert!(
+            js.contains(&format!("const TOKEN = \"{token}\";")),
+            "its own token"
+        );
         assert!(js.contains("\"context\":\"page\""));
         assert!(
             s.serve(&url(&format!("/__bu/runtime.js?n={nonce}")))

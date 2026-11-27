@@ -50,6 +50,22 @@ pub fn new_token() -> String {
     data_encoding::HEXLOWER.encode(&bytes)
 }
 
+/// The token of `owner`'s scripts (`ext:<id>`, `us:<id>`, the ad
+/// blocker's), from the run's `secret`: each owner's scripts get only
+/// theirs, so a page that takes one (from the scripts injected into it)
+/// can only speak as that owner, never as another extension. The secret
+/// itself is never in a page.
+pub fn owner_token(secret: &str, owner: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
+    hash.update(b"browsing-unicorns page token\0");
+    hash.update(secret.as_bytes());
+    hash.update([0]);
+    hash.update(owner.as_bytes());
+    // Half of it: as long as a run's secret, and not extendable.
+    data_encoding::HEXLOWER.encode(&hash.finalize()[..16])
+}
+
 pub fn valid_owner(owner: &str) -> bool {
     let (kind, id) = match owner.split_once(':') {
         Some(parts) => parts,
@@ -100,7 +116,7 @@ impl ScriptStorage {
     /// token or format): the page gets no answer.
     pub fn handle(&mut self, body: &str) -> Option<String> {
         let message: Message = serde_json::from_str(body).ok()?;
-        if message.t != self.token || !valid_owner(&message.owner) {
+        if !valid_owner(&message.owner) || message.t != owner_token(&self.token, &message.owner) {
             return None;
         }
         let (id, ch) = (message.id, message.ch.clone());
@@ -258,7 +274,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut s = ScriptStorage::new(dir.path(), "tok".into());
         let owner = "ext:ddkjiahejlhfcafbddmgiahcphecmpfh";
-        let base = |op: &str| json!({"t": "tok", "id": 7, "owner": owner, "op": op});
+        let base =
+            |op: &str| json!({"t": owner_token("tok", owner), "id": 7, "owner": owner, "op": op});
 
         let mut set = base("set");
         set["items"] = json!({"a": 1, "b": {"x": true}});
@@ -293,6 +310,7 @@ mod tests {
         send(&mut again, session);
         let mut other = base("get");
         other["owner"] = json!("us:wide-1234");
+        other["t"] = json!(owner_token("tok", "us:wide-1234"));
         assert_eq!(send(&mut again, other)["result"], json!({}));
         assert!(
             !dir.path()
@@ -313,11 +331,20 @@ mod tests {
         let msg = |t: &str, owner: &str| {
             json!({"t": t, "id": 1, "owner": owner, "op": "get"}).to_string()
         };
+        let token = |owner: &str| owner_token("tok", owner);
         assert!(s.handle(&msg("wrong", "ext:abc")).is_none());
-        assert!(s.handle(&msg("tok", "ext:../../x")).is_none());
-        assert!(s.handle(&msg("tok", "page:abc")).is_none());
+        // The run's secret itself, or another owner's token: refused.
+        assert!(s.handle(&msg("tok", "ext:abc")).is_none());
+        assert!(s.handle(&msg(&token("us:abc"), "ext:abc")).is_none());
+        assert!(
+            s.handle(&msg(&token("ext:../../x"), "ext:../../x"))
+                .is_none()
+        );
+        assert!(s.handle(&msg(&token("page:abc"), "page:abc")).is_none());
         assert!(s.handle("not json").is_none());
-        assert!(s.handle(&msg("tok", "us:abc")).is_some());
+        assert!(s.handle(&msg(&token("us:abc"), "us:abc")).is_some());
+        assert_ne!(token("us:abc"), token("us:abd"));
+        assert_eq!(token("us:abc").len(), 32);
         assert_eq!(new_token().len(), 32);
     }
 }

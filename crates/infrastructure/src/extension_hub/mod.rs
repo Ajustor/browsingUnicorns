@@ -37,7 +37,7 @@ use crate::extensions::catalog::ExtensionCatalog;
 use crate::extensions::state::ExtensionState;
 use crate::native_messaging::NativeMessaging;
 use crate::page_scripts::{BLOCKER_OWNER, Bridge};
-use crate::script_storage::{Message, ScriptStorage, valid_owner};
+use crate::script_storage::{Message, ScriptStorage, owner_token, valid_owner};
 
 /// A tab, as the extension APIs describe it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -443,8 +443,25 @@ impl Hub {
         }
     }
 
-    /// A message of page scripts running in `from`.
+    /// A message of page scripts running in `from`, whose address the
+    /// browser does not tell: that of its tab, as last seen.
     pub fn handle(&mut self, from: &PageSource, body: &str, host: &mut dyn HubHost) {
+        self.handle_at(from, None, body, host);
+    }
+
+    /// A message of page scripts running in `from`, in the document at
+    /// `url` as the web view tells (`None`: unknown).
+    ///
+    /// Nothing the message says about where it comes from is trusted: its
+    /// token tells its owner (each owner's scripts have their own), `from`
+    /// and the document's address what it runs in ([`Self::context`]).
+    pub fn handle_at(
+        &mut self,
+        from: &PageSource,
+        url: Option<&str>,
+        body: &str,
+        host: &mut dyn HubHost,
+    ) {
         let Ok(Value::Object(mut raw)) = serde_json::from_str::<Value>(body) else {
             return;
         };
@@ -456,33 +473,33 @@ impl Hub {
         let Ok(message) = serde_json::from_value::<Message>(Value::Object(raw.clone())) else {
             return;
         };
-        if message.t != self.token {
+        let owner = message.owner.clone();
+        if owner != BLOCKER_OWNER && !valid_owner(&owner) {
             return;
         }
-        let (id, ch, owner) = (message.id, message.ch.clone(), message.owner.clone());
+        if message.t != owner_token(&self.token, &owner) {
+            return;
+        }
+        let (id, ch) = (message.id, message.ch.clone());
         // The ad blocker's script: its cosmetic filters, nothing else.
         if owner == BLOCKER_OWNER {
             let result = self.blocker_call(&message.op, &raw);
             Self::reply(host, from, id, &ch, result);
             return;
         }
-        if !valid_owner(&owner) {
+        let ext = owner.strip_prefix("ext:").and_then(ExtensionId::parse);
+        let Some(ctx) = self.context(from, url, ext.as_ref(), host) else {
+            log::warn!("extensions: a message of {owner} from {from:?} refused");
             return;
-        }
-        let ctx = raw
-            .get("ctx")
-            .and_then(Value::as_str)
-            .unwrap_or("content")
-            .to_owned();
+        };
         if ScriptStorage::is_storage_op(&message.op) {
             let result = self.storage_call(&owner, message, host);
             Self::reply(host, from, id, &ch, result);
             return;
         }
-        let ext = owner.strip_prefix("ext:").and_then(ExtensionId::parse);
         let call = Call {
             from,
-            ctx: &ctx,
+            ctx,
             owner: &owner,
             ext: ext.as_ref(),
             op: &message.op,
@@ -495,10 +512,61 @@ impl Hub {
         }
     }
 
+    /// What the scripts of extension `ext` (`None`: a user script) run as
+    /// in `from`, the document at `url` (else its tab's address): its
+    /// background page in its own background view, its pages in the popup
+    /// or in a tab showing its origin, a content script anywhere else.
+    /// `None`: they cannot be there (another extension's background).
+    fn context(
+        &self,
+        from: &PageSource,
+        url: Option<&str>,
+        ext: Option<&ExtensionId>,
+        host: &dyn HubHost,
+    ) -> Option<&'static str> {
+        match from {
+            PageSource::Background(id) => (ext == Some(id)).then_some("background"),
+            // Only the browser loads the popup, with an extension's page:
+            // the token tells whose.
+            PageSource::Panel => ext.map(|_| "page"),
+            PageSource::Tab(tab) => {
+                // A tab not known (yet): its scripts are content scripts.
+                let tab_url;
+                let url = match url {
+                    Some(url) => url,
+                    None => {
+                        tab_url = host
+                            .tabs()
+                            .into_iter()
+                            .find(|t| t.id == *tab)
+                            .map(|t| t.url)
+                            .unwrap_or_default();
+                        &tab_url
+                    }
+                };
+                let in_its_page = ext
+                    .is_some_and(|ext| self.origins().parse(url).is_some_and(|(of, _)| &of == ext));
+                Some(if in_its_page { "page" } else { "content" })
+            }
+        }
+    }
+
     /// Hands `call` to the handler of its API namespace (the `op` before
     /// its dot). `None`: the answer comes later.
     fn call(&mut self, call: &Call<'_>, host: &mut dyn HubHost) -> Answer {
         let namespace = call.op.split_once('.').map_or("", |(ns, _)| ns);
+        // As in Chrome, content scripts (and user scripts) have no tabs,
+        // windows, scripting nor network rules, and connect to their
+        // extension's pages only.
+        if call.ctx == "content"
+            && (matches!(namespace, "tabs" | "windows" | "scripting" | "dnr")
+                || (call.op == "port.connect" && !call.field("tabId").is_null()))
+        {
+            return Some(Err(format!(
+                "{} is not available in content scripts",
+                call.op
+            )));
+        }
         match (namespace, call.op) {
             ("", _) | (_, "tabs.sendMessage") => self.runtime_call(call, host),
             ("port", _) => self.port_call(call, host),
@@ -520,8 +588,9 @@ impl Hub {
 #[derive(Clone, Copy)]
 struct Call<'a> {
     from: &'a PageSource,
-    /// What the page says it is: "content", "background" or "page".
-    ctx: &'a str,
+    /// What the scripts run as, as the browser tells ([`Hub::context`]):
+    /// "content", "background" or "page".
+    ctx: &'static str,
     /// `ext:<id>` or `us:<id>`.
     owner: &'a str,
     /// The extension of `owner` (`None`: a user script).

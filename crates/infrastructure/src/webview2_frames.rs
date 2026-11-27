@@ -22,11 +22,12 @@ use wry::{WebView, WebViewExtWindows};
 pub type Frames = Rc<RefCell<Vec<ICoreWebView2Frame2>>>;
 
 /// Keeps `view`'s frames in `frames`; what their scripts post goes to
-/// `on_message`.
+/// `on_message`, with the address of the frame's document (WebView2's,
+/// not the frame's say).
 pub fn attach(
     view: &WebView,
     frames: Frames,
-    on_message: impl Fn(String) + 'static,
+    on_message: impl Fn(String, String) + 'static,
 ) -> windows_core::Result<()> {
     let webview = view.webview().cast::<ICoreWebView2_4>()?;
     let on_message = Rc::new(on_message);
@@ -40,7 +41,14 @@ pub fn attach(
                 let mut text = PWSTR::null();
                 // Not a string: not the page scripts' (they post JSON text).
                 if unsafe { args.TryGetWebMessageAsString(&mut text) }.is_ok() {
-                    on_message(take_pwstr(text));
+                    let text = take_pwstr(text);
+                    let mut source = PWSTR::null();
+                    // No address: nothing it could be but a web page's.
+                    let url = match unsafe { args.Source(&mut source) } {
+                        Ok(()) => take_pwstr(source),
+                        Err(_) => "about:blank".to_owned(),
+                    };
+                    on_message(url, text);
                 }
             }
             Ok(())

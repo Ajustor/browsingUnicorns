@@ -358,8 +358,13 @@ fn base_builder<'a>(
             NewWindowResponse::Deny
         })
         .with_ipc_handler(move |request| {
+            // The document that sent it, as the web view tells: WebView2's
+            // message source (the top document), WebKit's frame (macOS) or
+            // view (Linux) address.
+            let url = request.uri().to_string();
             emit(EngineEvent::PageMessage {
                 from: source.clone(),
+                url: (!url.is_empty()).then_some(url),
                 body: request.into_body(),
             });
         });
@@ -1184,12 +1189,15 @@ impl WebEngine for WryEngine {
         #[cfg(windows)]
         {
             let frames = crate::webview2_frames::Frames::default();
-            if let Err(e) = crate::webview2_frames::attach(&view, frames.clone(), move |body| {
-                on_frame_message(EngineEvent::PageMessage {
-                    from: PageSource::Tab(tab),
-                    body,
-                });
-            }) {
+            if let Err(e) =
+                crate::webview2_frames::attach(&view, frames.clone(), move |url, body| {
+                    on_frame_message(EngineEvent::PageMessage {
+                        from: PageSource::Tab(tab),
+                        url: Some(url),
+                        body,
+                    });
+                })
+            {
                 log::warn!("frames of tab {tab}: {e}");
             }
             self.frames.insert(tab, frames);
