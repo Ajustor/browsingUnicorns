@@ -64,6 +64,10 @@ impl<T: Shared, R: Repository<T>> Repository<T> for MergingRepository<R> {
         }
         self.inner.save(value)
     }
+
+    fn set_aside(&self) -> Result<(), RepositoryError> {
+        self.inner.set_aside()
+    }
 }
 
 #[cfg(test)]

@@ -90,16 +90,27 @@ impl<E: WebEngine> Browser<E> {
     }
 
     /// Reads the saved history and bookmarks. Whatever fails to load is
-    /// left empty; the errors are returned.
+    /// left empty (its file set aside, not to be overwritten); the errors
+    /// are returned.
     pub fn load_profile(&mut self) -> Vec<BrowserError> {
         let mut errors = Vec::new();
         match self.profile.history.load() {
             Ok(history) => self.history = history,
-            Err(e) => errors.push(e.into()),
+            Err(e) => {
+                errors.push(e.into());
+                if let Err(e) = self.profile.history.set_aside() {
+                    errors.push(e.into());
+                }
+            }
         }
         match self.profile.bookmarks.load() {
             Ok(bookmarks) => self.bookmarks = bookmarks,
-            Err(e) => errors.push(e.into()),
+            Err(e) => {
+                errors.push(e.into());
+                if let Err(e) = self.profile.bookmarks.set_aside() {
+                    errors.push(e.into());
+                }
+            }
         }
         match self.profile.credentials.load() {
             Ok(credentials) => self.credentials = credentials,
@@ -113,9 +124,19 @@ impl<E: WebEngine> Browser<E> {
     }
 
     /// Reopens the tabs of the last run, or the home page when there were
-    /// none. Returns how many tabs were restored.
+    /// none. Returns how many tabs were restored. A session that can't be
+    /// read is logged and set aside (not overwritten by the next save).
     pub fn restore_session(&mut self) -> Result<usize, BrowserError> {
-        let snapshot = self.profile.session.load().unwrap_or_default();
+        let snapshot = match self.profile.session.load() {
+            Ok(snapshot) => snapshot,
+            Err(e) => {
+                log::warn!("session: {e}");
+                if let Err(e) = self.profile.session.set_aside() {
+                    log::warn!("session: {e}");
+                }
+                SessionSnapshot::default()
+            }
+        };
         let mut ids = Vec::with_capacity(snapshot.tabs.len());
         // Each new tab opens after the last one, asleep: only the tabs shown
         // load their page (a startup with many tabs stays quick and light).
@@ -397,6 +418,19 @@ mod tests {
         // An unreadable session falls back to the home page.
         assert_eq!(b.restore_session().unwrap(), 0);
         assert_eq!(b.session().len(), 1);
+    }
+
+    #[test]
+    fn an_unreadable_session_is_set_aside_before_being_overwritten() {
+        let aside = std::sync::Arc::new(std::sync::Mutex::new(0));
+        let mut profile = Store::default().profile();
+        profile.session = Box::new(CorruptRepository(aside.clone()));
+        profile.history = Box::new(CorruptRepository(aside.clone()));
+        let mut b = Browser::new(FakeEngine::default(), Settings::default(), profile);
+        assert_eq!(b.load_profile().len(), 1);
+        assert_eq!(*aside.lock().unwrap(), 1, "history");
+        assert_eq!(b.restore_session().unwrap(), 0);
+        assert_eq!(*aside.lock().unwrap(), 2, "session");
     }
 
     #[test]

@@ -281,6 +281,12 @@ pub trait Repository<T>: Send {
     /// The saved value, or the default one when nothing was saved yet.
     fn load(&self) -> Result<T, RepositoryError>;
     fn save(&self, value: &T) -> Result<(), RepositoryError>;
+    /// Keeps what [`Self::load`] could not read (a corrupt file) out of the
+    /// way of the next [`Self::save`], so that it can still be recovered.
+    /// Nothing by default.
+    fn set_aside(&self) -> Result<(), RepositoryError> {
+        Ok(())
+    }
 }
 
 pub trait Clock: Send {

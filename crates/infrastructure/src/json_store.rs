@@ -37,6 +37,16 @@ impl JsonRepository {
         let text = serde_json::to_string(file).map_err(|e| files::error(&self.path, e))?;
         files::write(&self.path, &text)
     }
+
+    /// Renames the file to `<name>.bak` (replacing an older one).
+    fn set_aside_file(&self) -> Result<(), RepositoryError> {
+        let mut backup = self.path.clone().into_os_string();
+        backup.push(".bak");
+        match std::fs::rename(&self.path, &backup) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(files::error(&self.path, e)),
+            _ => Ok(()),
+        }
+    }
 }
 
 fn parse(url: &str) -> Option<WebAddress> {
@@ -64,6 +74,10 @@ impl Repository<BrowsingHistory> for JsonRepository {
             visits: history.visits().iter().map(VisitDto::from).collect(),
         })
     }
+
+    fn set_aside(&self) -> Result<(), RepositoryError> {
+        self.set_aside_file()
+    }
 }
 
 impl Repository<Bookmarks> for JsonRepository {
@@ -73,6 +87,10 @@ impl Repository<Bookmarks> for JsonRepository {
 
     fn save(&self, bookmarks: &Bookmarks) -> Result<(), RepositoryError> {
         self.save_file(&BookmarksDto::from(bookmarks))
+    }
+
+    fn set_aside(&self) -> Result<(), RepositoryError> {
+        self.set_aside_file()
     }
 }
 
@@ -198,6 +216,10 @@ impl Repository<SessionSnapshot> for JsonRepository {
                 .collect(),
         })
     }
+
+    fn set_aside(&self) -> Result<(), RepositoryError> {
+        self.set_aside_file()
+    }
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -256,6 +278,10 @@ impl Repository<Extensions> for JsonRepository {
                 })
                 .collect(),
         })
+    }
+
+    fn set_aside(&self) -> Result<(), RepositoryError> {
+        self.set_aside_file()
     }
 }
 
@@ -395,6 +421,20 @@ mod tests {
         let r = repo(&dir, "history.json");
         files::write(r.path(), "{not json").unwrap();
         assert!(Repository::<BrowsingHistory>::load(&r).is_err());
+    }
+
+    #[test]
+    fn a_corrupt_file_is_set_aside() {
+        let dir = tempfile::tempdir().unwrap();
+        let r = repo(&dir, "session.json");
+        files::write(r.path(), "{not json").unwrap();
+        assert!(Repository::<SessionSnapshot>::load(&r).is_err());
+        Repository::<SessionSnapshot>::set_aside(&r).unwrap();
+        let backup = dir.path().join("profile").join("session.json.bak");
+        assert_eq!(files::read(&backup).unwrap().as_deref(), Some("{not json"));
+        assert!(Repository::<SessionSnapshot>::load(&r).unwrap().is_empty());
+        // Nothing to set aside: nothing done.
+        Repository::<SessionSnapshot>::set_aside(&r).unwrap();
     }
 
     #[test]

@@ -119,6 +119,22 @@ impl<T> Repository<T> for FailingRepository {
     }
 }
 
+/// Unreadable; counts the times it is set aside.
+pub(crate) struct CorruptRepository(pub(crate) Arc<Mutex<usize>>);
+
+impl<T> Repository<T> for CorruptRepository {
+    fn load(&self) -> Result<T, RepositoryError> {
+        Err(RepositoryError("corrupt".into()))
+    }
+    fn save(&self, _: &T) -> Result<(), RepositoryError> {
+        Ok(())
+    }
+    fn set_aside(&self) -> Result<(), RepositoryError> {
+        *self.0.lock().unwrap() += 1;
+        Ok(())
+    }
+}
+
 pub(crate) struct FixedClock;
 
 impl Clock for FixedClock {
