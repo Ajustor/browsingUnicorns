@@ -13,14 +13,16 @@ impl<E: WebEngine> Browser<E> {
         &self.remote_devices
     }
 
-    /// Whether something worth syncing changed since [`Self::sync_record`].
+    /// Whether something worth syncing changed since the record of the
+    /// last round that succeeded (see [`Self::mark_synced`]).
     pub fn has_unsynced_changes(&self) -> bool {
-        self.unsynced
+        self.unsynced.pending()
     }
 
-    /// This device's state for the other devices.
+    /// This device's state for the other devices. Once the round that
+    /// sends it succeeds, call [`Self::mark_synced`].
     pub fn sync_record(&mut self, device: DeviceId, name: &str) -> DeviceRecord {
-        self.unsynced = false;
+        self.unsynced.in_round = Some(self.unsynced.made);
         let cookies = self.cookies_to_share();
         DeviceRecord {
             device,
@@ -43,6 +45,15 @@ impl<E: WebEngine> Browser<E> {
             settings: self.settings.clone(),
             credentials: self.credentials.clone(),
             cookies,
+        }
+    }
+
+    /// The round sending the last [`Self::sync_record`] succeeded: the
+    /// changes it carried are synced (not those made since). After a failed
+    /// round, not called: they are still to sync.
+    pub fn mark_synced(&mut self) {
+        if let Some(made) = self.unsynced.in_round.take() {
+            self.unsynced.synced = made;
         }
     }
 
@@ -151,12 +162,49 @@ mod tests {
         b.toggle_bookmark().unwrap();
         assert!(b.has_unsynced_changes());
         let record = b.sync_record(device("desktop"), "Desktop");
+        assert!(b.has_unsynced_changes(), "until the round succeeds");
+        b.mark_synced();
         assert!(!b.has_unsynced_changes());
         assert_eq!(record.name, "Desktop");
         assert_eq!(record.bookmarks.len(), 1);
         assert_eq!(record.history.len(), 1);
         assert_eq!(record.tabs.len(), 1);
         assert_eq!(record.tabs[0].address, addr("https://a.com/"));
+    }
+
+    #[test]
+    fn changes_stay_unsynced_after_a_failed_round_or_made_during_one() {
+        let mut b = browser();
+        let id = b.open_tab(None).unwrap();
+        finish(&mut b, id, "https://a.com/");
+        b.sync_record(device("desktop"), "Desktop");
+        // The round failed: mark_synced is not called.
+        assert!(b.has_unsynced_changes());
+        b.sync_record(device("desktop"), "Desktop");
+        b.handle(EngineEvent::TitleChanged {
+            tab: id,
+            title: "A".into(),
+        })
+        .unwrap();
+        b.mark_synced();
+        assert!(b.has_unsynced_changes(), "retitled during the round");
+        b.sync_record(device("desktop"), "Desktop");
+        b.mark_synced();
+        assert!(!b.has_unsynced_changes());
+        b.mark_synced();
+        assert!(!b.has_unsynced_changes());
+
+        b.import_history([domain::Visit {
+            address: addr("https://b.org/"),
+            title: "B".into(),
+            at: 5,
+        }])
+        .unwrap();
+        assert!(b.has_unsynced_changes(), "imported history");
+        b.sync_record(device("desktop"), "Desktop");
+        b.mark_synced();
+        b.clear_history().unwrap();
+        assert!(b.has_unsynced_changes(), "cleared history");
     }
 
     #[test]

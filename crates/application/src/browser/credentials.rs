@@ -156,7 +156,7 @@ impl<E: WebEngine> Browser<E> {
     }
 
     fn save_credentials(&mut self) -> Result<(), BrowserError> {
-        self.unsynced = true;
+        self.unsynced.note();
         self.mark_dirty(Stores::CREDENTIALS);
         self.save_dirty(Stores::CREDENTIALS)
     }

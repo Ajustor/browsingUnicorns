@@ -11,6 +11,7 @@ use crate::ports::WebEngine;
 impl<E: WebEngine> Browser<E> {
     pub fn clear_history(&mut self) -> Result<(), BrowserError> {
         self.history.clear();
+        self.unsynced.note();
         self.mark_dirty(Stores::HISTORY);
         self.save_dirty(Stores::HISTORY)
     }
@@ -90,6 +91,7 @@ impl<E: WebEngine> Browser<E> {
             })
             .collect();
         if self.history.merge(&new) {
+            self.unsynced.note();
             self.mark_dirty(Stores::HISTORY);
             self.save_dirty(Stores::HISTORY)?;
         }
@@ -110,7 +112,7 @@ impl<E: WebEngine> Browser<E> {
 
     /// Saves the bookmarks changed, for the other devices too.
     fn bookmarks_changed(&mut self) -> Result<(), BrowserError> {
-        self.unsynced = true;
+        self.unsynced.note();
         self.mark_dirty(Stores::BOOKMARKS);
         self.save_dirty(Stores::BOOKMARKS)
     }

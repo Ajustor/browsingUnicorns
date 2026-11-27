@@ -835,6 +835,7 @@ impl MobileBrowser {
             Ok(records) => {
                 inner.last_sync_at = Some(now());
                 inner.last_error = None;
+                inner.browser.mark_synced();
                 let applied = inner
                     .browser
                     .apply_remote(&records)

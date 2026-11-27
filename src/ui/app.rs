@@ -208,10 +208,12 @@ impl BrowserApp {
 
     /// Applies a finished round, and starts one when due.
     fn drive_sync(&mut self, ctx: &egui::Context) {
-        if let Some(records) = self.sync.poll()
-            && let Err(e) = self.browser.apply_remote(&records)
-        {
-            self.report(e);
+        if let Some(records) = self.sync.poll() {
+            // The round succeeded: what its record carried is synced.
+            self.browser.mark_synced();
+            if let Err(e) = self.browser.apply_remote(&records) {
+                self.report(e);
+            }
         }
         if self.sync.is_due(self.browser.has_unsynced_changes())
             && let Some(config) = self.sync.config()

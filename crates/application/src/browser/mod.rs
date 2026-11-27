@@ -63,6 +63,26 @@ impl std::ops::BitOr for Stores {
     }
 }
 
+/// Changes worth syncing, counted: those made while a round is under way
+/// are still to sync after it, and a round that fails leaves them all.
+#[derive(Debug, Default)]
+struct SyncChanges {
+    made: u64,
+    synced: u64,
+    /// `made` when the record of the round under way was taken.
+    in_round: Option<u64>,
+}
+
+impl SyncChanges {
+    fn note(&mut self) {
+        self.made += 1;
+    }
+
+    fn pending(&self) -> bool {
+        self.made != self.synced
+    }
+}
+
 /// The browser window's use cases.
 pub struct Browser<E: WebEngine> {
     session: Session,
@@ -80,8 +100,9 @@ pub struct Browser<E: WebEngine> {
     /// found equal to it); `None`: unknown, to compare again.
     saved_revision: Option<u64>,
     remote_devices: Vec<RemoteDevice>,
-    /// Bookmarks, settings or history changed since the last sync record.
-    unsynced: bool,
+    /// Bookmarks, settings, sign-ins or history changed since the last
+    /// sync round that succeeded.
+    unsynced: SyncChanges,
     /// The tabs closed, last closed last: their address and where they were.
     closed: Vec<(WebAddress, usize)>,
     credentials: Credentials,
@@ -113,7 +134,7 @@ impl<E: WebEngine> Browser<E> {
             // An empty session: its snapshot is the default one.
             saved_revision: Some(Session::new().revision()),
             remote_devices: Vec::new(),
-            unsynced: false,
+            unsynced: SyncChanges::default(),
             closed: Vec::new(),
             credentials: Credentials::default(),
             pending_credential: None,
@@ -283,7 +304,7 @@ impl<E: WebEngine> Browser<E> {
     pub fn update_settings(&mut self, mut settings: Settings) -> Result<(), BrowserError> {
         settings.updated_at = self.now();
         self.settings = settings;
-        self.unsynced = true;
+        self.unsynced.note();
         self.mark_dirty(Stores::SETTINGS);
         self.save_dirty(Stores::SETTINGS)
     }
@@ -349,7 +370,7 @@ impl<E: WebEngine> Browser<E> {
                         // The title may have come before the end of the load.
                         self.history.retitle(&address, &title);
                         self.dirty = self.dirty | Stores::HISTORY;
-                        self.unsynced = true;
+                        self.unsynced.note();
                     }
                 }
             }
@@ -361,6 +382,7 @@ impl<E: WebEngine> Browser<E> {
                         && self.history.retitle(address, t.title())
                     {
                         self.dirty = self.dirty | Stores::HISTORY;
+                        self.unsynced.note();
                     }
                 }
             }
