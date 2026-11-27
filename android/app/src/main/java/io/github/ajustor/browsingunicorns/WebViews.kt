@@ -315,6 +315,12 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
     /** The version each background page runs: an update restarts it. */
     private val backgroundVersions = HashMap<String, String>()
 
+    /** The address of each background page, to start it again after a crash. */
+    private val backgroundUrls = HashMap<String, String>()
+
+    /** How many times each background page's renderer died (restarts stop at [MAX_RESTARTS]). */
+    private val backgroundCrashes = HashMap<String, Int>()
+
     override fun setBackgrounds(pages: List<BackgroundPage>) {
         onMain {
             val wanted = pages.associate { it.extension to it.url }
@@ -325,19 +331,27 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
                     it.destroy()
                 }
                 backgroundVersions.remove(id)
+                backgroundCrashes.remove(id)
             }
+            backgroundUrls.clear()
+            backgroundUrls.putAll(wanted)
             for ((id, url) in wanted) {
                 if (id in backgrounds) continue
                 versions[id]?.let { backgroundVersions[id] = it }
-                val view = extensionView(PageTarget.Background(id))
-                // Attached (scripts and timers run) but out of sight.
-                view.visibility = View.INVISIBLE
-                container.addView(view, FrameLayout.LayoutParams(1, 1))
-                if (offScreen) view.onPause() else resumeTimers(view)
-                backgrounds[id] = view
-                view.loadUrl(url)
+                startBackground(id, url)
             }
         }
+    }
+
+    /** Runs extension [id]'s background page from [url]. */
+    private fun startBackground(id: String, url: String) {
+        val view = extensionView(PageTarget.Background(id))
+        // Attached (scripts and timers run) but out of sight.
+        view.visibility = View.INVISIBLE
+        container.addView(view, FrameLayout.LayoutParams(1, 1))
+        if (offScreen) view.onPause() else resumeTimers(view)
+        backgrounds[id] = view
+        view.loadUrl(url)
     }
 
     override fun showPanel(url: String?) {
@@ -358,10 +372,32 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
                 extensionFile(request)
 
-            // Its renderer died: without this, the whole app would go with it.
+            // Its renderer died: without this, the whole app would go with
+            // it. A background page starts again (a few times), a popup closes.
             override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
                 (view.parent as? ViewGroup)?.removeView(view)
                 view.destroy()
+                when (target) {
+                    is PageTarget.Background -> {
+                        val id = target.extension
+                        if (backgrounds[id] === view) {
+                            backgrounds.remove(id)
+                            val crashes = (backgroundCrashes[id] ?: 0) + 1
+                            backgroundCrashes[id] = crashes
+                            val url = backgroundUrls[id]
+                            if (url != null && crashes <= MAX_RESTARTS) {
+                                main.post { if (id !in backgrounds && backgroundUrls[id] == url) startBackground(id, url) }
+                            } else {
+                                Log.w(TAG, "background page of $id died $crashes times: not restarted")
+                            }
+                        }
+                    }
+                    is PageTarget.Panel -> if (panel === view) {
+                        panel = null
+                        onPanel(null)
+                    }
+                    is PageTarget.Tab -> {}
+                }
                 return true
             }
         }
@@ -536,6 +572,7 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
         views.clear()
         backgrounds.clear()
         backgroundVersions.clear()
+        backgroundUrls.clear()
         panel = null
         fullscreen = null
         container.removeAllViews()
@@ -934,6 +971,9 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
         const val PRIVATE_PROFILE = "bu-private"
 
         private const val TAG = "WebViews"
+
+        /** A background page whose renderer died more often stays stopped. */
+        private const val MAX_RESTARTS = 3
 
         /** A new window that hasn't navigated after this long is dropped. */
         private const val CATCHER_TIMEOUT_MS = 10_000L
