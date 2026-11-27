@@ -22,6 +22,7 @@ import androidx.core.content.ContextCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import java.io.File
+import java.io.OutputStream
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import org.json.JSONObject
@@ -41,7 +42,10 @@ class Downloads(private val context: Context) {
     /** Blob downloads asked for, by one-time token: a page can't write files on its own. */
     private val pending = ConcurrentHashMap<String, Pending>()
 
-    private class Pending(val name: String, val mimeType: String?)
+    private class Pending(val name: String, val mimeType: String?) {
+        /** Where its chunks go, from the first one. */
+        var sink: Sink? = null
+    }
 
     /**
      * Android 9 and older: writing to the Downloads folder needs the storage
@@ -50,19 +54,35 @@ class Downloads(private val context: Context) {
      */
     var askStorage: ((Boolean) -> Unit) -> Unit = { it(false) }
 
-    /** The bridge a tab's page uses to hand over a blob's contents. */
+    /**
+     * The bridge a tab's page uses to hand over a blob's contents, in chunks
+     * (one whole would take the blob's size several times over in memory).
+     */
     inner class Bridge {
+        /** The next chunk of the blob of [token], in base64; [last] ends it. */
         @JavascriptInterface
-        fun save(token: String, dataUrl: String) {
-            val p = pending.remove(token) ?: return
-            runCatching { write(p.name, p.mimeType, decodeDataUrl(dataUrl)) }
-                .onSuccess { tell(context.getString(R.string.download_saved, it)) }
-                .onFailure { fail(p.name, it) }
+        fun save(token: String, chunk: String, last: Boolean) {
+            val p = pending[token] ?: return
+            synchronized(p) {
+                try {
+                    val sink = p.sink ?: openSink(p.name, p.mimeType).also { p.sink = it }
+                    sink.out.write(Base64.decode(chunk, Base64.DEFAULT))
+                    if (last) {
+                        pending.remove(token)
+                        tell(context.getString(R.string.download_saved, sink.finish()))
+                    }
+                } catch (e: Exception) {
+                    pending.remove(token)
+                    p.sink?.abort()
+                    fail(p.name, e)
+                }
+            }
         }
 
         @JavascriptInterface
         fun failed(token: String, reason: String) {
             val p = pending.remove(token) ?: return
+            synchronized(p) { p.sink?.abort() }
             tell(context.getString(R.string.download_failed, p.name, reason))
         }
     }
@@ -74,7 +94,16 @@ class Downloads(private val context: Context) {
             when (Uri.parse(url).scheme?.lowercase()) {
                 "http", "https" -> enqueue(url, name, userAgent, mimeType, page, cookies(view, url))
                 "data" -> Thread {
-                    runCatching { write(name, mimeType, decodeDataUrl(url)) }
+                    runCatching {
+                        val sink = openSink(name, mimeType)
+                        try {
+                            sink.out.write(decodeDataUrl(url))
+                            sink.finish()
+                        } catch (e: Exception) {
+                            sink.abort()
+                            throw e
+                        }
+                    }
                         .onSuccess { tell(context.getString(R.string.download_saved, it)) }
                         .onFailure { fail(name, it) }
                 }.start()
@@ -115,7 +144,7 @@ class Downloads(private val context: Context) {
         }
     }
 
-    /** A `blob:` address only lives in its page: the page reads it and sends it back. */
+    /** A `blob:` address only lives in its page: the page reads it and sends it back, by slices. */
     private fun fromBlob(view: WebView, url: String, name: String, mimeType: String?) {
         val token = UUID.randomUUID().toString()
         pending[token] = Pending(name, mimeType)
@@ -126,10 +155,19 @@ class Downloads(private val context: Context) {
             (async () => {
               try {
                 const blob = await (await fetch($u)).blob();
-                const reader = new FileReader();
-                reader.onload = () => BUDownloads.save($t, reader.result);
-                reader.onerror = () => BUDownloads.failed($t, String(reader.error));
-                reader.readAsDataURL(blob);
+                const read = (part) => new Promise((done, fail) => {
+                  const reader = new FileReader();
+                  reader.onload = () => done(reader.result);
+                  reader.onerror = () => fail(reader.error);
+                  reader.readAsDataURL(part);
+                });
+                let at = 0;
+                do {
+                  const url = await read(blob.slice(at, at + $CHUNK));
+                  at += $CHUNK;
+                  const comma = url.indexOf(',');
+                  BUDownloads.save($t, comma < 0 ? '' : url.slice(comma + 1), at >= blob.size);
+                } while (at < blob.size);
               } catch (e) {
                 BUDownloads.failed($t, String(e));
               }
@@ -153,8 +191,19 @@ class Downloads(private val context: Context) {
         }
     }
 
-    /** Writes [bytes] in the Downloads folder; returns the name it got. */
-    private fun write(name: String, mimeType: String?, bytes: ByteArray): String {
+    /** A file being written in the Downloads folder. */
+    private interface Sink {
+        val out: OutputStream
+
+        /** Closes it, now complete; returns the name it got. */
+        fun finish(): String
+
+        /** Closes and deletes it. */
+        fun abort()
+    }
+
+    /** A new file [name] in the Downloads folder, to write into. */
+    private fun openSink(name: String, mimeType: String?): Sink {
         val type = mimeType?.takeIf { it.isNotBlank() } ?: "application/octet-stream"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val resolver = context.contentResolver
@@ -165,21 +214,44 @@ class Downloads(private val context: Context) {
             }
             val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
                 ?: error(context.getString(R.string.download_no_room))
-            try {
-                resolver.openOutputStream(uri)!!.use { it.write(bytes) }
-                resolver.update(uri, ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }, null, null)
+            val out = try {
+                resolver.openOutputStream(uri) ?: error(context.getString(R.string.download_no_room))
             } catch (e: Exception) {
                 resolver.delete(uri, null, null)
                 throw e
             }
-            return name
+            return object : Sink {
+                override val out = out.buffered()
+
+                override fun finish(): String {
+                    this.out.close()
+                    resolver.update(uri, ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }, null, null)
+                    return name
+                }
+
+                override fun abort() {
+                    runCatching { this.out.close() }
+                    runCatching { resolver.delete(uri, null, null) }
+                }
+            }
         }
         @Suppress("DEPRECATION")
         val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).apply { mkdirs() }
         val file = unique(dir, name)
-        file.writeBytes(bytes)
-        MediaScannerConnection.scanFile(context, arrayOf(file.absolutePath), arrayOf(type), null)
-        return file.name
+        return object : Sink {
+            override val out = file.outputStream().buffered()
+
+            override fun finish(): String {
+                out.close()
+                MediaScannerConnection.scanFile(context, arrayOf(file.absolutePath), arrayOf(type), null)
+                return file.name
+            }
+
+            override fun abort() {
+                runCatching { out.close() }
+                file.delete()
+            }
+        }
     }
 
     /** `name`, or `name (1)`, `name (2)`... if taken. */
@@ -202,6 +274,9 @@ class Downloads(private val context: Context) {
 
     companion object {
         private const val TAG = "Downloads"
+
+        /** The size of the slices a blob is handed over by (bytes). */
+        private const val CHUNK = 512 * 1024
 
         /** The bytes of a `data:[<type>][;base64],<data>` address. */
         fun decodeDataUrl(url: String): ByteArray {
