@@ -11,6 +11,8 @@ mod extension_bar;
 mod extensions;
 mod favicons;
 mod find_bar;
+#[cfg(target_os = "linux")]
+mod gtk_wake;
 mod language;
 mod library;
 mod omnibox;

@@ -88,6 +88,9 @@ pub struct BrowserApp {
     drm: Option<infrastructure::DrmReset>,
     /// Started again once closed (a DRM reset).
     relaunch: bool,
+    /// Wakes the window when GTK has work (`None` inside: couldn't start).
+    #[cfg(target_os = "linux")]
+    gtk_wake: std::cell::OnceCell<Option<super::gtk_wake::GtkWake>>,
     /// A private window's web view data. Last: dropped (deleted) after the
     /// web views.
     private_data: Option<PrivateDataDir>,
@@ -177,6 +180,8 @@ impl BrowserApp {
             close_requested: false,
             drm,
             relaunch: false,
+            #[cfg(target_os = "linux")]
+            gtk_wake: std::cell::OnceCell::new(),
             private_data,
         };
         app.offer_release_notes();
@@ -659,9 +664,18 @@ impl eframe::App for BrowserApp {
             }
         }
 
-        // GTK's loop only advances when we pump it.
-        if cfg!(target_os = "linux") {
-            ctx.request_repaint_after(Duration::from_millis(16));
+        // GTK's loop only advances when we pump it: a thread wakes the
+        // window when GTK has work; without it, a frame every 16 ms.
+        #[cfg(target_os = "linux")]
+        {
+            let woken = self
+                .gtk_wake
+                .get_or_init(|| super::gtk_wake::GtkWake::start(ctx.clone()))
+                .as_ref()
+                .is_some_and(super::gtk_wake::GtkWake::watch);
+            if !woken {
+                ctx.request_repaint_after(Duration::from_millis(16));
+            }
         }
     }
 

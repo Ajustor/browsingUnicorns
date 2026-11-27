@@ -46,6 +46,11 @@ rfd = "0.18"
 # The system's language, for the interface's when it follows it.
 sys-locale = "0.3"
 
+# GTK's loop watched off the UI thread: the window wakes when it has work
+# (already in the tree, through the web view).
+[target.'cfg(target_os = "linux")'.dependencies]
+glib-sys = "0.18"
+
 [dev-dependencies]
 tempfile = "3"
 

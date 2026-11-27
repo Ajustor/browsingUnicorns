@@ -770,6 +770,7 @@ dependencies = [
  "egui",
  "egui-phosphor",
  "env_logger",
+ "glib-sys",
  "i18n",
  "image",
  "infrastructure",
