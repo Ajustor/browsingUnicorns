@@ -19,14 +19,12 @@ impl Hub {
                 // permissions cover. Anything else: the page's own fetch.
                 let ext = ext?;
                 let url = field("url").as_str().unwrap_or("").to_owned();
-                let fetcher = self.fetcher.clone().filter(|_| {
-                    ctx != "content"
-                        && self
-                            .catalog
-                            .get(ext)
-                            .is_some_and(|p| extension_fetch::allowed(p.manifest(), &url))
-                });
-                let Some(fetcher) = fetcher else {
+                let manifest = self
+                    .catalog
+                    .get(ext)
+                    .filter(|p| ctx != "content" && extension_fetch::allowed(p.manifest(), &url))
+                    .map(|p| p.manifest().clone());
+                let (Some(fetcher), Some(manifest)) = (self.fetcher.clone(), manifest) else {
                     return Some(Err("not permitted".into()));
                 };
                 let request = FetchRequest {
@@ -52,6 +50,7 @@ impl Hub {
                     body: field("body")
                         .as_str()
                         .and_then(|b| data_encoding::BASE64.decode(b.as_bytes()).ok()),
+                    private_network: false,
                 };
                 let (tx, wake, to, ch) = (
                     self.fetched_tx.clone(),
@@ -60,7 +59,8 @@ impl Hub {
                     ch.clone(),
                 );
                 std::thread::spawn(move || {
-                    let result = fetcher(request).map(|r| {
+                    // Redirects followed there, each one checked.
+                    let result = extension_fetch::fetch(&fetcher, request, &manifest).map(|r| {
                         json!({
                             "url": r.url,
                             "status": r.status,

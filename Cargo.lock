@@ -2602,6 +2602,7 @@ dependencies = [
  "tempfile",
  "toml 0.8.2",
  "ureq",
+ "url",
  "webkit2gtk",
  "webkit2gtk-sys",
  "webview2-com",
