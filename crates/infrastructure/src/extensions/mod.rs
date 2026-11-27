@@ -23,6 +23,10 @@ use domain::{Extension, ExtensionId, Extensions, RuleSet};
 
 /// Packages bigger than this are refused.
 pub const MAX_PACKAGE: u64 = 100 * 1024 * 1024;
+/// What a package may unpack to (all its files), and its number of files:
+/// a few megabytes compress to gigabytes (a zip bomb).
+const MAX_UNPACKED: u64 = 500 * 1024 * 1024;
+const MAX_FILES: usize = 100_000;
 /// The browser version announced to the stores, which serve the build of
 /// the extension made for it, and nothing (204) when the extension needs a
 /// newer browser: the web view's engine (WebView2) version.
@@ -199,16 +203,34 @@ impl ExtensionFolder {
         Err(error(failures.join("; ")))
     }
 
-    /// Unpacks `zip` into `to` (emptied first).
+    /// Unpacks `zip` into `to` (emptied first), within [`MAX_UNPACKED`] and
+    /// [`MAX_FILES`] whatever the sizes the zip declares.
     fn unzip(zip: &[u8], to: &Path) -> Result<(), ExtensionError> {
+        Self::unzip_within(zip, to, MAX_UNPACKED, MAX_FILES)
+    }
+
+    fn unzip_within(
+        zip: &[u8],
+        to: &Path,
+        max_bytes: u64,
+        max_files: usize,
+    ) -> Result<(), ExtensionError> {
         if to.exists() {
             fs::remove_dir_all(to).map_err(error)?;
         }
         let mut archive = zip::ZipArchive::new(Cursor::new(zip)).map_err(error)?;
+        if archive.len() > max_files {
+            return Err(error(i18n::errors::infrastructure::package_too_large()));
+        }
+        let mut left = max_bytes;
         for i in 0..archive.len() {
             let mut entry = archive.by_index(i).map_err(error)?;
-            // Entries that would land outside `to` (`../`) are skipped.
-            let Some(relative) = entry.enclosed_name() else {
+            // Entries that would land outside `to` (`../`, `/x`, `C:\x`)
+            // are skipped: plain names only.
+            let Some(relative) = entry.enclosed_name().filter(|p| {
+                p.components()
+                    .all(|c| matches!(c, std::path::Component::Normal(_)))
+            }) else {
                 continue;
             };
             let path = to.join(relative);
@@ -219,9 +241,14 @@ impl ExtensionFolder {
             if let Some(parent) = path.parent() {
                 fs::create_dir_all(parent).map_err(error)?;
             }
-            let mut data = Vec::new();
-            entry.read_to_end(&mut data).map_err(error)?;
-            fs::write(&path, data).map_err(error)?;
+            // Read through a limit: one byte past what is left is too much.
+            let mut file = fs::File::create(&path).map_err(error)?;
+            let written =
+                std::io::copy(&mut entry.by_ref().take(left + 1), &mut file).map_err(error)?;
+            if written > left {
+                return Err(error(i18n::errors::infrastructure::package_too_large()));
+            }
+            left -= written;
         }
         Ok(())
     }
@@ -714,6 +741,57 @@ mod tests {
             err.contains("Chrome Web Store") && err.contains("Edge Add-ons"),
             "{err}"
         );
+    }
+
+    #[test]
+    fn zip_bombs_are_refused() {
+        let root = tempfile::tempdir().unwrap();
+        let to = root.path().join("x");
+        let zeros = "\0".repeat(64 * 1024);
+        let bomb = zip_with(&[("big.js", &zeros)]);
+        assert!(bomb.len() < 1024, "compressed: {} bytes", bomb.len());
+        let err = ExtensionFolder::unzip_within(&bomb, &to, 16 * 1024, 10).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            i18n::errors::infrastructure::package_too_large()
+        );
+        // The total counts, not each file.
+        let ten_k = "a".repeat(10 * 1024);
+        let two = zip_with(&[("a.js", &ten_k), ("b.js", &ten_k)]);
+        assert!(ExtensionFolder::unzip_within(&two, &to, 16 * 1024, 10).is_err());
+        ExtensionFolder::unzip_within(&two, &to, 20 * 1024, 10).unwrap();
+        assert_eq!(fs::read_to_string(to.join("b.js")).unwrap(), ten_k);
+        // Too many files.
+        assert!(ExtensionFolder::unzip_within(&two, &to, 20 * 1024, 1).is_err());
+
+        let fr = i18n::with_lang(i18n::Lang::Fr, || {
+            ExtensionFolder::unzip_within(&bomb, &to, 16 * 1024, 10)
+                .unwrap_err()
+                .to_string()
+        });
+        assert_eq!(fr, "le paquet est trop volumineux une fois décompressé");
+    }
+
+    #[test]
+    fn zip_entries_stay_in_the_folder() {
+        let root = tempfile::tempdir().unwrap();
+        let to = root.path().join("ext").join("x");
+        let zip = zip_with(&[
+            ("ok/file.js", "1"),
+            ("../evil.txt", "no"),
+            ("/abs.txt", "no"),
+            ("a/../../evil2.txt", "no"),
+            ("C:/evil3.txt", "no"),
+            ("C:evil4.txt", "no"),
+            ("\\\\server\\share\\evil5.txt", "no"),
+        ]);
+        ExtensionFolder::unzip(&zip, &to).unwrap();
+        assert_eq!(fs::read_to_string(to.join("ok/file.js")).unwrap(), "1");
+        for name in ["evil.txt", "evil2.txt", "abs.txt"] {
+            assert!(!root.path().join(name).exists(), "{name}");
+            assert!(!root.path().join("ext").join(name).exists(), "{name}");
+        }
+        assert!(!Path::new("C:/evil3.txt").exists());
     }
 
     #[test]

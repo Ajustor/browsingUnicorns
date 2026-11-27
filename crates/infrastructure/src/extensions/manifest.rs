@@ -244,9 +244,10 @@ pub fn from_store(dir: &Path) -> bool {
 pub fn version_in_zip(zip: &[u8]) -> Option<String> {
     use std::io::Read as _;
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(zip)).ok()?;
-    let mut entry = archive.by_name("manifest.json").ok()?;
+    let entry = archive.by_name("manifest.json").ok()?;
     let mut text = String::new();
-    entry.read_to_string(&mut text).ok()?;
+    // A manifest is a few kilobytes: no unpacking a zip bomb for it.
+    entry.take(1024 * 1024).read_to_string(&mut text).ok()?;
     let m: Map<String, Value> = serde_json::from_str(text.trim_start_matches('\u{feff}')).ok()?;
     text_owned(&m, "version")
 }
