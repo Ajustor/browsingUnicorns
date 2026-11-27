@@ -1,8 +1,6 @@
 //! Profiles: their view and menu (src/ui/profiles.rs).
 
 messages! {
-    /// The view's title.
-    fn heading() { en: "Profiles", fr: "Profils" }
     /// The cards' titles.
     fn this_profile() { en: "This profile", fr: "Ce profil" }
     fn other_profiles() { en: "Other profiles", fr: "Autres profils" }
@@ -27,8 +25,6 @@ messages! {
         en: "Remove {name} and delete its history, bookmarks, tabs, extensions and cookies?",
         fr: "Supprimer {name} et effacer son historique, ses favoris, ses onglets, ses extensions et ses cookies\u{a0}?",
     }
-    /// Over the new profile's field.
-    fn new_profile() { en: "New profile:", fr: "Nouveau profil\u{a0}:" }
     fn name_hint() { en: "Name (Work, Personal…)", fr: "Nom (Travail, Perso…)" }
     fn add() { en: "Add", fr: "Ajouter" }
     fn opens_in_new_window() { en: "A new profile opens in a new window.", fr: "Un nouveau profil s’ouvre dans une nouvelle fenêtre." }

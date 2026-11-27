@@ -1,8 +1,6 @@
 //! Extensions: their view, toolbar buttons and popups (src/ui/extensions.rs, extension_bar.rs).
 
 messages! {
-    /// The view's title.
-    fn heading() { en: "Extensions", fr: "Extensions" }
     /// The cards' titles.
     fn add_title() { en: "Add an extension", fr: "Ajouter une extension" }
     fn installed_title() { en: "Installed", fr: "Installées" }

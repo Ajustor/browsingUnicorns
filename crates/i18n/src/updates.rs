@@ -10,14 +10,10 @@ messages! {
         en: "browsingUnicorns {version} is available.",
         fr: "browsingUnicorns {version} est disponible.",
     }
-    /// The banner's button that installs it.
-    fn install() { en: "Install", fr: "Installer" }
     /// The banner's button that hides it until the next start.
     fn later() { en: "Later", fr: "Plus tard" }
     /// The banner's button that never offers this version again.
     fn skip_version() { en: "Skip this version", fr: "Ignorer cette version" }
-    /// The banner's link to the release notes.
-    fn whats_new() { en: "What's new", fr: "Nouveautés" }
     /// The banner, while the new version downloads.
     fn downloading(version: &dyn std::fmt::Display) {
         en: "Downloading browsingUnicorns {version}…",
