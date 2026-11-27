@@ -249,12 +249,27 @@ pub fn is_subdomain(host: &str, domain: &str) -> bool {
         && (host.len() == domain.len() || host.as_bytes()[host.len() - domain.len() - 1] == b'.')
 }
 
-/// The registrable part of a host, roughly (the last two labels, three for
-/// `co.uk`-like suffixes): enough to tell first from third party.
+/// Second levels that country domains sell under (`co.uk`, `com.br`,
+/// `ne.jp`...): a site is registered one level below them.
+const SHARED_SECOND_LEVELS: &[&str] = &[
+    "ac", "co", "com", "edu", "gen", "go", "gob", "gouv", "gov", "gv", "ltd", "mil", "ne", "net",
+    "nic", "nom", "or", "org", "plc", "sch",
+];
+
+/// The registrable part of a host, roughly (the last two labels, three
+/// under a country's shared second level such as `co.uk`): enough to tell
+/// first from third party.
 fn site(host: &str) -> &str {
     let labels: Vec<&str> = host.rsplitn(4, '.').collect();
     let keep = match labels.as_slice() {
-        [_, second, ..] if labels.len() >= 3 && second.len() <= 3 && labels[0].len() == 2 => 3,
+        [tld, second, _, ..]
+            if tld.len() == 2
+                && SHARED_SECOND_LEVELS
+                    .iter()
+                    .any(|s| s.eq_ignore_ascii_case(second)) =>
+        {
+            3
+        }
         _ => 2,
     };
     if labels.len() <= keep {
@@ -744,7 +759,13 @@ mod tests {
         assert!(!is_subdomain("badexample.com", "example.com"));
         assert_eq!(site("a.b.example.com"), "example.com");
         assert_eq!(site("www.bbc.co.uk"), "bbc.co.uk");
+        assert_eq!(site("a.example.com.br"), "example.com.br");
         assert_eq!(site("localhost"), "localhost");
+        // Short second levels that are sites of their own.
+        assert_eq!(site("www.zdf.de"), "zdf.de");
+        assert_eq!(site("api.ovh.fr"), "ovh.fr");
+        assert_eq!(site("tvthek.orf.at"), "orf.at");
+        assert_eq!(site("x.t.co"), "t.co");
     }
 
     fn rule(action: RuleAction, f: &str) -> NetworkRule {
@@ -865,6 +886,26 @@ mod tests {
                 script
             ),
             Verdict::Allow
+        );
+    }
+
+    #[test]
+    fn a_short_site_name_is_first_party_to_itself() {
+        let set = RuleSet::new(vec![(
+            id(),
+            vec![NetworkRule {
+                domain_type: Some(DomainType::ThirdParty),
+                ..rule(RuleAction::Block, "/track")
+            }],
+        )]);
+        let page = Some("https://www.zdf.de/");
+        assert_eq!(
+            decide(&set, "https://api.zdf.de/track", page, None),
+            Verdict::Allow
+        );
+        assert_eq!(
+            decide(&set, "https://px.other.de/track", page, None),
+            Verdict::Block
         );
     }
 
