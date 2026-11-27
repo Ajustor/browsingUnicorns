@@ -41,8 +41,16 @@ impl BrowserApp {
                 r
             }
             Command::AnswerCredential(answer) => self.browser.answer_credential(answer),
-            Command::RemoveCredential(origin, username) => {
-                self.browser.remove_credential(&origin, &username)
+            Command::RemoveCredential {
+                origin,
+                username,
+                never,
+            } => {
+                if never {
+                    self.browser.allow_saving_for(&origin)
+                } else {
+                    self.browser.remove_credential(&origin, &username)
+                }
             }
             Command::ClearBrowsingData(what) => self.clear_browsing_data(what),
             Command::ResetDrm => {
@@ -463,7 +471,7 @@ impl BrowserApp {
             | Command::DetachTab(..)
             | Command::DefaultBrowser(_)
             | Command::AnswerCredential(_)
-            | Command::RemoveCredential(..)
+            | Command::RemoveCredential { .. }
             | Command::ToggleExtensionPopup { .. } => unreachable!("handled by run"),
         }
     }
@@ -546,6 +554,6 @@ fn writes_profile(command: &Command) -> bool {
             | Command::RemoveUserScript(_)
             | Command::Profile(_)
             | Command::AnswerCredential(_)
-            | Command::RemoveCredential(..)
+            | Command::RemoveCredential { .. }
     )
 }

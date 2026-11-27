@@ -225,7 +225,7 @@ class BrowserController(
     }
 
     fun removeCredential(c: SavedCredential) {
-        act { removeCredential(c.origin, c.username) }
+        act { if (c.never) allowSavingFor(c.origin) else removeCredential(c.origin, c.username) }
         refreshCredentials()
     }
 

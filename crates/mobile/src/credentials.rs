@@ -151,6 +151,15 @@ impl MobileBrowser {
             .map_err(MobileError::new)
     }
 
+    /// Deletes the site's "never save" entry: saving its sign-ins is
+    /// offered again.
+    pub fn allow_saving_for(&self, origin: String) -> Result<(), MobileError> {
+        self.lock()
+            .browser
+            .allow_saving_for(&origin)
+            .map_err(MobileError::new)
+    }
+
     /// Offer to save the passwords typed in pages, and fill them in.
     pub fn set_save_passwords(&self, on: bool) -> Result<(), MobileError> {
         self.change_device_settings(|d| d.save_passwords = on)

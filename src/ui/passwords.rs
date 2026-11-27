@@ -69,10 +69,11 @@ pub fn list(ui: &mut egui::Ui, credentials: &Credentials, commands: &mut Vec<Com
                 .on_hover_text(i18n::passwords::remove_tip())
                 .clicked()
             {
-                commands.push(Command::RemoveCredential(
-                    c.origin.clone(),
-                    c.username.clone(),
-                ));
+                commands.push(Command::RemoveCredential {
+                    origin: c.origin.clone(),
+                    username: c.username.clone(),
+                    never: c.never,
+                });
             }
             if !c.never
                 && super::theme::hover_fill(ui, |ui| {
