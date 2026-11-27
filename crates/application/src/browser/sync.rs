@@ -68,12 +68,13 @@ impl<E: WebEngine> Browser<E> {
             return Vec::new();
         };
         let mut hosts: Vec<String> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
         for visit in self.history.visits().iter().rev() {
-            if let Some(host) = visit.address.host() {
-                let host = host.to_ascii_lowercase();
-                if !hosts.contains(&host) {
-                    hosts.push(host);
-                }
+            if let Some(host) = visit.address.host()
+                && !seen.contains(host)
+            {
+                seen.insert(host);
+                hosts.push(host.to_ascii_lowercase());
             }
         }
         let shared = cookies_to_share(cookies, &hosts, self.now(), DeviceRecord::COOKIES_BUDGET);

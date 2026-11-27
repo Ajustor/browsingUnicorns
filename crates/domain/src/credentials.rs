@@ -43,6 +43,13 @@ impl CredentialRemoval {
     }
 }
 
+/// Origin, user name and `never`: what tells credentials apart.
+type Key = (String, String, bool);
+
+fn owned((origin, username, never): (&str, &str, bool)) -> Key {
+    (origin.to_owned(), username.to_owned(), never)
+}
+
 /// What saving a sign-in would do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Offer {
@@ -55,11 +62,24 @@ pub enum Offer {
 }
 
 /// The saved sign-ins, one per origin and user name.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default)]
 pub struct Credentials {
     items: Vec<Credential>,
     removed: Vec<CredentialRemoval>,
+    /// Where each key is in `items` and in `removed`: merging a device's
+    /// sign-ins looks each one up, not through the whole list.
+    item_at: HashMap<Key, usize>,
+    removal_at: HashMap<Key, usize>,
 }
+
+/// The indexes follow from the lists.
+impl PartialEq for Credentials {
+    fn eq(&self, other: &Self) -> bool {
+        self.items == other.items && self.removed == other.removed
+    }
+}
+
+impl Eq for Credentials {}
 
 impl Credentials {
     /// Removals older than the newest ones beyond this count are forgotten.
@@ -162,46 +182,77 @@ impl Credentials {
     /// Takes in the other device's sign-ins and removals: the most recent
     /// change of each wins. Returns whether something changed.
     pub fn merge(&mut self, other: &Credentials) -> bool {
-        let before = self.clone();
+        let mut changed = false;
         for c in &other.items {
-            self.apply(c.clone());
+            changed |= self.apply(c.clone());
         }
         for r in &other.removed {
-            self.apply_removal(r.clone());
+            changed |= self.apply_removal(r.clone());
         }
-        *self != before
+        changed
     }
 
-    fn apply(&mut self, c: Credential) {
-        let removed_later = self
-            .removed
-            .iter()
-            .any(|r| r.key() == c.key() && r.at >= c.updated_at);
-        if removed_later {
-            return;
+    /// Returns whether it changed something.
+    fn apply(&mut self, c: Credential) -> bool {
+        let key = owned(c.key());
+        let removal = self.removal_at.get(&key).copied();
+        if removal.is_some_and(|i| self.removed[i].at >= c.updated_at) {
+            return false;
         }
-        match self.items.iter_mut().find(|i| i.key() == c.key()) {
-            Some(existing) if existing.updated_at >= c.updated_at => {}
-            Some(existing) => *existing = c,
+        match self.item_at.get(&key) {
+            Some(&i) if self.items[i].updated_at >= c.updated_at => return false,
+            Some(&i) => self.items[i] = c,
             None => {
-                self.removed.retain(|r| r.key() != c.key());
+                // Saved again since it was removed.
+                if let Some(i) = removal {
+                    self.removed.remove(i);
+                    self.removal_at = index(&self.removed, CredentialRemoval::key);
+                }
+                self.item_at.insert(key, self.items.len());
                 self.items.push(c);
             }
         }
+        true
     }
 
-    fn apply_removal(&mut self, r: CredentialRemoval) {
-        self.items
-            .retain(|c| !(c.key() == r.key() && c.updated_at <= r.at));
-        match self.removed.iter_mut().find(|x| x.key() == r.key()) {
-            Some(x) => x.at = x.at.max(r.at),
-            None => self.removed.push(r),
+    /// Returns whether it changed something.
+    fn apply_removal(&mut self, r: CredentialRemoval) -> bool {
+        let key = owned(r.key());
+        let mut changed = false;
+        if let Some(&i) = self.item_at.get(&key)
+            && self.items[i].updated_at <= r.at
+        {
+            self.items.remove(i);
+            self.item_at = index(&self.items, Credential::key);
+            changed = true;
+        }
+        match self.removal_at.get(&key) {
+            Some(&i) if self.removed[i].at >= r.at => {}
+            Some(&i) => {
+                self.removed[i].at = r.at;
+                changed = true;
+            }
+            None => {
+                self.removal_at.insert(key, self.removed.len());
+                self.removed.push(r);
+                changed = true;
+            }
         }
         if self.removed.len() > Self::MAX_REMOVALS {
             self.removed.sort_by_key(|r| std::cmp::Reverse(r.at));
             self.removed.truncate(Self::MAX_REMOVALS);
+            self.removal_at = index(&self.removed, CredentialRemoval::key);
         }
+        changed
     }
+}
+
+/// Where each key of `list` is.
+fn index<T>(list: &[T], key: impl Fn(&T) -> (&str, &str, bool)) -> HashMap<Key, usize> {
+    list.iter()
+        .enumerate()
+        .map(|(i, x)| (owned(key(x)), i))
+        .collect()
 }
 
 /// A cookie as the web views store it.
@@ -320,26 +371,28 @@ pub fn cookies_to_share(
     now: Timestamp,
     budget: usize,
 ) -> Vec<SiteCookie> {
-    let rank: HashMap<&str, usize> = recent_hosts
-        .iter()
-        .enumerate()
-        .rev()
-        .map(|(i, h)| (h.as_str(), i))
-        .collect();
-    // A cookie of `.example.com` serves `www.example.com`: the best rank of
-    // the hosts it covers.
+    // The best rank of each host, and of each domain over the hosts under
+    // it (a cookie of `.example.com` serves `www.example.com`).
+    let mut exact: HashMap<&str, usize> = HashMap::new();
+    let mut under: HashMap<&str, usize> = HashMap::new();
+    for (i, host) in recent_hosts.iter().enumerate() {
+        exact.entry(host).or_insert(i);
+        let mut rest = host.as_str();
+        loop {
+            under.entry(rest).or_insert(i);
+            match rest.find('.') {
+                Some(dot) => rest = &rest[dot + 1..],
+                None => break,
+            }
+        }
+    }
     let rank_of = |c: &SiteCookie| {
-        let host = c.host();
-        rank.iter()
-            .filter(|(h, _)| {
-                **h == host
-                    || (c.domain.starts_with('.')
-                        && h.strip_suffix(host.as_str())
-                            .is_some_and(|rest| rest.ends_with('.')))
-            })
-            .map(|(_, i)| *i)
-            .min()
-            .unwrap_or(usize::MAX)
+        let ranks = if c.domain.starts_with('.') {
+            &under
+        } else {
+            &exact
+        };
+        ranks.get(c.host().as_str()).copied().unwrap_or(usize::MAX)
     };
     let mut cookies: Vec<_> = cookies
         .into_iter()
@@ -491,6 +544,36 @@ mod tests {
         let tight = cookies_to_share(cookies, &hosts, 100, 80);
         assert_eq!(tight.len(), 1);
         assert_eq!(tight[0].domain, "a.com");
+        // A host cookie serves its host only.
+        let www = cookies_to_share(vec![cookie("b.com", "sid", "1")], &hosts, 100, 10_000);
+        assert!(www.is_empty());
+    }
+
+    #[test]
+    fn merging_reports_only_real_changes() {
+        let mut a = Credentials::default();
+        a.save(SITE, "me", "pw", 1);
+        a.never_for("https://n.com", 1);
+        a.remove("https://b.com", "x", false, 2);
+        let b = a.clone();
+        assert!(!a.merge(&b));
+        let mut newer = b.clone();
+        newer.save(SITE, "me", "pw2", 3);
+        assert!(a.merge(&newer));
+        assert!(!a.merge(&newer));
+        assert_eq!(a, newer);
+        // Re-saved after a removal: the removal goes.
+        let mut back = Credentials::default();
+        back.save("https://b.com", "x", "pw", 5);
+        assert!(a.merge(&back));
+        assert!(a.removals().is_empty());
+        assert_eq!(a.for_origin("https://b.com").len(), 1);
+        // Removed again, later: it goes again.
+        let mut gone = Credentials::default();
+        gone.remove("https://b.com", "x", false, 6);
+        assert!(a.merge(&gone));
+        assert!(a.for_origin("https://b.com").is_empty());
+        assert_eq!(a.for_origin(SITE)[0].password, "pw2", "index kept right");
     }
 
     #[test]
