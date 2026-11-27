@@ -90,6 +90,11 @@ impl Tab {
         self.pinned
     }
 
+    /// Left out of the saved session (an extension's window).
+    pub fn is_transient(&self) -> bool {
+        self.transient
+    }
+
     /// The group it belongs to, if any.
     pub fn group(&self) -> Option<GroupId> {
         self.group

@@ -108,16 +108,10 @@ impl<E: WebEngine> Browser<E> {
                 *seen = now;
                 continue;
             }
-            // An extension's own page (its window: a passkey prompt...).
-            let extension_page = tab.address().is_some_and(|a| {
-                a.as_str().starts_with("bu-ext:")
-                    || a.host()
-                        .is_some_and(|h| h.starts_with("bu-ext.") || h.ends_with(".bu-ext.invalid"))
-            });
             if tab.is_discarded()
                 || tab.is_loading()
                 || tab.address().is_none()
-                || extension_page
+                || tab.address().is_some_and(is_extension_page)
                 || keep.contains(&id)
                 || now.saturating_sub(*seen) < idle
             {
@@ -133,6 +127,14 @@ impl<E: WebEngine> Browser<E> {
         }
         asleep
     }
+}
+
+/// An extension's own page (its window: a passkey prompt...).
+pub(super) fn is_extension_page(address: &WebAddress) -> bool {
+    address.as_str().starts_with("bu-ext:")
+        || address
+            .host()
+            .is_some_and(|h| h.starts_with("bu-ext.") || h.ends_with(".bu-ext.invalid"))
 }
 
 #[cfg(test)]

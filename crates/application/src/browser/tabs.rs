@@ -3,6 +3,7 @@
 use domain::{GroupColor, GroupId, TabId, WebAddress};
 
 use super::Browser;
+use super::tab_lifecycle::is_extension_page;
 use crate::BrowserError;
 use crate::ports::WebEngine;
 
@@ -130,9 +131,8 @@ impl<E: WebEngine> Browser<E> {
 
     /// Closes every tab of `group`.
     pub fn close_group(&mut self, group: GroupId) {
-        for id in self.session.group_tabs(group) {
-            self.close_tab(id);
-        }
+        let ids = self.session.group_tabs(group);
+        self.close_tabs(&ids);
     }
 
     /// Opens a tab on `address` (the home page when `None`) and shows it.
@@ -167,11 +167,31 @@ impl<E: WebEngine> Browser<E> {
     }
 
     pub fn close_tab(&mut self, id: TabId) {
-        // Not a private one: it would come back in the open.
+        self.close_tabs(&[id]);
+    }
+
+    /// Closes `ids`, then shows the tab active after them: once, so that a
+    /// sleeping tab of the batch is not woken just before it closes.
+    fn close_tabs(&mut self, ids: &[TabId]) {
+        let mut closed = false;
+        for &id in ids {
+            closed |= self.close_without_showing(id);
+        }
+        if closed {
+            self.show(self.session.active_id());
+        }
+    }
+
+    /// Returns whether `id` was open.
+    fn close_without_showing(&mut self, id: TabId) -> bool {
+        // Not a private one (it would come back in the open), nor an
+        // extension's window (it would come back as a tab).
         let index = self.session.tabs().iter().position(|t| t.id() == id);
         if let (Some(index), Some(tab)) = (index, self.session.tab(id))
             && !tab.is_private()
+            && !tab.is_transient()
             && let Some(address) = tab.address()
+            && !is_extension_page(address)
         {
             if self.closed.len() == CLOSED_TABS {
                 self.closed.remove(0);
@@ -179,10 +199,20 @@ impl<E: WebEngine> Browser<E> {
             self.closed.push((address.clone(), index));
         }
         self.typed_usernames.remove(&id);
-        if self.session.close_tab(id) {
-            self.engine.close_view(id);
-            self.show(self.session.active_id());
+        self.crashed.remove(&id);
+        self.last_seen.remove(&id);
+        if self
+            .pending_credential
+            .as_ref()
+            .is_some_and(|p| p.tab == id)
+        {
+            self.pending_credential = None;
         }
+        if !self.session.close_tab(id) {
+            return false;
+        }
+        self.engine.close_view(id);
+        true
     }
 
     /// Whether a closed tab can be reopened.
@@ -215,9 +245,7 @@ impl<E: WebEngine> Browser<E> {
             .filter(|t| t.is_private())
             .map(|t| t.id())
             .collect();
-        for &id in &ids {
-            self.close_tab(id);
-        }
+        self.close_tabs(&ids);
         ids
     }
 
@@ -340,6 +368,64 @@ mod tests {
         );
         assert!(!b.can_reopen_closed_tab());
         assert_eq!(b.reopen_closed_tab().unwrap(), None);
+    }
+
+    #[test]
+    fn closing_a_group_wakes_none_of_its_sleeping_tabs() {
+        let mut b = browser();
+        let kept = b.open_tab(None).unwrap();
+        let t1 = b.open_tab(None).unwrap();
+        let t2 = b.open_tab(None).unwrap();
+        let group = b.new_group(t1).unwrap();
+        b.add_to_group(t2, group);
+        for (t, url) in [(t1, "https://a.com/"), (t2, "https://b.com/")] {
+            finish(&mut b, t, url);
+        }
+        b.activate(kept);
+        b.discard_idle(1, 0, &[]);
+        assert!(b.session().tab(t2).unwrap().is_discarded());
+        // Closing t1 first makes t2 (asleep) the active tab for a moment.
+        b.activate(t1);
+        take_calls(&mut b);
+        b.close_group(group);
+        let calls = take_calls(&mut b);
+        assert!(
+            !calls.iter().any(|c| matches!(c, Call::Open(..))),
+            "{calls:?}"
+        );
+        assert_eq!(calls.last(), Some(&Call::Show(Some(kept.get()))));
+        assert_eq!(b.session().len(), 1);
+    }
+
+    #[test]
+    fn a_closed_tab_leaves_nothing_behind() {
+        let (_, mut b, id) = signed_in_browser();
+        b.offer_credential(id, "me", "pw");
+        assert!(b.pending_credential().is_some());
+        b.handle(EngineEvent::PageCrashed {
+            tab: id,
+            all: false,
+        })
+        .unwrap();
+        b.close_tab(id);
+        assert!(b.pending_credential().is_none());
+        assert!(!b.is_crashed(id));
+
+        // An extension's window does not come back as a tab.
+        let popup = b.open_tab(Some(addr("https://x.com/"))).unwrap();
+        finish(&mut b, popup, "https://x.com/");
+        b.keep_out_of_session(popup);
+        b.close_tab(popup);
+        let ext = b.open_tab(None).unwrap();
+        finish(&mut b, ext, "bu-ext://abc/popup.html");
+        b.close_tab(ext);
+        let reopened = b.reopen_closed_tab().unwrap().unwrap();
+        finish(&mut b, reopened, "https://a.com/login");
+        assert_eq!(
+            b.session().tab(reopened).unwrap().address(),
+            Some(&addr("https://a.com/login"))
+        );
+        assert!(!b.can_reopen_closed_tab());
     }
 
     #[test]
