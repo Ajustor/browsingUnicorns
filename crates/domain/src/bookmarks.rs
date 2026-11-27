@@ -129,7 +129,9 @@ impl Bookmarks {
             .filter(|b| !b.folder.is_empty())
             .map(|b| b.folder.clone())
             .collect();
-        folders.sort_by_key(|f| f.to_lowercase());
+        // Case-insensitive order, then the exact name, so that each folder
+        // name ends up next to its duplicates and is listed once.
+        folders.sort_by_cached_key(|f| (f.to_lowercase(), f.clone()));
         folders.dedup();
         folders
     }
@@ -240,6 +242,15 @@ fn clean_folder(folder: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn each_folder_is_listed_once_whatever_the_order() {
+        let mut b = Bookmarks::default();
+        assert!(b.add_in(addr("https://1.com/"), "1", "Foo", 1));
+        assert!(b.add_in(addr("https://2.com/"), "2", "foo", 1));
+        assert!(b.add_in(addr("https://3.com/"), "3", "Foo", 1));
+        assert_eq!(b.folders(), ["Foo", "foo"]);
+    }
 
     #[test]
     fn bookmarks_go_in_folders_and_moves_win_merges() {
