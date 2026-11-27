@@ -28,6 +28,7 @@ mod split_view;
 mod sync;
 mod sync_panel;
 mod system_font;
+mod tab_common;
 mod tab_search;
 mod tab_strip;
 pub mod theme;

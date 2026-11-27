@@ -212,8 +212,8 @@ fn row_text(s: &Suggestion) -> LayoutJob {
             if title.is_empty() {
                 job.append(url, 8.0, strong);
             } else {
-                job.append(&super::tab_strip::truncate(title, 70), 8.0, strong);
-                job.append(&super::tab_strip::truncate(url, 80), 10.0, weak);
+                job.append(&super::tab_common::truncate(title, 70), 8.0, strong);
+                job.append(&super::tab_common::truncate(url, 80), 10.0, weak);
             }
         }
     }

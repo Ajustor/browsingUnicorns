@@ -14,7 +14,7 @@ use crate::ui::sync_panel::SyncView;
 use crate::ui::toolbar::{self, ShieldButton};
 use crate::ui::{
     bookmarks_bar, downloads, omnibox, panel_kit, passwords, permissions, settings_panel,
-    side_tabs, tab_strip, theme,
+    side_tabs, tab_common, tab_strip, theme,
 };
 
 impl BrowserApp {
@@ -183,16 +183,16 @@ impl BrowserApp {
                         egui::pos2(0.0, 0.0),
                         egui::pos2(r.right(), r.bottom() + 6.0),
                     );
-                    tab_strip::drag_window_by(ui, bar);
+                    tab_common::drag_window_by(ui, bar);
                 }
                 ui.horizontal(|ui| {
                     if side && cfg!(target_os = "macos") {
-                        ui.add_space(tab_strip::MACOS_BUTTONS);
+                        ui.add_space(tab_common::MACOS_BUTTONS);
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if side && !cfg!(target_os = "macos") {
                             // In a scope: they set their spacing to 0.
-                            ui.scope(tab_strip::window_buttons);
+                            ui.scope(tab_common::window_buttons);
                             ui.add_space(6.0);
                         }
                         ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {

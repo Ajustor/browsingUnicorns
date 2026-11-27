@@ -14,7 +14,7 @@ pub fn show(ui: &mut egui::Ui, bookmarks: &Bookmarks, commands: &mut Vec<Command
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 for b in bookmarks.items().iter().filter(|b| b.folder.is_empty()) {
-                    let label = super::tab_strip::truncate(b.label(), LABEL_CHARS);
+                    let label = super::tab_common::truncate(b.label(), LABEL_CHARS);
                     let response = super::theme::hover_fill(ui, |ui| {
                         ui.add(
                             Button::new(RichText::new(label).color(super::theme::CHROME_TEXT_WEAK))
@@ -39,7 +39,7 @@ pub fn show(ui: &mut egui::Ui, bookmarks: &Bookmarks, commands: &mut Vec<Command
                 tops.sort_by_key(|f| f.to_lowercase());
                 tops.dedup();
                 for folder in tops {
-                    let label = super::tab_strip::truncate(folder, LABEL_CHARS);
+                    let label = super::tab_common::truncate(folder, LABEL_CHARS);
                     if super::theme::hover_fill(ui, |ui| {
                         ui.add(
                             Button::new(

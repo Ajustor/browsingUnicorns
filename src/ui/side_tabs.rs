@@ -10,7 +10,7 @@ use domain::{GroupId, Session, Tab, TabGroup, TabPosition};
 
 use super::command::Command;
 use super::favicons::{Favicons, Sound};
-use super::tab_strip::{self, Axis};
+use super::tab_common::{self, Axis};
 use super::theme::{self, Chrome};
 
 /// The column's panel (egui keeps its width under it).
@@ -88,7 +88,7 @@ pub fn show(
 /// New tab, the tab search, fold or unfold; the private pill above.
 fn header(ui: &mut egui::Ui, tabs: &SideTabs<'_>, commands: &mut Vec<Command>) {
     if tabs.private && !tabs.folded {
-        ui.horizontal(|ui| tab_strip::private_pill(ui, tabs.chrome));
+        ui.horizontal(|ui| tab_common::private_pill(ui, tabs.chrome));
         ui.add_space(4.0);
     }
     let fold = |ui: &mut egui::Ui, commands: &mut Vec<Command>| {
@@ -152,7 +152,7 @@ fn list(
     let mut rects = Vec::with_capacity(session.len());
     let mut headers = Vec::new();
     let mut dragged = None;
-    let newly_active = newly_active(ui, session);
+    let newly_active = tab_common::newly_active(ui, session);
     let mut track = |index: usize, tab: &Tab, response: &egui::Response, rects: &mut Vec<_>| {
         if session.active_id() == Some(tab.id()) && newly_active {
             response.scroll_to_me(None);
@@ -212,21 +212,10 @@ fn list(
         } else {
             (pinned..=rects.len(), Axis::Column)
         };
-        tab_strip::drag_tab(
+        tab_common::drag_tab(
             ui, &rects, &headers, from, tab, dropped, zone, axis, commands,
         );
     }
-}
-
-/// Whether the active tab changed since the last frame (it is then scrolled
-/// into view, once).
-fn newly_active(ui: &egui::Ui, session: &Session) -> bool {
-    let shown = ui.id().with("active tab");
-    ui.data_mut(|d| {
-        let changed = d.get_temp::<Option<domain::TabId>>(shown) != Some(session.active_id());
-        d.insert_temp(shown, session.active_id());
-        changed
-    })
 }
 
 /// A pinned tab: its icon in a square.
@@ -257,14 +246,14 @@ fn tab_row(
     commands: &mut Vec<Command>,
 ) -> egui::Response {
     let active = tabs.session.active_id() == Some(tab.id());
-    let text = tab_strip::tab_ink(tab, active);
+    let text = tab_common::tab_ink(tab, active);
     let (rect, response) = ui.allocate_exact_size(
         egui::vec2(ui.available_width(), ROW_HEIGHT),
         Sense::click_and_drag(),
     );
     paint_background(ui, rect, active, &response, tabs.chrome);
     // Shown beside the active tab (a split view).
-    if tab_strip::is_split_partner(tabs.session, tab) {
+    if tab_common::is_split_partner(tabs.session, tab) {
         ui.painter().rect_filled(
             rect,
             egui::CornerRadius::same(8),
@@ -272,9 +261,9 @@ fn tab_row(
         );
     }
     if tabs.session.split_of(tab.id()).is_some()
-        && (active || tab_strip::is_split_partner(tabs.session, tab))
+        && (active || tab_common::is_split_partner(tabs.session, tab))
     {
-        tab_strip::split_mark(ui, rect);
+        tab_common::split_mark(ui, rect);
     }
     if let Some(group) = group {
         // Its group's colour, down its left side.
@@ -376,7 +365,7 @@ fn tab_icon(
     size: f32,
 ) {
     let rect = egui::Rect::from_center_size(at, egui::vec2(size, size));
-    let text = tab_strip::tab_ink(tab, active);
+    let text = tab_common::tab_ink(tab, active);
     if tab.is_loading() {
         ui.put(rect, Spinner::new().size(size - 2.0).color(text));
     } else if let Some(icon) = favicons.get(tab.id()) {
@@ -408,7 +397,7 @@ fn tab_actions(
         commands.push(Command::CloseTab(tab.id()));
     }
     response.context_menu(|ui| {
-        tab_strip::tab_menu(ui, tab, session, TabPosition::Left, commands);
+        tab_common::tab_menu(ui, tab, session, TabPosition::Left, commands);
     });
 }
 
@@ -425,7 +414,7 @@ fn group_header(
     let color = theme::group_color(group.color);
     ui.add_space(4.0);
     if *naming == Some(group.id()) && !tabs.folded {
-        return name_field(ui, group, color, naming, commands);
+        return tab_common::name_field(ui, group, color, 3, None, naming, commands);
     }
     let height = if tabs.folded { 10.0 } else { 26.0 };
     let (rect, response) =
@@ -451,7 +440,7 @@ fn group_header(
             color,
         );
         painter.circle_filled(egui::pos2(rect.left() + 26.0, rect.center().y), 5.0, color);
-        let mut name = tab_strip::group_title(tabs.session, group);
+        let mut name = tab_common::group_title(tabs.session, group);
         if group.collapsed {
             name = format!("{name} · {}", tabs.session.group_tabs(group.id()).len());
         }
@@ -483,53 +472,6 @@ fn group_header(
     if response.clicked() {
         commands.push(Command::SetGroupCollapsed(group.id(), !group.collapsed));
     }
-    response.context_menu(|ui| tab_strip::group_menu(ui, group, commands));
+    response.context_menu(|ui| tab_common::group_menu(ui, group, commands));
     rect
-}
-
-/// A new group's name, typed in its header.
-fn name_field(
-    ui: &mut egui::Ui,
-    group: &TabGroup,
-    color: Color32,
-    naming: &mut Option<GroupId>,
-    commands: &mut Vec<Command>,
-) -> egui::Rect {
-    let buffer = ui.id().with(("naming", group.id()));
-    let started = ui.data(|d| d.get_temp::<String>(buffer));
-    let mut name = started.clone().unwrap_or_else(|| group.name.clone());
-    let named = egui::Frame::NONE
-        .fill(color)
-        .corner_radius(egui::CornerRadius::same(6))
-        .inner_margin(egui::Margin::symmetric(6, 3))
-        .show(ui, |ui| {
-            let ink = theme::NIGHT_DEEP;
-            let style = ui.visuals_mut();
-            style.override_text_color = Some(ink);
-            style.extreme_bg_color = Color32::TRANSPARENT;
-            style.widgets.inactive.bg_stroke = egui::Stroke::NONE;
-            style.widgets.hovered.bg_stroke = egui::Stroke::NONE;
-            style.widgets.active.bg_stroke = egui::Stroke::NONE;
-            style.selection.stroke = egui::Stroke::NONE;
-            ui.add(
-                egui::TextEdit::singleline(&mut name)
-                    .desired_width(ui.available_width())
-                    .frame(false)
-                    .hint_text(
-                        RichText::new(i18n::tabs::group_name()).color(ink.gamma_multiply(0.6)),
-                    ),
-            )
-        });
-    let field = named.inner;
-    if started.is_none() {
-        field.request_focus();
-    }
-    if field.lost_focus() {
-        commands.push(Command::RenameGroup(group.id(), name));
-        ui.data_mut(|d| d.remove::<String>(buffer));
-        *naming = None;
-    } else {
-        ui.data_mut(|d| d.insert_temp(buffer, name));
-    }
-    named.response.rect
 }
