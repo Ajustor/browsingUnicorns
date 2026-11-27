@@ -22,10 +22,13 @@ pub struct ProfilesRunner {
     _lock: Option<ProfileLock>,
     open: HashSet<ProfileId>,
     checked: Option<Instant>,
+    /// The window had the focus when the panel last showed.
+    focused: bool,
 }
 
-/// How often the panel looks at what other windows changed.
-const REFRESH_EVERY: Duration = Duration::from_secs(1);
+/// How often the panel looks at what other windows changed (and when the
+/// window gets the focus back: the change was likely made in another).
+const REFRESH_EVERY: Duration = Duration::from_secs(4);
 
 impl ProfilesRunner {
     pub fn new(manager: ProfileManager, lock: Option<ProfileLock>) -> Self {
@@ -34,6 +37,7 @@ impl ProfilesRunner {
             _lock: lock,
             open: HashSet::new(),
             checked: None,
+            focused: true,
         }
     }
 
@@ -48,6 +52,15 @@ impl ProfilesRunner {
 
     /// Picks up the other windows' changes, while the panel shows.
     pub fn refresh(&mut self, ctx: &egui::Context) {
+        let focused = ctx.input(|i| i.focused);
+        if focused && !self.focused {
+            self.checked = None;
+        }
+        self.focused = focused;
+        // Away: looked at again when the window gets the focus back.
+        if !focused && self.checked.is_some() {
+            return;
+        }
         if self.checked.is_some_and(|at| at.elapsed() < REFRESH_EVERY) {
             return;
         }
