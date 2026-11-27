@@ -680,6 +680,44 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
         )
     }
 
+    /**
+     * Hands [uri] (mailto:, tel:, intent:...) to the app that handles it. An
+     * `intent:` address is read as Chrome does: only to a browsable activity,
+     * never a named component nor with permissions on the app's files; with
+     * no app for it, its `browser_fallback_url` (web) loads in [tab].
+     */
+    private fun openExternal(tab: ULong, uri: Uri) {
+        var fallback: String? = null
+        val intent = if (uri.scheme.equals("intent", ignoreCase = true)) {
+            val parsed = try {
+                Intent.parseUri(uri.toString(), Intent.URI_INTENT_SCHEME)
+            } catch (_: Exception) {
+                return
+            }
+            fallback = parsed.getStringExtra("browser_fallback_url")
+                ?.takeIf { Uri.parse(it).scheme?.lowercase() in setOf("http", "https") }
+            // A file of this app (or of another, through its provider) never goes out.
+            if (parsed.data?.scheme?.lowercase() in setOf("file", "content")) return
+            parsed.apply {
+                component = null
+                selector = null
+                clipData = null
+            }
+        } else {
+            Intent(Intent.ACTION_VIEW, uri)
+        }
+        intent.addCategory(Intent.CATEGORY_BROWSABLE)
+        // Replaces the flags the address gave (permissions on URIs among them).
+        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        try {
+            context.startActivity(intent)
+        } catch (_: ActivityNotFoundException) {
+            fallback?.let { navigate(tab, it) }
+        } catch (e: SecurityException) {
+            Log.w(TAG, "external app refused for $uri", e)
+        }
+    }
+
     @SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
     private fun create(tab: ULong, private: Boolean): WebView = PageView(tab).apply {
         if (private) usePrivateProfile(this)
@@ -757,17 +795,13 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
                 return true
             }
 
-            // mailto:, tel:, intent:... go to the app that handles them.
+            // mailto:, tel:, intent:... go to the app that handles them, on
+            // a tap in the page itself only (not a script, not a frame).
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 if (request.isForMainFrame) prepareScriptlets(tab, view, request.url.toString())
                 val scheme = request.url.scheme ?: return false
                 if (scheme in setOf("http", "https", "about", "file", "data", "javascript")) return false
-                try {
-                    context.startActivity(
-                        Intent(Intent.ACTION_VIEW, request.url).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                    )
-                } catch (_: ActivityNotFoundException) {
-                }
+                if (request.hasGesture() && request.isForMainFrame) openExternal(tab, request.url)
                 return true
             }
         }
