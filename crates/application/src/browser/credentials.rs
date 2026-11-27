@@ -108,10 +108,23 @@ impl<E: WebEngine> Browser<E> {
         self.save_credentials()
     }
 
-    /// Deletes a saved sign-in (with an empty `username`, the "never for
-    /// this site" entry of `origin`).
+    /// Deletes the saved sign-in of `username` on `origin`; with an empty
+    /// `username` and no sign-in saved without one, the "never for this
+    /// site" entry of `origin` (see [`Self::allow_saving_for`]).
     pub fn remove_credential(&mut self, origin: &str, username: &str) -> Result<(), BrowserError> {
-        if self.credentials.remove(origin, username, self.now()) {
+        let now = self.now();
+        if self.credentials.remove(origin, username, false, now)
+            || (username.is_empty() && self.credentials.remove(origin, "", true, now))
+        {
+            self.save_credentials()?;
+        }
+        Ok(())
+    }
+
+    /// Deletes the "never for this site" entry of `origin`: saving its
+    /// sign-ins is offered again.
+    pub fn allow_saving_for(&mut self, origin: &str) -> Result<(), BrowserError> {
+        if self.credentials.remove(origin, "", true, self.now()) {
             self.save_credentials()?;
         }
         Ok(())
@@ -220,6 +233,20 @@ mod tests {
         finish(&mut off, id, "https://a.com/");
         off.offer_credential(id, "me", "pw");
         assert!(off.pending_credential().is_none());
+    }
+
+    #[test]
+    fn never_keeps_a_password_saved_without_user_name() {
+        let (_, mut b, id) = signed_in_browser();
+        b.offer_credential(id, "", "pw");
+        b.answer_credential(CredentialAnswer::Save).unwrap();
+        b.credentials.save("https://a.com", "other", "x", 1);
+        b.offer_credential(id, "other", "y");
+        b.answer_credential(CredentialAnswer::Never).unwrap();
+        assert_eq!(b.credentials().for_origin("https://a.com").len(), 2);
+        b.allow_saving_for("https://a.com").unwrap();
+        assert!(!b.credentials().is_never("https://a.com"));
+        assert_eq!(b.credentials().for_origin("https://a.com").len(), 2);
     }
 
     #[test]

@@ -186,6 +186,9 @@ pub struct CredentialRemovalDto {
     #[serde(default)]
     pub username: String,
     pub at: u64,
+    /// Absent from older records: a sign-in's removal.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub never: bool,
 }
 
 impl From<&Credentials> for CredentialsDto {
@@ -209,6 +212,7 @@ impl From<&Credentials> for CredentialsDto {
                     origin: r.origin.clone(),
                     username: r.username.clone(),
                     at: r.at,
+                    never: r.never,
                 })
                 .collect(),
         }
@@ -234,6 +238,7 @@ impl From<CredentialsDto> for Credentials {
                     origin: r.origin,
                     username: r.username,
                     at: r.at,
+                    never: r.never,
                 })
                 .collect(),
         )
@@ -395,5 +400,24 @@ mod tests {
         let json = serde_json::to_string(&SettingsDto::from(&settings)).unwrap();
         let back: SettingsDto = serde_json::from_str(&json).unwrap();
         assert_eq!(back.into_settings().unwrap(), settings);
+    }
+
+    #[test]
+    fn credential_removals_tell_never_entries_apart_and_read_older_ones() {
+        let older: CredentialsDto = serde_json::from_str(
+            r#"{"items":[{"origin":"https://a.com","password":"pw","updated_at":1}],
+                "removed":[{"origin":"https://b.com","at":2}]}"#,
+        )
+        .unwrap();
+        let older = Credentials::from(older);
+        assert!(!older.removals()[0].never, "an older removal: a sign-in's");
+
+        let mut c = Credentials::default();
+        c.never_for("https://a.com", 1);
+        c.remove("https://a.com", "", true, 2);
+        let json = serde_json::to_string(&CredentialsDto::from(&c)).unwrap();
+        let back = Credentials::from(serde_json::from_str::<CredentialsDto>(&json).unwrap());
+        assert_eq!(back, c);
+        assert!(back.removals()[0].never);
     }
 }

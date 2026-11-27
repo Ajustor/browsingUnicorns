@@ -92,7 +92,7 @@ mod tests {
         let mut c = Credentials::default();
         c.save("https://a.com", "me", "hunter2", 1);
         c.never_for("https://b.com", 2);
-        c.remove("https://c.com", "x", 3);
+        c.remove("https://c.com", "x", false, 3);
         repo.save(&c).unwrap();
         assert_eq!(repo.load().unwrap(), c);
         let raw = std::fs::read_to_string(repo.path()).unwrap();

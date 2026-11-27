@@ -20,8 +20,9 @@ pub struct Credential {
 }
 
 impl Credential {
-    fn key(&self) -> (&str, &str) {
-        (&self.origin, &self.username)
+    /// A "never" entry is told apart from a sign-in saved without user name.
+    fn key(&self) -> (&str, &str, bool) {
+        (&self.origin, &self.username, self.never)
     }
 }
 
@@ -32,6 +33,14 @@ pub struct CredentialRemoval {
     pub origin: String,
     pub username: String,
     pub at: Timestamp,
+    /// The "never for this site" entry was deleted (not a sign-in).
+    pub never: bool,
+}
+
+impl CredentialRemoval {
+    fn key(&self) -> (&str, &str, bool) {
+        (&self.origin, &self.username, self.never)
+    }
 }
 
 /// What saving a sign-in would do.
@@ -136,15 +145,16 @@ impl Credentials {
         });
     }
 
-    /// Deletes the sign-in of `username` on `origin` (with an empty name and
-    /// `never`, the "never for this site" entry). Returns whether it was
-    /// there.
-    pub fn remove(&mut self, origin: &str, username: &str, at: Timestamp) -> bool {
+    /// Deletes the sign-in of `username` on `origin` (with `never`, the
+    /// "never for this site" entry of `origin`, whose name is empty).
+    /// Returns whether it was there.
+    pub fn remove(&mut self, origin: &str, username: &str, never: bool, at: Timestamp) -> bool {
         let before = self.items.len();
         self.apply_removal(CredentialRemoval {
             origin: origin.to_owned(),
-            username: username.to_owned(),
+            username: if never { "" } else { username }.to_owned(),
             at,
+            never,
         });
         self.items.len() != before
     }
@@ -166,7 +176,7 @@ impl Credentials {
         let removed_later = self
             .removed
             .iter()
-            .any(|r| r.origin == c.origin && r.username == c.username && r.at >= c.updated_at);
+            .any(|r| r.key() == c.key() && r.at >= c.updated_at);
         if removed_later {
             return;
         }
@@ -174,22 +184,16 @@ impl Credentials {
             Some(existing) if existing.updated_at >= c.updated_at => {}
             Some(existing) => *existing = c,
             None => {
-                self.removed
-                    .retain(|r| !(r.origin == c.origin && r.username == c.username));
+                self.removed.retain(|r| r.key() != c.key());
                 self.items.push(c);
             }
         }
     }
 
     fn apply_removal(&mut self, r: CredentialRemoval) {
-        self.items.retain(|c| {
-            !(c.origin == r.origin && c.username == r.username && c.updated_at <= r.at)
-        });
-        match self
-            .removed
-            .iter_mut()
-            .find(|x| x.origin == r.origin && x.username == r.username)
-        {
+        self.items
+            .retain(|c| !(c.key() == r.key() && c.updated_at <= r.at));
+        match self.removed.iter_mut().find(|x| x.key() == r.key()) {
             Some(x) => x.at = x.at.max(r.at),
             None => self.removed.push(r),
         }
@@ -415,7 +419,7 @@ mod tests {
         desktop.save("https://b.com", "me", "b", 1);
         let mut phone = desktop.clone();
         phone.save(SITE, "me", "pw2", 5);
-        phone.remove("https://b.com", "me", 6);
+        phone.remove("https://b.com", "me", false, 6);
 
         assert!(desktop.merge(&phone));
         assert_eq!(desktop.for_origin(SITE)[0].password, "pw2");
@@ -433,8 +437,28 @@ mod tests {
     fn removing_a_never_entry_offers_again() {
         let mut c = Credentials::default();
         c.never_for(SITE, 1);
-        assert!(c.remove(SITE, "", 2));
+        assert!(c.remove(SITE, "", true, 2));
         assert_eq!(c.offer(SITE, "me", "pw"), Offer::Save);
+    }
+
+    #[test]
+    fn a_never_entry_and_a_sign_in_without_name_are_apart() {
+        let mut c = Credentials::default();
+        c.save(SITE, "", "pw", 1);
+        c.never_for(SITE, 2);
+        assert_eq!(c.items().len(), 2, "never keeps the saved password");
+        assert_eq!(c.for_origin(SITE)[0].password, "pw");
+
+        let mut synced = c.clone();
+        assert!(synced.remove(SITE, "", true, 3));
+        assert_eq!(synced.items().len(), 1, "only the never entry goes");
+        assert!(!synced.is_never(SITE));
+        assert!(c.merge(&synced));
+        assert_eq!(c.for_origin(SITE).len(), 1);
+        assert!(!c.is_never(SITE));
+
+        assert!(c.remove(SITE, "", false, 4));
+        assert!(c.items().is_empty());
     }
 
     fn cookie(domain: &str, name: &str, value: &str) -> SiteCookie {
