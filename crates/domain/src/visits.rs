@@ -11,7 +11,8 @@ pub struct Visit {
     pub at: Timestamp,
 }
 
-/// Every page visited, oldest first, capped at [`BrowsingHistory::CAPACITY`].
+/// Every page visited, oldest first, capped at [`BrowsingHistory::CAPACITY`]
+/// (recording goes up to a tenth over it, then drops the oldest at once).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct BrowsingHistory {
     visits: Vec<Visit>,
@@ -19,6 +20,10 @@ pub struct BrowsingHistory {
 
 impl BrowsingHistory {
     pub const CAPACITY: usize = 10_000;
+    /// How far [`Self::record`] goes over [`Self::CAPACITY`] before trimming:
+    /// the oldest visits go by the batch, not one shift of the whole
+    /// history per page load.
+    const SLACK: usize = Self::CAPACITY / 10;
 
     pub fn from_visits(mut visits: Vec<Visit>) -> Self {
         visits.sort_by_key(|v| v.at);
@@ -53,8 +58,9 @@ impl BrowsingHistory {
         {
             return false;
         }
-        if self.visits.len() == Self::CAPACITY {
-            self.visits.remove(0);
+        if self.visits.len() >= Self::CAPACITY + Self::SLACK {
+            let excess = self.visits.len() + 1 - Self::CAPACITY;
+            self.visits.drain(..excess);
         }
         self.visits.push(Visit {
             address,
@@ -105,14 +111,17 @@ impl BrowsingHistory {
 
     /// Takes in another device's visits. A visit already known (same address
     /// at the same time) is not added again; a title fills in an empty one.
-    /// Returns whether anything changed.
+    /// Returns whether anything changed: visits too old to fit in a full
+    /// history are not a change.
     pub fn merge(&mut self, others: &[Visit]) -> bool {
+        let before = self.visits.len();
         let mut known: std::collections::HashMap<(WebAddress, Timestamp), usize> = self
             .visits
             .iter()
             .enumerate()
             .map(|(i, v)| ((v.address.clone(), v.at), i))
             .collect();
+        // Titles filled in; new visits are a change if they are kept.
         let mut changed = false;
         for v in others {
             if !Self::is_recordable(&v.address) {
@@ -128,12 +137,22 @@ impl BrowsingHistory {
                 None => {
                     known.insert((v.address.clone(), v.at), self.visits.len());
                     self.visits.push(v.clone());
-                    changed = true;
                 }
             }
         }
-        if changed {
-            *self = Self::from_visits(std::mem::take(&mut self.visits));
+        if self.visits.len() > before {
+            // Which visits `from_visits` keeps (a stable sort: new visits
+            // come after the known ones of the same time).
+            let mut order: Vec<usize> = (0..self.visits.len()).collect();
+            order.sort_by_key(|&i| self.visits[i].at);
+            let excess = order.len().saturating_sub(Self::CAPACITY);
+            if order[excess..].iter().any(|&i| i >= before) {
+                *self = Self::from_visits(std::mem::take(&mut self.visits));
+                changed = true;
+            } else {
+                // All older than what a full history keeps.
+                self.visits.truncate(before);
+            }
         }
         changed
     }
@@ -233,7 +252,38 @@ mod tests {
         assert_eq!(h.len(), BrowsingHistory::CAPACITY);
         assert_eq!(h.visits()[0].at, 5);
         h.record(addr("https://new.com/"), 99_999);
+        assert_eq!(h.len(), BrowsingHistory::CAPACITY + 1, "trimmed by batch");
+        for i in 0..BrowsingHistory::SLACK as u64 {
+            h.record(addr(&format!("https://b.com/{i}")), 100_000 + i);
+        }
         assert_eq!(h.len(), BrowsingHistory::CAPACITY);
-        assert_eq!(h.visits()[0].at, 6);
+        assert_eq!(h.visits().last().unwrap().at, 100_000 + 999);
+    }
+
+    #[test]
+    fn a_full_history_ignores_visits_older_than_its_own() {
+        let visits = (100..BrowsingHistory::CAPACITY as u64 + 100)
+            .map(|i| Visit {
+                address: addr(&format!("https://a.com/{i}")),
+                title: String::new(),
+                at: i,
+            })
+            .collect();
+        let mut h = BrowsingHistory::from_visits(visits);
+        let old = vec![Visit {
+            address: addr("https://old.com/"),
+            title: "Old".into(),
+            at: 5,
+        }];
+        assert!(!h.merge(&old), "dropped at once: nothing to save");
+        assert_eq!(h.visits()[0].at, 100);
+        let new = vec![Visit {
+            address: addr("https://new.com/"),
+            title: "New".into(),
+            at: 1_000_000,
+        }];
+        assert!(h.merge(&new));
+        assert_eq!(h.len(), BrowsingHistory::CAPACITY);
+        assert_eq!(h.visits()[0].at, 101);
     }
 }
