@@ -52,6 +52,8 @@ import uniffi.mobile.WebViewHost
  * [container], only the active one visible; hidden ones for the extensions'
  * background pages, and one for an extension popup. The Rust core decides
  * what to open and show (WebViewHost); the WebViews report back what happens.
+ * [context] follows the activity shown (BrowserCore): the WebViews outlive
+ * an activity recreated by a configuration change.
  */
 class WebViews(private val context: Context, private val downloads: Downloads) : WebViewHost {
     val container = FrameLayout(context)
@@ -443,6 +445,10 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
      *  it; `null` when it left. */
     var onFullscreen: (View?, (() -> Unit)?) -> Unit = { _, _ -> }
 
+    /** The element in full screen now, and how to leave it (for a new activity). */
+    var fullscreen: Pair<View, () -> Unit>? = null
+        private set
+
     /** The shown page scrolled from [oldY] to [y] (pixels). */
     var onScrolled: (y: Int, oldY: Int) -> Unit = { _, _ -> }
 
@@ -456,7 +462,7 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
     var onPullRefresh: () -> Unit = {}
 
     /** How far a page is pulled down to reload, in pixels. */
-    val pullDistance = 96f * context.resources.displayMetrics.density
+    val pullDistance get() = 96f * context.resources.displayMetrics.density
 
     /**
      * A tab's WebView, which reports its scrolling (the bars fold away) and
@@ -518,6 +524,23 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
                 onPullRefresh()
             }
         }
+    }
+
+    /**
+     * The browser ends (its activity finished for good): every WebView goes,
+     * and with the last private one their profile.
+     */
+    fun destroy() {
+        val all = views.values + backgrounds.values + listOfNotNull(panel)
+        views.clear()
+        backgrounds.clear()
+        backgroundVersions.clear()
+        panel = null
+        fullscreen = null
+        container.removeAllViews()
+        all.forEach { it.destroy() }
+        privateTabs.clear()
+        main.post { deletePrivateProfile() }
     }
 
     /** Empties the cache the pages share. */
@@ -770,10 +793,13 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
 
             // A video's full screen button: its view over everything.
             override fun onShowCustomView(view: View, callback: CustomViewCallback) {
-                onFullscreen(view) { callback.onCustomViewHidden() }
+                val leave = { callback.onCustomViewHidden() }
+                fullscreen = view to leave
+                onFullscreen(view, leave)
             }
 
             override fun onHideCustomView() {
+                fullscreen = null
                 onFullscreen(null, null)
             }
 

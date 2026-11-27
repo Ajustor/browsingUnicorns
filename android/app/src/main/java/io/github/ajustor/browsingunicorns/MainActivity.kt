@@ -7,19 +7,18 @@ import android.webkit.WebChromeClient
 import androidx.activity.result.contract.ActivityResultContracts
 import android.content.Intent
 import android.content.res.Configuration
-import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.addCallback
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.launch
 import io.github.ajustor.browsingunicorns.ui.App
 import io.github.ajustor.browsingunicorns.ui.BrowsingUnicornsTheme
-import uniffi.mobile.MobileBrowser
 import uniffi.mobile.setLanguage
 
 class MainActivity : ComponentActivity() {
@@ -49,22 +48,28 @@ class MainActivity : ComponentActivity() {
         permissionsAnswer = null
     }
 
+    /** The downloads' answer for the storage permission (Android 9 and older). */
+    private var storageAnswer: ((Boolean) -> Unit)? = null
+    private val askStorage = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        storageAnswer?.invoke(granted)
+        storageAnswer = null
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         // Before the browser: its first messages already speak the app's language.
         applyLanguage()
 
-        val downloads = Downloads(this)
-        val views = WebViews(this, downloads)
-        val browser = MobileBrowser(
-            dataDir = filesDir.absolutePath,
-            deviceName = Build.MODEL ?: "Android",
-            relayUrl = BuildConfig.SYNC_RELAY.ifEmpty { null },
-            host = views,
-            http = SyncHttpClient(this),
-        )
-        views.browser = browser
+        // Recreated (a language or font size change): the browser already
+        // running is taken over.
+        val core = ViewModelProvider(this)[BrowserCore::class.java]
+        val (_, downloads, views, browser) = core.attach(this)
+        downloads.askStorage = { done ->
+            storageAnswer?.invoke(false)
+            storageAnswer = done
+            askStorage.launch(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        }
         views.chooseFiles = { intent, done ->
             pickedFiles?.invoke(null)
             pickedFiles = done
@@ -89,8 +94,9 @@ class MainActivity : ComponentActivity() {
         }
         controller = BrowserController(this, browser, views, AppUpdates(this, lifecycleScope), lifecycleScope)
         downloads.onMessage = { controller.message = it }
-        controller.act { restoreSession() }
-        openFromIntent(intent)
+        if (core.fresh) controller.act { restoreSession() }
+        // A recreated activity gets its first intent again: already opened.
+        if (savedInstanceState == null) openFromIntent(intent)
 
         setContent {
             BrowsingUnicornsTheme {

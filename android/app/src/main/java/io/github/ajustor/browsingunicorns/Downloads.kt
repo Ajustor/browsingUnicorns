@@ -18,8 +18,6 @@ import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.URLUtil
 import android.webkit.WebView
-import androidx.activity.ComponentActivity
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import java.io.File
 import java.util.UUID
@@ -30,8 +28,9 @@ import org.json.JSONObject
  * The pages' downloads, into the shared Downloads folder: http(s) through
  * Android's DownloadManager (its notification, cookies and referrer kept),
  * `data:` decoded here, `blob:` read by the page itself and handed over.
+ * [context] follows the activity shown (BrowserCore).
  */
-class Downloads(private val activity: ComponentActivity) {
+class Downloads(private val context: Context) {
     /** Short messages for the user (started, saved, failed). */
     var onMessage: (String) -> Unit = {}
 
@@ -42,13 +41,12 @@ class Downloads(private val activity: ComponentActivity) {
 
     private class Pending(val name: String, val mimeType: String?)
 
-    /** Android 9 and older: writing to the Downloads folder needs the storage permission. */
-    private var afterPermission: (() -> Unit)? = null
-    private val permission = activity.registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        val next = afterPermission
-        afterPermission = null
-        if (granted) next?.invoke() else onMessage(activity.getString(R.string.download_permission_denied))
-    }
+    /**
+     * Android 9 and older: writing to the Downloads folder needs the storage
+     * permission; asks for it, then tells whether it was granted. The
+     * activity sets it.
+     */
+    var askStorage: ((Boolean) -> Unit) -> Unit = { it(false) }
 
     /** The bridge a tab's page uses to hand over a blob's contents. */
     inner class Bridge {
@@ -56,14 +54,14 @@ class Downloads(private val activity: ComponentActivity) {
         fun save(token: String, dataUrl: String) {
             val p = pending.remove(token) ?: return
             runCatching { write(p.name, p.mimeType, decodeDataUrl(dataUrl)) }
-                .onSuccess { tell(activity.getString(R.string.download_saved, it)) }
+                .onSuccess { tell(context.getString(R.string.download_saved, it)) }
                 .onFailure { fail(p.name, it) }
         }
 
         @JavascriptInterface
         fun failed(token: String, reason: String) {
             val p = pending.remove(token) ?: return
-            tell(activity.getString(R.string.download_failed, p.name, reason))
+            tell(context.getString(R.string.download_failed, p.name, reason))
         }
     }
 
@@ -75,11 +73,11 @@ class Downloads(private val activity: ComponentActivity) {
                 "http", "https" -> enqueue(url, name, userAgent, mimeType, page)
                 "data" -> Thread {
                     runCatching { write(name, mimeType, decodeDataUrl(url)) }
-                        .onSuccess { tell(activity.getString(R.string.download_saved, it)) }
+                        .onSuccess { tell(context.getString(R.string.download_saved, it)) }
                         .onFailure { fail(name, it) }
                 }.start()
                 "blob" -> fromBlob(view, url, name, mimeType)
-                else -> onMessage(activity.getString(R.string.download_unsupported, url))
+                else -> onMessage(context.getString(R.string.download_unsupported, url))
             }
         }
     }
@@ -95,8 +93,8 @@ class Downloads(private val activity: ComponentActivity) {
                 setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
                 setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name)
             }
-            activity.getSystemService(DownloadManager::class.java).enqueue(request)
-            onMessage(activity.getString(R.string.downloading, name))
+            context.getSystemService(DownloadManager::class.java).enqueue(request)
+            onMessage(context.getString(R.string.downloading, name))
         } catch (e: Exception) {
             fail(name, e)
         }
@@ -124,18 +122,19 @@ class Downloads(private val activity: ComponentActivity) {
             """.trimIndent(),
             null,
         )
-        onMessage(activity.getString(R.string.downloading, name))
+        onMessage(context.getString(R.string.downloading, name))
     }
 
     private fun withStorage(then: () -> Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ||
-            ContextCompat.checkSelfPermission(activity, Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
+            ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
             PackageManager.PERMISSION_GRANTED
         ) {
             then()
         } else {
-            afterPermission = then
-            permission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            askStorage { granted ->
+                if (granted) then() else onMessage(context.getString(R.string.download_permission_denied))
+            }
         }
     }
 
@@ -143,14 +142,14 @@ class Downloads(private val activity: ComponentActivity) {
     private fun write(name: String, mimeType: String?, bytes: ByteArray): String {
         val type = mimeType?.takeIf { it.isNotBlank() } ?: "application/octet-stream"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val resolver = activity.contentResolver
+            val resolver = context.contentResolver
             val values = ContentValues().apply {
                 put(MediaStore.Downloads.DISPLAY_NAME, name)
                 put(MediaStore.Downloads.MIME_TYPE, type)
                 put(MediaStore.Downloads.IS_PENDING, 1)
             }
             val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-                ?: error(activity.getString(R.string.download_no_room))
+                ?: error(context.getString(R.string.download_no_room))
             try {
                 resolver.openOutputStream(uri)!!.use { it.write(bytes) }
                 resolver.update(uri, ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }, null, null)
@@ -164,7 +163,7 @@ class Downloads(private val activity: ComponentActivity) {
         val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).apply { mkdirs() }
         val file = unique(dir, name)
         file.writeBytes(bytes)
-        MediaScannerConnection.scanFile(activity, arrayOf(file.absolutePath), arrayOf(type), null)
+        MediaScannerConnection.scanFile(context, arrayOf(file.absolutePath), arrayOf(type), null)
         return file.name
     }
 
@@ -183,7 +182,7 @@ class Downloads(private val activity: ComponentActivity) {
 
     private fun fail(name: String, e: Throwable) {
         Log.w(TAG, "download of $name failed", e)
-        tell(activity.getString(R.string.download_failed, name, e.message ?: e.javaClass.simpleName))
+        tell(context.getString(R.string.download_failed, name, e.message ?: e.javaClass.simpleName))
     }
 
     companion object {

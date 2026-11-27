@@ -165,6 +165,12 @@ class BrowserController(
         views.onNavigation = ::expandBars
         views.onPull = { pull = it }
         views.onPullRefresh = { refresh() }
+        // A recreated activity: what the browser already showed.
+        popup = views.panel
+        views.fullscreen?.let { (view, leave) ->
+            fullscreen = view
+            leaveFullscreen = leave
+        }
         updates.onMessage = { message = it }
         refreshExtensions()
     }
