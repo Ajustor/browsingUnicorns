@@ -6,10 +6,11 @@ use domain::DeviceId;
 use serde::{Deserialize, Serialize};
 
 use super::SyncKey;
-use crate::files;
+use crate::{files, seal};
 
 /// This device's sync settings. The key is a secret: whoever has it reads
-/// the group's data.
+/// the group's data (passwords and cookies included), so it is stored
+/// sealed like the passwords.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SyncConfig {
     pub key: SyncKey,
@@ -65,17 +66,30 @@ impl SyncConfigFile {
         let dto: ConfigDto = serde_json::from_str(&text)
             .inspect_err(|e| log::warn!("sync settings: {e}"))
             .ok()?;
-        Some(SyncConfig {
-            key: SyncKey::from_code(&dto.code)?,
+        let code = seal::open(&dto.code)
+            .inspect_err(|e| log::warn!("sync settings: {e}"))
+            .ok()?;
+        let config = SyncConfig {
+            key: SyncKey::from_code(&code)?,
             device: DeviceId::new(dto.device)?,
             device_name: dto.device_name,
             relay_url: dto.relay_url,
-        })
+        };
+        // A key written in clear by an older version is sealed now.
+        if seal::AVAILABLE
+            && !seal::is_sealed(&dto.code)
+            && let Err(e) = self.save(&config)
+        {
+            log::warn!("sync settings: {e}");
+        }
+        Some(config)
     }
 
+    /// Writes the settings, the key sealed for the user where the system
+    /// can ([`seal`]).
     pub fn save(&self, config: &SyncConfig) -> Result<(), application::ports::RepositoryError> {
         let dto = ConfigDto {
-            code: config.key.code(),
+            code: seal::seal(&config.key.code()),
             device: config.device.to_string(),
             device_name: config.device_name.clone(),
             relay_url: config.relay_url.clone(),
@@ -109,10 +123,32 @@ mod tests {
             relay_url: "https://relay.test".into(),
         };
         file.save(&config).unwrap();
+        let raw = std::fs::read_to_string(dir.path().join("sync.json")).unwrap();
+        assert_eq!(raw.contains(&config.key.code()), !seal::AVAILABLE);
         assert_eq!(file.load(), Some(config));
         file.delete().unwrap();
         assert!(file.load().is_none());
         file.delete().unwrap();
+    }
+
+    #[test]
+    fn a_clear_key_is_read_then_sealed() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sync.json");
+        let key = SyncKey::generate();
+        let clear = ConfigDto {
+            code: key.code(),
+            device: new_device_id().to_string(),
+            device_name: "Old".into(),
+            relay_url: "https://relay.test".into(),
+        };
+        std::fs::write(&path, serde_json::to_string(&clear).unwrap()).unwrap();
+        let file = SyncConfigFile::new(&path);
+        let loaded = file.load().unwrap();
+        assert_eq!(loaded.key, key);
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(raw.contains(&key.code()), !seal::AVAILABLE);
+        assert_eq!(file.load(), Some(loaded));
     }
 
     #[test]

@@ -33,6 +33,7 @@ mod parent_window;
 mod private_data;
 pub mod profiles;
 pub mod script_storage;
+mod seal;
 mod settings_store;
 mod shared_store;
 pub mod site_scripts;
