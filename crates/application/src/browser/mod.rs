@@ -41,6 +41,9 @@ pub struct Browser<E: WebEngine> {
     history_dirty: bool,
     bookmarks: Bookmarks,
     saved_session: SessionSnapshot,
+    /// The session's revision when `saved_session` was last written (or
+    /// found equal to it); `None`: unknown, to compare again.
+    saved_revision: Option<u64>,
     remote_devices: Vec<RemoteDevice>,
     /// Bookmarks, settings or history changed since the last sync record.
     unsynced: bool,
@@ -72,6 +75,8 @@ impl<E: WebEngine> Browser<E> {
             history_dirty: false,
             bookmarks: Bookmarks::default(),
             saved_session: SessionSnapshot::default(),
+            // An empty session: its snapshot is the default one.
+            saved_revision: Some(Session::new().revision()),
             remote_devices: Vec::new(),
             unsynced: false,
             closed: Vec::new(),
@@ -130,13 +135,17 @@ impl<E: WebEngine> Browser<E> {
             }
             None => {}
         }
+        // Restored as saved, unless the file had something the tabs lost.
+        self.saved_revision =
+            (self.session.snapshot() == snapshot).then(|| self.session.revision());
         self.saved_session = snapshot;
         Ok(ids.len())
     }
 
-    /// Whether [`Self::persist`] has something to write.
+    /// Whether [`Self::persist`] may have something to write. Cheap enough
+    /// for every frame: the session is compared by revision, not snapshot.
     pub fn has_unsaved_changes(&self) -> bool {
-        self.history_dirty || self.session.snapshot() != self.saved_session
+        self.history_dirty || self.saved_revision != Some(self.session.revision())
     }
 
     /// Saves what changed since the last call: history and open tabs.
@@ -145,10 +154,16 @@ impl<E: WebEngine> Browser<E> {
             self.profile.history.save(&self.history)?;
             self.history_dirty = false;
         }
-        let snapshot = self.session.snapshot();
-        if snapshot != self.saved_session {
-            self.profile.session.save(&snapshot)?;
-            self.saved_session = snapshot;
+        let revision = self.session.revision();
+        if self.saved_revision != Some(revision) {
+            // A revision may change with no change to save: written only
+            // when the snapshot differs.
+            let snapshot = self.session.snapshot();
+            if snapshot != self.saved_session {
+                self.profile.session.save(&snapshot)?;
+                self.saved_session = snapshot;
+            }
+            self.saved_revision = Some(revision);
         }
         Ok(())
     }
@@ -495,5 +510,116 @@ mod tests {
         let s = b.suggest("rust", 8);
         assert_eq!(s.len(), 2);
         assert!(matches!(&s[0], Suggestion::Search { terms, .. } if terms == "rust book"));
+    }
+
+    /// `change` marks `b` dirty, and persisting saves the session as it is
+    /// and leaves it clean.
+    fn saves(
+        b: &mut Browser<FakeEngine>,
+        store: &Store,
+        what: &str,
+        change: impl FnOnce(&mut Browser<FakeEngine>),
+    ) {
+        assert!(!b.has_unsaved_changes(), "{what}: clean before");
+        change(b);
+        assert!(b.has_unsaved_changes(), "{what}: marks it dirty");
+        b.persist().unwrap();
+        assert!(!b.has_unsaved_changes(), "{what}: persist clears it");
+        let saved = store.session.lock().unwrap().clone().unwrap_or_default();
+        assert_eq!(saved, b.session().snapshot(), "{what}: saved as it is");
+    }
+
+    #[test]
+    fn every_change_to_the_tabs_is_saved() {
+        let store = Store::default();
+        let mut b = browser_with(&store);
+        b.restore_session().unwrap();
+        assert!(!b.has_unsaved_changes(), "restored as saved");
+        let t1 = b.session().active_id().unwrap();
+        saves(&mut b, &store, "load", |b| finish(b, t1, "https://a.com/"));
+        let (mut t2, mut t3) = (t1, t1);
+        saves(&mut b, &store, "open", |b| {
+            t2 = b.open_tab(Some(addr("https://b.com/"))).unwrap();
+            finish(b, t2, "https://b.com/");
+        });
+        saves(&mut b, &store, "open another", |b| {
+            t3 = b.open_tab(Some(addr("https://c.com/"))).unwrap();
+            finish(b, t3, "https://c.com/");
+        });
+        saves(&mut b, &store, "title", |b| {
+            b.handle(EngineEvent::TitleChanged {
+                tab: t2,
+                title: "B".into(),
+            })
+            .unwrap();
+        });
+        saves(&mut b, &store, "activate", |b| b.activate(t1));
+        saves(&mut b, &store, "cycle", |b| b.cycle_tabs(1));
+        saves(&mut b, &store, "move", |b| b.move_tab(t2, 0));
+        saves(&mut b, &store, "pin", |b| b.set_pinned(t2, true));
+        saves(&mut b, &store, "unpin", |b| b.set_pinned(t2, false));
+        let mut group = None;
+        saves(&mut b, &store, "new group", |b| group = b.new_group(t1));
+        let group = group.unwrap();
+        saves(&mut b, &store, "add to group", |b| {
+            b.add_to_group(t2, group)
+        });
+        saves(&mut b, &store, "rename group", |b| {
+            b.rename_group(group, "G")
+        });
+        saves(&mut b, &store, "group colour", |b| {
+            let other = domain::GroupColor::next([b.session().group(group).unwrap().color]);
+            b.set_group_color(group, other);
+        });
+        saves(&mut b, &store, "collapse", |b| {
+            b.set_group_collapsed(group, true)
+        });
+        saves(&mut b, &store, "expand", |b| {
+            b.set_group_collapsed(group, false)
+        });
+        saves(&mut b, &store, "out of group", |b| b.remove_from_group(t2));
+        saves(&mut b, &store, "ungroup", |b| b.ungroup(group));
+        saves(&mut b, &store, "split", |b| {
+            b.activate(t1);
+            b.split_with_active(t2);
+        });
+        saves(&mut b, &store, "split ratio", |b| {
+            b.set_split_ratio(t1, 300)
+        });
+        saves(&mut b, &store, "unsplit", |b| b.unsplit(t1));
+        let mut link = t1;
+        saves(&mut b, &store, "link", |b| {
+            b.handle(EngineEvent::NewTabRequested {
+                opener: Some(t1),
+                address: addr("https://link.com/"),
+            })
+            .unwrap();
+            link = b.session().tabs().iter().map(|t| t.id()).max().unwrap();
+            finish(b, link, "https://link.com/");
+        });
+        saves(&mut b, &store, "extension window", |b| {
+            b.keep_out_of_session(link)
+        });
+        saves(&mut b, &store, "close", |b| b.close_tab(t2));
+        saves(&mut b, &store, "reopen", |b| {
+            let id = b.reopen_closed_tab().unwrap().unwrap();
+            finish(b, id, "https://b.com/");
+        });
+        saves(&mut b, &store, "close group", |b| {
+            let group = b.new_group(t1).unwrap();
+            b.close_group(group);
+        });
+    }
+
+    #[test]
+    fn changes_left_out_of_the_session_write_nothing() {
+        let store = Store::default();
+        let mut b = browser_with(&store);
+        let id = b.open_tab_in(Some(addr("https://p.com/")), true).unwrap();
+        finish(&mut b, id, "https://p.com/");
+        // The tab changed, not the snapshot: checked, nothing written.
+        b.persist().unwrap();
+        assert!(!b.has_unsaved_changes());
+        assert!(store.session.lock().unwrap().is_none());
     }
 }

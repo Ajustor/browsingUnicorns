@@ -67,11 +67,24 @@ pub struct Session {
     groups: Vec<TabGroup>,
     next_group: u64,
     splits: Vec<Split>,
+    /// Bumped by every change that may alter [`Self::snapshot`].
+    revision: u64,
 }
 
 impl Session {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// A number that changes whenever [`Self::snapshot`] may have: equal
+    /// revisions mean equal snapshots, without building them. It may also
+    /// change when the snapshot does not (a tab borrowed mutably).
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    fn touch(&mut self) {
+        self.revision = self.revision.wrapping_add(1);
     }
 
     pub fn tabs(&self) -> &[Tab] {
@@ -98,8 +111,12 @@ impl Session {
         self.tabs.iter().find(|t| t.id() == id)
     }
 
+    /// Counts as a change (see [`Self::revision`]): the tab's address or
+    /// title may change through it.
     pub fn tab_mut(&mut self, id: TabId) -> Option<&mut Tab> {
-        self.tabs.iter_mut().find(|t| t.id() == id)
+        let index = self.position(id)?;
+        self.touch();
+        Some(&mut self.tabs[index])
     }
 
     fn position(&self, id: TabId) -> Option<usize> {
@@ -152,6 +169,7 @@ impl Session {
     }
 
     fn insert(&mut self, at: usize, private: bool, opener: Option<TabId>) -> TabId {
+        self.touch();
         self.next_id += 1;
         let id = TabId::new(self.next_id);
         let mut tab = if private {
@@ -183,6 +201,7 @@ impl Session {
         if from == to {
             return false;
         }
+        self.touch();
         // Placed by hand: it no longer belongs to its opener's series.
         self.tabs[from].opener = None;
         self.shift(from, to);
@@ -240,6 +259,7 @@ impl Session {
         if self.tabs[from].pinned == pinned {
             return false;
         }
+        self.touch();
         let count = self.pinned_count();
         let tab = &mut self.tabs[from];
         tab.pinned = pinned;
@@ -263,8 +283,11 @@ impl Session {
         self.groups.iter().find(|g| g.id() == id)
     }
 
+    /// Counts as a change (see [`Self::revision`]).
     fn group_mut(&mut self, id: GroupId) -> Option<&mut TabGroup> {
-        self.groups.iter_mut().find(|g| g.id() == id)
+        let index = self.groups.iter().position(|g| g.id() == id)?;
+        self.touch();
+        Some(&mut self.groups[index])
     }
 
     /// The tabs of a group, in order.
@@ -280,6 +303,7 @@ impl Session {
     /// of its group first). `None` when `id` is not open.
     pub fn new_group(&mut self, id: TabId) -> Option<GroupId> {
         self.position(id)?;
+        self.touch();
         self.set_pinned(id, false);
         self.remove_from_group(id);
         self.next_group += 1;
@@ -300,6 +324,7 @@ impl Session {
         if self.group(group).is_none() || self.tabs[index].group == Some(group) {
             return false;
         }
+        self.touch();
         self.set_pinned(id, false);
         self.remove_from_group(id);
         let Some(from) = self.position(id) else {
@@ -325,6 +350,7 @@ impl Session {
         let Some(group) = self.tabs[from].group else {
             return false;
         };
+        self.touch();
         let last = self
             .tabs
             .iter()
@@ -341,6 +367,9 @@ impl Session {
     /// Takes all the tabs of `group` out of it, where they are.
     pub fn ungroup(&mut self, group: GroupId) -> bool {
         let known = self.group(group).is_some();
+        if known {
+            self.touch();
+        }
         for tab in self.tabs.iter_mut().filter(|t| t.group == Some(group)) {
             tab.group = None;
         }
@@ -394,6 +423,7 @@ impl Session {
     /// Expands the group of `id`, if collapsed: it is being shown.
     fn reveal(&mut self, id: TabId) {
         if let Some(group) = self.tab(id).and_then(Tab::group)
+            && self.group(group).is_some_and(|g| g.collapsed)
             && let Some(g) = self.group_mut(group)
         {
             g.collapsed = false;
@@ -445,6 +475,7 @@ impl Session {
             return false;
         };
         let opener = self.tabs[index].opener;
+        self.touch();
         self.tabs.remove(index);
         self.prune_groups();
         self.prune_splits();
@@ -466,6 +497,9 @@ impl Session {
     pub fn activate(&mut self, id: TabId) -> bool {
         let known = self.position(id).is_some();
         if known {
+            if self.active != Some(id) {
+                self.touch();
+            }
             self.active = Some(id);
             self.reveal(id);
         }
@@ -560,6 +594,7 @@ impl Session {
         let (Some(a), Some(b)) = (self.position(first), self.position(second)) else {
             return false;
         };
+        self.touch();
         let (pinned, group) = (self.tabs[a].pinned, self.tabs[a].group);
         self.tabs[b].pinned = pinned;
         self.tabs[b].group = group;
@@ -580,7 +615,11 @@ impl Session {
     pub fn unsplit(&mut self, id: TabId) -> bool {
         let before = self.splits.len();
         self.splits.retain(|s| s.first != id && s.second != id);
-        self.splits.len() != before
+        let changed = self.splits.len() != before;
+        if changed {
+            self.touch();
+        }
+        changed
     }
 
     /// Sets the share of the width of the split `id` is in (its first tab's,
@@ -593,7 +632,12 @@ impl Session {
             .find(|s| s.first == id || s.second == id)
         {
             Some(split) => {
-                split.ratio = ratio.clamp(min, max);
+                let ratio = ratio.clamp(min, max);
+                let changed = split.ratio != ratio;
+                split.ratio = ratio;
+                if changed {
+                    self.touch();
+                }
                 true
             }
             None => false,
@@ -1076,5 +1120,102 @@ mod tests {
         let snap = s.snapshot();
         assert_eq!(snap.tabs.len(), 1);
         assert_eq!(snap.titles.len(), 1);
+    }
+
+    #[test]
+    fn every_change_of_the_snapshot_changes_the_revision() {
+        let mut s = Session::new();
+        let t = open(&mut s, 4);
+        for (i, &id) in t.iter().enumerate() {
+            let page = WebAddress::parse(&format!("https://x.com/{i}")).unwrap();
+            s.tab_mut(id).unwrap().load_started(page);
+        }
+        let mut revision = s.revision();
+        let mut changes = |what: &str, s: &mut Session, change: &dyn Fn(&mut Session)| {
+            let before = s.snapshot();
+            change(s);
+            assert_ne!(s.snapshot(), before, "{what}: the snapshot changed");
+            assert_ne!(s.revision(), revision, "{what}: so did the revision");
+            revision = s.revision();
+        };
+        let page = WebAddress::parse("https://x.com/new").unwrap();
+        changes("open", &mut s, &|s| {
+            let id = s.open_tab();
+            s.tab_mut(id).unwrap().load_started(page.clone());
+        });
+        let new = s.active_id().unwrap();
+        changes("title", &mut s, &|s| s.tab_mut(new).unwrap().set_title("T"));
+        changes("activate", &mut s, &|s| {
+            s.activate(t[0]);
+        });
+        changes("move", &mut s, &|s| {
+            s.move_tab(t[0], 2);
+        });
+        changes("pin", &mut s, &|s| {
+            s.set_pinned(t[3], true);
+        });
+        changes("unpin", &mut s, &|s| {
+            s.set_pinned(t[3], false);
+        });
+        changes("new group", &mut s, &|s| {
+            s.new_group(t[1]);
+        });
+        let group = s.tab(t[1]).unwrap().group().unwrap();
+        changes("add to group", &mut s, &|s| {
+            s.add_to_group(t[2], group);
+        });
+        changes("rename group", &mut s, &|s| {
+            s.rename_group(group, "G");
+        });
+        changes("group colour", &mut s, &|s| {
+            let other = GroupColor::next([s.group(group).unwrap().color]);
+            s.set_group_color(group, other);
+        });
+        changes("collapse", &mut s, &|s| {
+            s.set_group_collapsed(group, true);
+        });
+        changes("expand", &mut s, &|s| {
+            s.set_group_collapsed(group, false);
+        });
+        changes("out of group", &mut s, &|s| {
+            s.remove_from_group(t[2]);
+        });
+        changes("ungroup", &mut s, &|s| {
+            s.ungroup(group);
+        });
+        changes("split", &mut s, &|s| {
+            s.split(t[0], t[3]);
+        });
+        changes("split ratio", &mut s, &|s| {
+            s.set_split_ratio(t[0], 300);
+        });
+        changes("unsplit", &mut s, &|s| {
+            s.unsplit(t[0]);
+        });
+        changes("link", &mut s, &|s| {
+            let id = s.open_tab_from(t[0]).unwrap();
+            s.tab_mut(id).unwrap().load_started(page.clone());
+        });
+        changes("transient", &mut s, &|s| s.set_transient(new));
+        changes("close", &mut s, &|s| {
+            s.close_tab(t[1]);
+        });
+    }
+
+    #[test]
+    fn what_changes_nothing_keeps_the_revision() {
+        let mut s = Session::new();
+        let t = open(&mut s, 2);
+        // The active tab, in a group: activated again, nothing changes.
+        s.new_group(t[1]).unwrap();
+        let revision = s.revision();
+        s.set_split_ratio(t[0], SPLIT_RATIO.1);
+        s.move_tab(t[1], 1);
+        s.set_pinned(t[0], false);
+        s.activate(t[1]);
+        s.unsplit(t[0]);
+        s.close_tab(TabId::new(42));
+        let _ = s.snapshot();
+        assert_eq!(s.revision(), revision);
     }
 }
