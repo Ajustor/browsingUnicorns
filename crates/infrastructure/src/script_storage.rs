@@ -10,7 +10,10 @@
 
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
@@ -18,11 +21,130 @@ use serde_json::{Map, Value, json};
 /// The values of one script, for one area.
 type Store = Map<String, Value>;
 
+/// A store is written once its changes stop for this long...
+const WRITE_AFTER: Duration = Duration::from_millis(500);
+/// ...or at the latest this long after the first one.
+const WRITE_WITHIN: Duration = Duration::from_secs(2);
+
 pub struct ScriptStorage {
     dir: PathBuf,
     token: String,
     /// Loaded stores, by file name.
     cache: HashMap<String, Store>,
+    /// Writes the stores, off the UI thread; started at the first change.
+    writer: Option<Writer>,
+}
+
+/// What the writer is asked.
+enum Job {
+    /// The store's file and its new content.
+    Write(PathBuf, String),
+    /// Deletes the files in the folder whose name starts so.
+    Forget(PathBuf, String),
+    /// Answers once everything asked before is done.
+    Flush(Sender<()>),
+}
+
+/// A thread that writes the stores: the last content of each, once changes
+/// pause, so that a script setting a value many times writes it once.
+struct Writer {
+    tx: Option<Sender<Job>>,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl Writer {
+    fn start() -> Self {
+        let (tx, rx) = mpsc::channel();
+        let thread = std::thread::spawn(move || write_loop(&rx));
+        Self {
+            tx: Some(tx),
+            thread: Some(thread),
+        }
+    }
+
+    fn send(&self, job: Job) {
+        if let Some(tx) = &self.tx {
+            let _ = tx.send(job);
+        }
+    }
+}
+
+impl Drop for Writer {
+    /// What is waiting is written before it goes (the browser closing).
+    fn drop(&mut self) {
+        drop(self.tx.take());
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+fn write_loop(rx: &Receiver<Job>) {
+    let mut waiting: HashMap<PathBuf, String> = HashMap::new();
+    // When the first waiting change came.
+    let mut since: Option<Instant> = None;
+    loop {
+        let job = match since {
+            None => rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
+            Some(first) => {
+                let left = WRITE_WITHIN.saturating_sub(first.elapsed());
+                rx.recv_timeout(WRITE_AFTER.min(left))
+            }
+        };
+        match job {
+            Ok(Job::Write(path, text)) => {
+                waiting.insert(path, text);
+                since.get_or_insert_with(Instant::now);
+                continue;
+            }
+            Ok(Job::Forget(dir, prefix)) => {
+                waiting.retain(|path, _| !file_starts_with(path, &prefix));
+                forget_files(&dir, &prefix);
+                continue;
+            }
+            Ok(Job::Flush(done)) => {
+                write_all(&mut waiting);
+                since = None;
+                let _ = done.send(());
+            }
+            Err(RecvTimeoutError::Timeout) => {
+                write_all(&mut waiting);
+                since = None;
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                write_all(&mut waiting);
+                return;
+            }
+        }
+    }
+}
+
+fn file_starts_with(path: &Path, prefix: &str) -> bool {
+    path.file_name()
+        .is_some_and(|name| name.to_string_lossy().starts_with(prefix))
+}
+
+fn write_all(waiting: &mut HashMap<PathBuf, String>) {
+    for (path, text) in waiting.drain() {
+        let written = path
+            .parent()
+            .map_or(Ok(()), crate::files::create_dir_all)
+            .map_err(|e| e.to_string())
+            .and_then(|()| crate::files::write(&path, &text).map_err(|e| e.to_string()));
+        if let Err(e) = written {
+            log::warn!("script storage {}: {e}", path.display());
+        }
+    }
+}
+
+fn forget_files(dir: &Path, prefix: &str) {
+    if let Ok(entries) = fs::read_dir(dir) {
+        for e in entries.flatten() {
+            if e.file_name().to_string_lossy().starts_with(prefix) {
+                let _ = fs::remove_file(e.path());
+            }
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -83,6 +205,16 @@ impl ScriptStorage {
             dir: dir.into(),
             token,
             cache: HashMap::new(),
+            writer: None,
+        }
+    }
+
+    /// Waits until every change made so far is written.
+    pub fn flush(&self) {
+        if let Some(writer) = &self.writer {
+            let (tx, rx) = mpsc::channel();
+            writer.send(Job::Flush(tx));
+            let _ = rx.recv();
         }
     }
 
@@ -100,16 +232,17 @@ impl ScriptStorage {
         })
     }
 
-    fn save(&self, file: &str) -> Result<(), String> {
+    /// Has `file`'s store written in the background (soon, once its changes
+    /// pause).
+    fn save(&mut self, file: &str) -> Result<(), String> {
         let Some(store) = self.cache.get(file) else {
             return Ok(());
         };
-        fs::create_dir_all(&self.dir).map_err(|e| e.to_string())?;
-        crate::files::write(
-            &self.dir.join(file),
-            &Value::Object(store.clone()).to_string(),
-        )
-        .map_err(|e| e.to_string())
+        let text = serde_json::to_string(store).map_err(|e| e.to_string())?;
+        self.writer
+            .get_or_insert_with(Writer::start)
+            .send(Job::Write(self.dir.join(file), text));
+        Ok(())
     }
 
     /// Answers a message of a page script; `None` when it is not one (bad
@@ -251,12 +384,11 @@ impl ScriptStorage {
     pub fn forget(&mut self, owner: &str) {
         let prefix = format!("{}.", owner.replace(':', "-"));
         self.cache.retain(|file, _| !file.starts_with(&prefix));
-        if let Ok(entries) = fs::read_dir(&self.dir) {
-            for e in entries.flatten() {
-                if e.file_name().to_string_lossy().starts_with(&prefix) {
-                    let _ = fs::remove_file(e.path());
-                }
-            }
+        // Through the writer: a write of these files still waiting there
+        // must not bring them back.
+        match &self.writer {
+            Some(writer) => writer.send(Job::Forget(self.dir.clone(), prefix)),
+            None => forget_files(&self.dir, &prefix),
         }
     }
 }
@@ -288,7 +420,9 @@ mod tests {
         defaults["keys"] = json!({"a": 0, "c": "d"});
         assert_eq!(send(&mut s, defaults)["result"], json!({"a": 1, "c": "d"}));
 
-        // Kept on disk.
+        // Kept on disk (written in the background, at the latest when it
+        // goes).
+        drop(s);
         let mut again = ScriptStorage::new(dir.path(), "tok".into());
         assert_eq!(
             send(&mut again, base("get"))["result"],
@@ -321,7 +455,30 @@ mod tests {
         send(&mut again, base("clear"));
         assert_eq!(send(&mut again, base("get"))["result"], json!({}));
         again.forget(owner);
+        again.flush();
         assert!(fs::read_dir(dir.path()).unwrap().next().is_none());
+    }
+
+    #[test]
+    fn changes_are_written_once_they_pause() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = ScriptStorage::new(dir.path(), "tok".into());
+        let file = dir.path().join("us-a.local.json");
+        for i in 0..20 {
+            let set = json!({"t": "tok", "id": i, "owner": "us:a", "op": "set", "items": {"n": i}});
+            send(&mut s, set);
+        }
+        s.flush();
+        assert_eq!(
+            serde_json::from_str::<Value>(&fs::read_to_string(&file).unwrap()).unwrap(),
+            json!({"n": 19})
+        );
+        // A forgotten owner's waiting write does not bring its file back.
+        let set = json!({"t": "tok", "id": 99, "owner": "us:a", "op": "set", "items": {"n": 0}});
+        send(&mut s, set);
+        s.forget("us:a");
+        drop(s);
+        assert!(!file.exists());
     }
 
     #[test]
