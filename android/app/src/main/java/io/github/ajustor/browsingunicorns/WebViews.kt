@@ -856,24 +856,38 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
 
             // target="_blank" / window.open: a throwaway WebView catches the
             // address, which opens in a new tab next to this one, this one
-            // staying shown.
+            // staying shown. Only on a tap or click: a script's popups are
+            // refused.
             override fun onCreateWindow(
                 view: WebView,
                 isDialog: Boolean,
                 isUserGesture: Boolean,
                 resultMsg: Message,
             ): Boolean {
+                if (!isUserGesture) return false
                 val catcher = WebView(context)
                 if (private) usePrivateProfile(catcher)
+                var gone = false
+                // Once, off its own callbacks; also when the window never
+                // navigates (it would hold the private profile).
+                val drop = Runnable {
+                    if (!gone) {
+                        gone = true
+                        catcher.destroy()
+                    }
+                }
                 catcher.webViewClient = object : WebViewClient() {
                     override fun shouldOverrideUrlLoading(v: WebView, request: WebResourceRequest): Boolean {
+                        if (gone) return true
                         runCatching { browser.onNewWindow(tab, request.url.toString()) }
                         onChange()
                         onLinkTab()
-                        v.destroy()
+                        main.removeCallbacks(drop)
+                        main.post(drop)
                         return true
                     }
                 }
+                main.postDelayed(drop, CATCHER_TIMEOUT_MS)
                 (resultMsg.obj as WebView.WebViewTransport).webView = catcher
                 resultMsg.sendToTarget()
                 return true
@@ -886,6 +900,9 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
         const val PRIVATE_PROFILE = "bu-private"
 
         private const val TAG = "WebViews"
+
+        /** A new window that hasn't navigated after this long is dropped. */
+        private const val CATCHER_TIMEOUT_MS = 10_000L
     }
 }
 
