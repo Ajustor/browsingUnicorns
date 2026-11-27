@@ -64,11 +64,8 @@ impl FindBar {
                     close = true;
                 }
                 let button = |ui: &mut egui::Ui, glyph: &str, tip: &str| {
-                    super::theme::hover_fill(ui, |ui| {
-                        ui.add(egui::Button::new(RichText::new(glyph).size(15.0)).frame(false))
-                    })
-                    .on_hover_text(tip)
-                    .clicked()
+                    super::panel_kit::icon_button(ui, RichText::new(glyph).size(15.0), tip)
+                        .clicked()
                 };
                 if button(ui, icon::CARET_UP, i18n::find::previous()) {
                     commands.push(find(&self.query, true, false));

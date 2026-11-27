@@ -162,10 +162,11 @@ impl Downloads {
                 ui.horizontal(|ui| {
                     ui.set_min_height(self.row_height);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        close = super::theme::hover_fill(ui, |ui| {
-                            ui.add(egui::Button::new(icon::X).frame(false))
-                        })
-                        .on_hover_text(i18n::downloads::close_bar())
+                        close = super::panel_kit::icon_button(
+                            ui,
+                            icon::X,
+                            i18n::downloads::close_bar(),
+                        )
                         .clicked();
                         if self
                             .items
@@ -291,10 +292,8 @@ fn card(
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let mut button = |ui: &mut egui::Ui, glyph: &str, tip: &str| {
-                        let response = super::theme::hover_fill(ui, |ui| {
-                            ui.add(egui::Button::new(RichText::new(glyph).size(16.0)).frame(false))
-                        })
-                        .on_hover_text(tip);
+                        let response =
+                            super::panel_kit::icon_button(ui, RichText::new(glyph).size(16.0), tip);
                         on_button |= response.hovered();
                         response.clicked()
                     };

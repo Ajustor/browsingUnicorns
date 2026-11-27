@@ -244,8 +244,9 @@ pub fn danger_button(ui: &mut egui::Ui, text: impl Into<String>, enabled: bool) 
     )
 }
 
-/// An icon button without a frame, lit under the pointer.
-pub fn icon_button(ui: &mut egui::Ui, glyph: &str, tip: &str) -> Response {
+/// An icon button without a frame, lit under the pointer. `glyph` is a
+/// plain glyph, or [`RichText`] for its size and colour.
+pub fn icon_button(ui: &mut egui::Ui, glyph: impl Into<egui::WidgetText>, tip: &str) -> Response {
     theme::hover_fill(ui, |ui| ui.add(egui::Button::new(glyph).frame(false))).on_hover_text(tip)
 }
 

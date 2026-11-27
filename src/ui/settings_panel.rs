@@ -3,11 +3,11 @@
 //! resetting the protected videos' data.
 
 use domain::{LanguageChoice, SearchEngine, Settings, TabPosition, WebAddress};
-use egui::{Button, RichText, TextEdit};
+use egui::{Button, RichText};
 use egui_phosphor::regular as icon;
 
 use super::command::{ClearData, Command, ImportFrom};
-use super::panel_kit::{card, segmented, switch_row};
+use super::panel_kit::{card, field, segmented, switch_row};
 
 /// What the view keeps between frames: the fields being typed in.
 #[derive(Default)]
@@ -100,12 +100,7 @@ impl SettingsPanel {
                 let text = self
                     .home_page
                     .get_or_insert_with(|| settings.home_page.to_string());
-                let field = ui.add(
-                    TextEdit::singleline(text)
-                        .desired_width(f32::INFINITY)
-                        .margin(egui::Margin::symmetric(8, 6))
-                        .hint_text("https://…"),
-                );
+                let field = ui.add(field(text, "https://…"));
                 let typed = text.clone();
                 if field.changed() {
                     self.home_error = false;

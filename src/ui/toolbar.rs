@@ -181,9 +181,7 @@ fn shield_button(ui: &mut egui::Ui, shield: &ShieldButton) -> bool {
             i18n::shield::off_for_site(),
         )
     };
-    let response =
-        super::theme::hover_fill(ui, |ui| ui.add(Button::new(glyph.size(16.0)).frame(false)))
-            .on_hover_text(tip);
+    let response = super::panel_kit::icon_button(ui, glyph.size(16.0), tip);
     if let Some(count) = shield.blocked.filter(|&n| n > 0 && shield.on) {
         let text = if count > 99 {
             "99+".to_owned()

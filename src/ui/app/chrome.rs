@@ -378,17 +378,13 @@ pub(super) fn floating_window(
             .max_rect(inner)
             .layout(egui::Layout::right_to_left(egui::Align::Center)),
     );
-    let close = theme::hover_fill(&mut right, |ui| {
-        ui.add(
-            egui::Button::new(
-                egui::RichText::new(egui_phosphor::regular::X)
-                    .size(16.0)
-                    .color(egui::Color32::WHITE),
-            )
-            .frame(false),
-        )
-    })
-    .on_hover_text(i18n::common::close());
+    let close = panel_kit::icon_button(
+        &mut right,
+        egui::RichText::new(egui_phosphor::regular::X)
+            .size(16.0)
+            .color(egui::Color32::WHITE),
+        i18n::common::close(),
+    );
     if close.clicked() {
         commands.push(Command::CloseTab(tab));
     }

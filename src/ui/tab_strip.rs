@@ -1,9 +1,10 @@
-use egui::{Button, Color32, RichText, ScrollArea, Sense, Spinner};
+use egui::{Color32, RichText, ScrollArea, Sense, Spinner};
 use egui_phosphor::regular as icon;
 
 use domain::{GroupId, Session, Tab, TabGroup, TabPosition};
 
 use super::command::Command;
+use super::panel_kit::icon_button;
 use super::tab_common::{
     Axis, MACOS_BUTTONS, drag_tab, drag_window_by, group_menu, is_split_partner, name_field,
     newly_active, private_pill, split_mark, tab_ink, tab_menu, truncate, window_buttons,
@@ -160,13 +161,11 @@ pub fn show(
                 .rect
             });
         overflow_hints(ui, &scroll);
-        let plus = super::theme::hover_fill(ui, |ui| {
-            ui.add(
-                Button::new(RichText::new(icon::PLUS).color(Color32::WHITE).size(16.0))
-                    .frame(false),
-            )
-        })
-        .on_hover_text(i18n::tabs::new_tab());
+        let plus = icon_button(
+            ui,
+            RichText::new(icon::PLUS).color(Color32::WHITE).size(16.0),
+            i18n::tabs::new_tab(),
+        );
         if plus.clicked() {
             commands.push(Command::NewTab);
         }
@@ -178,17 +177,13 @@ pub fn show(
                 window_buttons(ui);
             }
             ui.add_space(6.0);
-            let search = super::theme::hover_fill(ui, |ui| {
-                ui.add(
-                    Button::new(
-                        RichText::new(icon::MAGNIFYING_GLASS)
-                            .color(Color32::WHITE)
-                            .size(15.0),
-                    )
-                    .frame(false),
-                )
-            })
-            .on_hover_text(i18n::tabs::search_tabs());
+            let search = icon_button(
+                ui,
+                RichText::new(icon::MAGNIFYING_GLASS)
+                    .color(Color32::WHITE)
+                    .size(15.0),
+                i18n::tabs::search_tabs(),
+            );
             if search.clicked() {
                 commands.push(Command::ToggleTabSearch);
             }
@@ -257,14 +252,8 @@ pub fn show(
                                         (icon::SPEAKER_SLASH, i18n::tabs::unmute_tab())
                                     }
                                 };
-                                if super::theme::hover_fill(ui, |ui| {
-                                    ui.add(
-                                        Button::new(RichText::new(glyph).color(text).size(13.0))
-                                            .frame(false),
-                                    )
-                                })
-                                .on_hover_text(tip)
-                                .clicked()
+                                if icon_button(ui, RichText::new(glyph).color(text).size(13.0), tip)
+                                    .clicked()
                                 {
                                     commands.push(Command::SetMuted(
                                         tab.id(),
@@ -314,17 +303,13 @@ pub fn show(
     /// The cross, at the right end of the tab.
     fn close_button(ui: &mut egui::Ui, tab: &Tab, text: Color32, commands: &mut Vec<Command>) {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let close = super::theme::hover_fill(ui, |ui| {
-                ui.add(
-                    Button::new(
-                        RichText::new(icon::X)
-                            .color(text.gamma_multiply(0.6))
-                            .small(),
-                    )
-                    .frame(false),
-                )
-            })
-            .on_hover_text(i18n::tabs::close_tab());
+            let close = icon_button(
+                ui,
+                RichText::new(icon::X)
+                    .color(text.gamma_multiply(0.6))
+                    .small(),
+                i18n::tabs::close_tab(),
+            );
             if close.clicked() {
                 commands.push(Command::CloseTab(tab.id()));
             }

@@ -3,13 +3,14 @@
 //! the tabs one per row, a group's under its header. Its right edge sets
 //! its width; folded, it shows the icons only.
 
-use egui::{Button, Color32, RichText, ScrollArea, Sense, Spinner};
+use egui::{Color32, RichText, ScrollArea, Sense, Spinner};
 use egui_phosphor::regular as icon;
 
 use domain::{GroupId, Session, Tab, TabGroup, TabPosition};
 
 use super::command::Command;
 use super::favicons::{Favicons, Sound};
+use super::panel_kit::icon_button;
 use super::tab_common::{self, Axis};
 use super::theme::{self, Chrome};
 
@@ -133,10 +134,11 @@ fn header(ui: &mut egui::Ui, tabs: &SideTabs<'_>, commands: &mut Vec<Command>) {
 }
 
 fn glyph_button(ui: &mut egui::Ui, glyph: &str, tip: &str) -> egui::Response {
-    theme::hover_fill(ui, |ui| {
-        ui.add(Button::new(RichText::new(glyph).color(Color32::WHITE).size(16.0)).frame(false))
-    })
-    .on_hover_text(tip)
+    icon_button(
+        ui,
+        RichText::new(glyph).color(Color32::WHITE).size(16.0),
+        tip,
+    )
 }
 
 /// The pinned tabs' grid, then the others, their groups' headers among
@@ -290,17 +292,13 @@ fn tab_row(
             .layout(egui::Layout::right_to_left(egui::Align::Center)),
     );
     if show_close {
-        let close = theme::hover_fill(&mut inner, |ui| {
-            ui.add(
-                Button::new(
-                    RichText::new(icon::X)
-                        .color(text.gamma_multiply(0.7))
-                        .small(),
-                )
-                .frame(false),
-            )
-        })
-        .on_hover_text(i18n::tabs::close_tab());
+        let close = icon_button(
+            &mut inner,
+            RichText::new(icon::X)
+                .color(text.gamma_multiply(0.7))
+                .small(),
+            i18n::tabs::close_tab(),
+        );
         if close.clicked() {
             commands.push(Command::CloseTab(tab.id()));
         }
@@ -311,10 +309,7 @@ fn tab_row(
             Sound::Playing => (icon::SPEAKER_HIGH, i18n::tabs::mute_tab()),
             Sound::Muted => (icon::SPEAKER_SLASH, i18n::tabs::unmute_tab()),
         };
-        let speaker = theme::hover_fill(&mut inner, |ui| {
-            ui.add(Button::new(RichText::new(glyph).color(text).size(13.0)).frame(false))
-        })
-        .on_hover_text(tip);
+        let speaker = icon_button(&mut inner, RichText::new(glyph).color(text).size(13.0), tip);
         if speaker.clicked() {
             commands.push(Command::SetMuted(tab.id(), sound == Sound::Playing));
         }
