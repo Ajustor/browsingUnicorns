@@ -215,14 +215,15 @@ impl BrowserApp {
                 self.report(e);
             }
         }
-        if self.sync.is_due(self.browser.has_unsynced_changes())
+        let changes = self.browser.has_unsynced_changes();
+        if self.sync.is_due(changes)
             && let Some(config) = self.sync.config()
         {
             let (device, name) = (config.device.clone(), config.device_name.clone());
             let record = self.browser.sync_record(device, &name);
             self.sync.start(record);
         }
-        if let Some(wait) = self.sync.next_check() {
+        if let Some(wait) = self.sync.next_check(changes) {
             ctx.request_repaint_after(wait);
         }
     }
@@ -311,14 +312,18 @@ impl BrowserApp {
     /// [`SLEEP_CHECK_EVERY`] (unless the user turned it off). Those playing
     /// sound stay awake.
     fn sleep_idle_tabs(&mut self, ctx: &egui::Context) {
-        if self.last_sleep_check.elapsed() < SLEEP_CHECK_EVERY {
-            ctx.request_repaint_after(SLEEP_CHECK_EVERY);
-            return;
-        }
-        self.last_sleep_check = Instant::now();
+        // Off: nothing to wake up for.
         if !self.browser.settings().device.sleep_tabs {
             return;
         }
+        if let Some(wait) = SLEEP_CHECK_EVERY.checked_sub(self.last_sleep_check.elapsed())
+            && !wait.is_zero()
+        {
+            ctx.request_repaint_after(wait);
+            return;
+        }
+        self.last_sleep_check = Instant::now();
+        ctx.request_repaint_after(SLEEP_CHECK_EVERY);
         let playing: Vec<domain::TabId> = self
             .browser
             .session()

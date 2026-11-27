@@ -142,11 +142,17 @@ impl SyncRunner {
         }
     }
 
-    /// When to look again for a due round.
-    pub fn next_check(&self) -> Option<Duration> {
-        self.active.as_ref()?;
+    /// When to look again for a due round, given unsynced local changes:
+    /// none while one runs (its end wakes the window).
+    pub fn next_check(&self, changes: bool) -> Option<Duration> {
+        if self.active.is_none() || self.state == RoundState::Running {
+            return None;
+        }
         let wait = match self.last_round {
-            Some(last) => AFTER_CHANGE.saturating_sub(last.elapsed()),
+            Some(last) => {
+                let after = if changes { AFTER_CHANGE } else { EVERY };
+                after.saturating_sub(last.elapsed())
+            }
             None => self.not_before.saturating_duration_since(Instant::now()),
         };
         Some(wait.max(Duration::from_secs(1)))
@@ -242,5 +248,21 @@ mod tests {
         assert!(r.is_due(false));
         r.state = RoundState::Running;
         assert!(!r.is_due(true), "one round at a time");
+    }
+
+    #[test]
+    fn without_changes_the_next_look_is_the_regular_round() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut r = runner(&dir);
+        r.turn_on().unwrap();
+        r.last_round = Some(Instant::now() - AFTER_CHANGE * 2);
+        let wait = r.next_check(false).unwrap();
+        assert!(
+            wait > EVERY - AFTER_CHANGE * 3,
+            "not every second: {wait:?}"
+        );
+        assert_eq!(r.next_check(true), Some(Duration::from_secs(1)));
+        r.state = RoundState::Running;
+        assert_eq!(r.next_check(true), None, "the round's end wakes the window");
     }
 }
