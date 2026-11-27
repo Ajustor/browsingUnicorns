@@ -99,10 +99,9 @@ impl BrowserApp {
         }
         // Extensions' windows float over their opener's page: not listed.
         let hidden: Vec<domain::TabId> = self
-            .hub
-            .popup_windows()
-            .into_iter()
-            .map(|(tab, _)| tab)
+            .popup_windows
+            .iter()
+            .map(|&(tab, _)| tab)
             .filter(|&t| {
                 self.browser
                     .session()

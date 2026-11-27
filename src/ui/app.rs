@@ -51,6 +51,8 @@ pub struct BrowserApp {
     extensions: ExtensionsRunner,
     user_scripts: UserScriptsRunner,
     hub: Hub,
+    /// The extensions' windows (tab, size asked), listed once a frame.
+    popup_windows: Vec<(TabId, Option<(u32, u32)>)>,
     bar: ExtensionBar,
     blocker: BlockerRunner,
     profiles: ProfilesRunner,
@@ -68,6 +70,8 @@ pub struct BrowserApp {
     /// The ad blocker's bar, when open.
     shield: Option<Shield>,
     window_title: String,
+    /// A hash of what the title was made of.
+    window_title_parts: Option<u64>,
     /// The language chosen on this computer (the Settings view's).
     language: domain::LanguageChoice,
     last_persist: Instant,
@@ -144,6 +148,7 @@ impl BrowserApp {
             extensions,
             user_scripts,
             hub,
+            popup_windows: Vec::new(),
             bar,
             blocker,
             profiles,
@@ -162,6 +167,7 @@ impl BrowserApp {
             site_info: None,
             shield: None,
             window_title: String::new(),
+            window_title_parts: None,
             language: super::device_language(),
             last_persist: Instant::now(),
             last_sleep_check: Instant::now(),
@@ -290,10 +296,10 @@ impl BrowserApp {
     /// it asked for.
     fn active_popup_window(&self) -> Option<(domain::TabId, Option<(u32, u32)>)> {
         let active = self.browser.session().active_id()?;
-        self.hub
-            .popup_windows()
-            .into_iter()
+        self.popup_windows
+            .iter()
             .find(|(tab, _)| *tab == active)
+            .copied()
     }
 
     /// An extension's window stays over the tab that opened it: back on
@@ -302,10 +308,10 @@ impl BrowserApp {
         let Some(active) = self.browser.session().active_id() else {
             return;
         };
-        let window = self.hub.popup_windows().into_iter().find(|(tab, _)| {
+        let window = self.popup_windows.iter().find(|(tab, _)| {
             self.browser.session().tab(*tab).and_then(|t| t.opener()) == Some(active)
         });
-        if let Some((window, _)) = window {
+        if let Some(&(window, _)) = window {
             self.browser.activate(window);
         }
     }
@@ -465,6 +471,28 @@ impl BrowserApp {
     }
 
     fn sync_window_title(&mut self, ctx: &egui::Context) {
+        // What the title is made of, told apart without building it: it is
+        // made again only when that changed.
+        let parts = {
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            let several = self.profiles.several();
+            several.hash(&mut hasher);
+            if several {
+                self.profiles.current().name.hash(&mut hasher);
+            }
+            self.browser
+                .session()
+                .active()
+                .map(|t| t.display_title())
+                .hash(&mut hasher);
+            self.is_private().hash(&mut hasher);
+            hasher.finish()
+        };
+        if self.window_title_parts == Some(parts) {
+            return;
+        }
+        self.window_title_parts = Some(parts);
         let app = if self.profiles.several() {
             format!("{APP_NAME} ({})", self.profiles.current().name)
         } else {
@@ -516,6 +544,8 @@ impl eframe::App for BrowserApp {
         };
         self.hub.tabs_changed(&mut host);
         self.hub.pump_native(&mut host);
+        // Looked at three times a frame: listed once.
+        self.popup_windows = self.hub.popup_windows();
         if self.hub.waiting() {
             // Unanswered extension messages expire: look again shortly.
             ctx.request_repaint_after(std::time::Duration::from_millis(500));

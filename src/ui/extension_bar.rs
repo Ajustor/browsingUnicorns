@@ -31,8 +31,8 @@ pub struct OpenPopup {
 
 pub struct ExtensionBar {
     dir: PathBuf,
-    /// Decoded icons, by extension and version.
-    icons: HashMap<(ExtensionId, String), Option<TextureHandle>>,
+    /// Decoded icons, by extension, with the version they are of.
+    icons: HashMap<ExtensionId, (String, Option<TextureHandle>)>,
     pub popup: Option<OpenPopup>,
     /// The popup that just closed on its own (a click elsewhere): the click
     /// on its button that caused it must not open it again.
@@ -58,20 +58,26 @@ impl ExtensionBar {
         id: &ExtensionId,
         version: &str,
     ) -> Option<TextureHandle> {
+        // Looked up without copying the key: called each frame.
+        if let Some((known, icon)) = self.icons.get(id)
+            && known == version
+        {
+            return icon.clone();
+        }
+        let icon = (|| {
+            let dir = extension_dir(&self.dir, id);
+            let path = manifest::action_icon(&dir)?;
+            let bytes = std::fs::read(dir.join(path.trim_start_matches('/'))).ok()?;
+            let image = image::load_from_memory_with_format(&bytes, image::ImageFormat::Png)
+                .ok()?
+                .to_rgba8();
+            let size = [image.width() as usize, image.height() as usize];
+            let pixels = egui::ColorImage::from_rgba_unmultiplied(size, image.as_raw());
+            Some(ctx.load_texture(format!("extension-{id}"), pixels, TextureOptions::LINEAR))
+        })();
         self.icons
-            .entry((id.clone(), version.to_owned()))
-            .or_insert_with(|| {
-                let dir = extension_dir(&self.dir, id);
-                let path = manifest::action_icon(&dir)?;
-                let bytes = std::fs::read(dir.join(path.trim_start_matches('/'))).ok()?;
-                let image = image::load_from_memory_with_format(&bytes, image::ImageFormat::Png)
-                    .ok()?
-                    .to_rgba8();
-                let size = [image.width() as usize, image.height() as usize];
-                let pixels = egui::ColorImage::from_rgba_unmultiplied(size, image.as_raw());
-                Some(ctx.load_texture(format!("extension-{id}"), pixels, TextureOptions::LINEAR))
-            })
-            .clone()
+            .insert(id.clone(), (version.to_owned(), icon.clone()));
+        icon
     }
 
     /// The toolbar's buttons: enabled extensions with a popup.
