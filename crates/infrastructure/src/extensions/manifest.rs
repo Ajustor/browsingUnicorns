@@ -270,6 +270,21 @@ pub fn set_key(dir: &Path, key_base64: &str) -> Result<(), String> {
     fs::write(dir.join("manifest.json"), text).map_err(|e| format!("manifest.json: {e}"))
 }
 
+/// Takes `permission` out of the manifest (required and optional).
+pub fn remove_permission(dir: &Path, permission: &str) -> Result<(), String> {
+    let mut m = load(dir)?;
+    if !has_permission(&m, permission) {
+        return Ok(());
+    }
+    for key in ["permissions", "optional_permissions"] {
+        if let Some(Value::Array(list)) = m.get_mut(key) {
+            list.retain(|p| p.as_str() != Some(permission));
+        }
+    }
+    let text = serde_json::to_string_pretty(&m).map_err(|e| e.to_string())?;
+    fs::write(dir.join("manifest.json"), text).map_err(|e| format!("manifest.json: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -41,7 +41,7 @@ pub struct ExtensionFolder {
 pub fn store_package_url(id: &ExtensionId) -> String {
     format!(
         "https://clients2.google.com/service/update2/crx?response=redirect\
-         &prodversion={CHROME_VERSION}&acceptformat=crx2,crx3&x=id%3D{id}%26uc"
+         &prodversion={CHROME_VERSION}&acceptformat=crx3&x=id%3D{id}%26uc"
     )
 }
 
@@ -257,6 +257,10 @@ impl ExtensionFolder {
     /// Copies the unpacked extension in `folder`. Its id comes from the
     /// manifest's `key` when it has one, else from the folder's path (as in
     /// Chrome): installing the same folder again updates it.
+    ///
+    /// A `key` proves nothing (it is public, no signature comes with a
+    /// folder): an extension whose id comes from one loses `nativeMessaging`,
+    /// so that it can't pass for a password manager with its desktop app.
     fn copy_unpacked(&self, folder: &Path) -> Result<Extension, ExtensionError> {
         use sha2::{Digest, Sha256};
 
@@ -267,7 +271,9 @@ impl ExtensionFolder {
                 &folder.display(),
             )));
         }
-        let id = match manifest::key(&folder).and_then(|k| BASE64.decode(k.as_bytes()).ok()) {
+        let key = manifest::key(&folder).and_then(|k| BASE64.decode(k.as_bytes()).ok());
+        let claims_id = key.is_some();
+        let id = match key {
             Some(der) => ExtensionId::from_key_hash(&Sha256::digest(der)),
             None => {
                 ExtensionId::from_key_hash(&Sha256::digest(folder.to_string_lossy().as_bytes()))
@@ -277,6 +283,9 @@ impl ExtensionFolder {
         let result = (|| {
             let _ = fs::remove_dir_all(&staging);
             copy_dir(&folder, &staging)?;
+            if claims_id {
+                manifest::remove_permission(&staging, "nativeMessaging").map_err(error)?;
+            }
             self.put_in_place(&staging, &id)
         })();
         if result.is_err() {
@@ -446,6 +455,11 @@ mod tests {
         Arc::new(|_: &str| Err("offline".to_owned()))
     }
 
+    /// The public key the test packages are signed with.
+    fn publisher_key() -> Vec<u8> {
+        crx::tests::publisher().public_key()
+    }
+
     fn zip_with(files: &[(&str, &str)]) -> Vec<u8> {
         let mut out = zip::ZipWriter::new(Cursor::new(Vec::new()));
         for (name, content) in files {
@@ -457,19 +471,16 @@ mod tests {
     }
 
     fn package(name: &str) -> Vec<u8> {
-        crx::tests::crx3(
-            b"publisher key",
-            &zip_with(&[
-                (
-                    "manifest.json",
-                    &format!(
-                        r#"{{"name":"{name}","version":"1","action":{{"default_popup":"p.html"}}}}"#
-                    ),
+        crx::tests::crx3(&zip_with(&[
+            (
+                "manifest.json",
+                &format!(
+                    r#"{{"name":"{name}","version":"1","action":{{"default_popup":"p.html"}}}}"#
                 ),
-                ("p.html", "<p>hi</p>"),
-                ("../evil.txt", "nope"),
-            ]),
-        )
+            ),
+            ("p.html", "<p>hi</p>"),
+            ("../evil.txt", "nope"),
+        ]))
     }
 
     #[test]
@@ -504,24 +515,48 @@ mod tests {
         let again = folder
             .install(&ExtensionSource::Folder(src.clone()))
             .unwrap();
-        assert_eq!((again.id, again.version.as_str()), (first.id, "2"));
+        assert_eq!((again.id, again.version.as_str()), (first.id.clone(), "2"));
 
-        // A key in the manifest gives the store's id.
-        let key = BASE64.encode(b"publisher key");
+        // A key in the manifest gives the store's id, but not the right to
+        // talk to the store extension's desktop app: nothing proves it.
+        let key = BASE64.encode(&publisher_key());
         fs::write(
             src.join("manifest.json"),
-            format!(r#"{{"name":"Mine","version":"3","key":"{key}"}}"#),
+            format!(
+                r#"{{"name":"Mine","version":"3","key":"{key}","permissions":["nativeMessaging","storage"]}}"#
+            ),
         )
         .unwrap();
         let keyed = folder
             .install(&ExtensionSource::Folder(src.clone()))
             .unwrap();
+        let keyed_manifest = manifest::load(&extension_dir(folder.dir(), &keyed.id)).unwrap();
+        assert!(!manifest::has_permission(
+            &keyed_manifest,
+            "nativeMessaging"
+        ));
+        assert!(manifest::has_permission(&keyed_manifest, "storage"));
         let from_crx = folder.install(&ExtensionSource::File({
             let crx = root.path().join("p.crx");
             fs::write(&crx, package("Packed")).unwrap();
             crx
         }));
         assert_eq!(keyed.id, from_crx.unwrap().id);
+
+        // Its id from its path: its own, the permission kept.
+        fs::write(
+            src.join("manifest.json"),
+            r#"{"name":"Mine","version":"4","permissions":["nativeMessaging"]}"#,
+        )
+        .unwrap();
+        let own = folder
+            .install(&ExtensionSource::Folder(src.clone()))
+            .unwrap();
+        assert_eq!(own.id, first.id);
+        assert!(manifest::has_permission(
+            &manifest::load(&extension_dir(folder.dir(), &own.id)).unwrap(),
+            "nativeMessaging"
+        ));
 
         let err = folder.install(&ExtensionSource::Folder(root.path().join("extensions")));
         assert!(err.unwrap_err().to_string().contains("manifest.json"));
@@ -537,7 +572,7 @@ mod tests {
         let ext = folder
             .install(&ExtensionSource::File(file.clone()))
             .unwrap();
-        assert_eq!(ext.id, crx::id_of_key(b"publisher key"));
+        assert_eq!(ext.id, crx::id_of_key(&publisher_key()));
         assert_eq!(ext.name, "First");
         assert_eq!(ext.popup.as_deref(), Some("p.html"));
         let dir = extension_dir(folder.dir(), &ext.id);
@@ -546,7 +581,7 @@ mod tests {
         assert!(
             fs::read_to_string(dir.join("manifest.json"))
                 .unwrap()
-                .contains(&BASE64.encode(b"publisher key"))
+                .contains(&BASE64.encode(&publisher_key()))
         );
 
         fs::write(&file, package("Second")).unwrap();
@@ -579,7 +614,7 @@ mod tests {
     #[test]
     fn edge_add_ons_serve_what_the_chrome_web_store_has_not() {
         let root = tempfile::tempdir().unwrap();
-        let id = crx::id_of_key(b"publisher key");
+        let id = crx::id_of_key(&publisher_key());
         // The Chrome Web Store answers "nothing" (204), Edge has it.
         let folder = ExtensionFolder::new(
             root.path(),
@@ -593,21 +628,18 @@ mod tests {
     }
 
     fn store_package(version: &str) -> Vec<u8> {
-        crx::tests::crx3(
-            b"publisher key",
-            &zip_with(&[(
-                "manifest.json",
-                &format!(
-                    r#"{{"name":"Ext","version":"{version}","update_url":"https://clients2.google.com/service/update2/crx"}}"#
-                ),
-            )]),
-        )
+        crx::tests::crx3(&zip_with(&[(
+            "manifest.json",
+            &format!(
+                r#"{{"name":"Ext","version":"{version}","update_url":"https://clients2.google.com/service/update2/crx"}}"#
+            ),
+        )]))
     }
 
     #[test]
     fn store_extensions_update_to_newer_versions_only() {
         let root = tempfile::tempdir().unwrap();
-        let id = crx::id_of_key(b"publisher key");
+        let id = crx::id_of_key(&publisher_key());
         let at = |version: &str| {
             ExtensionFolder::new(
                 root.path(),
@@ -654,7 +686,7 @@ mod tests {
     #[test]
     fn the_chrome_web_store_comes_first() {
         let root = tempfile::tempdir().unwrap();
-        let id = crx::id_of_key(b"publisher key");
+        let id = crx::id_of_key(&publisher_key());
         let folder = ExtensionFolder::new(
             root.path(),
             serving(vec![
@@ -669,7 +701,7 @@ mod tests {
     #[test]
     fn an_id_neither_store_has_names_both() {
         let root = tempfile::tempdir().unwrap();
-        let id = crx::id_of_key(b"publisher key");
+        let id = crx::id_of_key(&publisher_key());
         let folder = ExtensionFolder::new(
             root.path(),
             serving(vec![(store_package_url(&id), Vec::new())]),

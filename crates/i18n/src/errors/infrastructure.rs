@@ -45,6 +45,8 @@ messages! {
     fn bad_header() { en: "bad header", fr: "en-tête du paquet invalide" }
     /// A `.crx` signed by no key matching its id.
     fn no_key_for_package_id() { en: "no public key matches the package's id", fr: "aucune clé publique ne correspond à l’identifiant du paquet" }
+    /// A `.crx` whose signature does not match its contents or key.
+    fn bad_package_signature() { en: "the package's signature is not valid", fr: "la signature du paquet n’est pas valide" }
     /// A `manifest.json` that is not a JSON object.
     fn manifest_not_an_object() { en: "manifest.json is not an object", fr: "manifest.json n’est pas un objet" }
     /// A `manifest.json` without `name`.

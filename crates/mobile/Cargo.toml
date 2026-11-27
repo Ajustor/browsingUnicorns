@@ -30,4 +30,6 @@ uniffi = "0.32"
 tempfile = "3"
 data-encoding = "2"
 sha2 = "0.10"
-zip = { version = "9.6", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+# Signing the test extension packages (the browser checks them).
+ring = "0.17"
+zip ={ version = "9.6", default-features = false, features = ["deflate-flate2-zlib-rs"] }

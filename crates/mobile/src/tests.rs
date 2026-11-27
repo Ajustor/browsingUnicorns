@@ -316,12 +316,10 @@ fn two_devices_pair_and_sync() {
     assert!(desktop.sync_info().devices.is_empty(), "the phone left");
 }
 
-/// A CRX2 package of a blocker: `||ads.test^` blocked, `/ad.js` replaced by
-/// its stand-in.
+/// A package of a blocker: `||ads.test^` blocked, `/ad.js` replaced by its
+/// stand-in.
 fn blocker_package() -> (domain::ExtensionId, Vec<u8>) {
     use std::io::Write;
-
-    use sha2::{Digest, Sha256};
 
     let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
     let files = [
@@ -343,17 +341,56 @@ fn blocker_package() -> (domain::ExtensionId, Vec<u8>) {
         zip.write_all(content.as_bytes()).unwrap();
     }
     let zip = zip.finish().unwrap().into_inner();
-    let key = b"blocker key";
-    let mut crx = b"Cr24".to_vec();
-    for n in [2u32, key.len() as u32, 0] {
-        crx.extend(n.to_le_bytes());
+    signed_crx(&zip)
+}
+
+/// A CRX3 around `zip`, signed by a new P-256 key, and the id it gets.
+fn signed_crx(zip: &[u8]) -> (domain::ExtensionId, Vec<u8>) {
+    use ring::signature::{ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair, KeyPair};
+    use sha2::{Digest, Sha256};
+
+    /// A protobuf field of bytes.
+    fn field(number: u64, data: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        for mut v in [(number << 3) | 2, data.len() as u64] {
+            while v >= 0x80 {
+                out.push((v as u8) | 0x80);
+                v >>= 7;
+            }
+            out.push(v as u8);
+        }
+        out.extend(data);
+        out
     }
-    crx.extend(key);
+
+    let rng = ring::rand::SystemRandom::new();
+    let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &rng).unwrap();
+    let pair =
+        EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, pkcs8.as_ref(), &rng).unwrap();
+    // The SubjectPublicKeyInfo of a P-256 key: a fixed prefix, the point.
+    let mut key = vec![
+        0x30, 0x59, 0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, 0x06, 0x08,
+        0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, 0x03, 0x42, 0x00,
+    ];
+    key.extend(pair.public_key().as_ref());
+    let hash = Sha256::digest(&key);
+    let signed_data = field(1, &hash[..16]);
+    let message = [
+        &b"CRX3 SignedData\x00"[..],
+        &(signed_data.len() as u32).to_le_bytes(),
+        &signed_data,
+        zip,
+    ]
+    .concat();
+    let signature = pair.sign(&rng, &message).unwrap();
+    let mut header = field(3, &[field(1, &key), field(2, signature.as_ref())].concat());
+    header.extend(field(10000, &signed_data));
+    let mut crx = b"Cr24".to_vec();
+    crx.extend(3u32.to_le_bytes());
+    crx.extend((header.len() as u32).to_le_bytes());
+    crx.extend(header);
     crx.extend(zip);
-    (
-        domain::ExtensionId::from_key_hash(&Sha256::digest(key)),
-        crx,
-    )
+    (domain::ExtensionId::from_key_hash(&hash), crx)
 }
 
 #[test]
