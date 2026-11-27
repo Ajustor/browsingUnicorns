@@ -105,7 +105,7 @@ impl SyncPanel {
                             ui.weak(i18n::sync::not_synced());
                         }
                         RoundState::Running => {
-                            ui.spinner();
+                            ui.add(super::spinner::Spinner::new());
                             ui.label(i18n::sync::syncing());
                         }
                         RoundState::Done(at) => {

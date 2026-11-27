@@ -47,7 +47,7 @@ impl SiteInfo {
             match &self.certificates {
                 None => {
                     ui.horizontal(|ui| {
-                        ui.spinner();
+                        ui.add(super::spinner::Spinner::new());
                         ui.label(i18n::site_info::reading_certificate());
                     });
                 }

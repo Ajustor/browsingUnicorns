@@ -649,7 +649,7 @@ fn about(
                         updater.state,
                         UpdateState::Checking | UpdateState::Downloading(_)
                     ) {
-                        ui.spinner();
+                        ui.add(super::spinner::Spinner::new());
                     } else {
                         let glyph = RichText::new(glyph).size(16.0);
                         ui.label(match color {

@@ -279,15 +279,24 @@ fn card(
                         _ => accent,
                     }));
                     if let State::Running { received, total } = item.state {
-                        let fraction = total
-                            .filter(|&t| t > 0)
-                            .map_or(0.0, |t| received as f32 / t as f32);
-                        ui.add(
-                            egui::ProgressBar::new(fraction)
-                                .desired_height(4.0)
-                                .fill(super::theme::CYAN)
-                                .animate(total.is_none()),
-                        );
+                        match total.filter(|&t| t > 0) {
+                            Some(t) => {
+                                ui.add(
+                                    egui::ProgressBar::new(received as f32 / t as f32)
+                                        .desired_height(4.0)
+                                        .fill(super::theme::CYAN),
+                                );
+                            }
+                            // Size unknown: a spinner that turns in steps (the
+                            // bar's own animation repaints every frame).
+                            None => {
+                                ui.add(
+                                    super::spinner::Spinner::new()
+                                        .size(12.0)
+                                        .color(super::theme::CYAN),
+                                );
+                            }
+                        }
                     }
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

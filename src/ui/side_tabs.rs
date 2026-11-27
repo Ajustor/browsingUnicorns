@@ -3,7 +3,7 @@
 //! the tabs one per row, a group's under its header. Its right edge sets
 //! its width; folded, it shows the icons only.
 
-use egui::{Color32, RichText, ScrollArea, Sense, Spinner};
+use egui::{Color32, RichText, ScrollArea, Sense};
 use egui_phosphor::regular as icon;
 
 use domain::{GroupId, Session, Tab, TabGroup, TabPosition};
@@ -362,7 +362,10 @@ fn tab_icon(
     let rect = egui::Rect::from_center_size(at, egui::vec2(size, size));
     let text = tab_common::tab_ink(tab, active);
     if tab.is_loading() {
-        ui.put(rect, Spinner::new().size(size - 2.0).color(text));
+        ui.put(
+            rect,
+            super::spinner::Spinner::new().size(size - 2.0).color(text),
+        );
     } else if let Some(icon) = favicons.get(tab.id()) {
         egui::Image::new(icon)
             .fit_to_exact_size(rect.size())

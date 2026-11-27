@@ -1,7 +1,7 @@
 //! The updates: the window offering one found at start, the toolbar's
 //! button, the update commands.
 
-use egui::{Button, Color32, CornerRadius, RichText, Spinner, Stroke};
+use egui::{Button, Color32, CornerRadius, RichText, Stroke};
 use egui_phosphor::regular as icon;
 use updater::{UpdateEvent, UpdateMemory, UpdateState, Updater};
 
@@ -274,7 +274,7 @@ fn body(ui: &mut egui::Ui, state: &UpdateState, commands: &mut Vec<Command>) -> 
         }
         UpdateState::Downloading(info) => {
             ui.horizontal(|ui| {
-                ui.add(Spinner::new().size(18.0));
+                ui.add(super::spinner::Spinner::new().size(18.0));
                 ui.label(i18n::updates::downloading(&info.version));
             });
             ui.add_space(12.0);

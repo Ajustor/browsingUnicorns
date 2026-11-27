@@ -1,4 +1,4 @@
-use egui::{Color32, RichText, ScrollArea, Sense, Spinner};
+use egui::{Color32, RichText, ScrollArea, Sense};
 use egui_phosphor::regular as icon;
 
 use domain::{GroupId, Session, Tab, TabGroup, TabPosition};
@@ -225,7 +225,7 @@ pub fn show(
                         }
                         ui.horizontal(|ui| {
                             if tab.is_loading() {
-                                ui.add(Spinner::new().size(12.0).color(text));
+                                ui.add(super::spinner::Spinner::new().size(12.0).color(text));
                             } else if let Some(icon) = icon {
                                 ui.add(
                                     egui::Image::new(icon)
@@ -337,7 +337,7 @@ pub fn show(
                         ui.set_width(16.0);
                         ui.vertical_centered(|ui| {
                             if tab.is_loading() {
-                                ui.add(Spinner::new().size(14.0).color(text));
+                                ui.add(super::spinner::Spinner::new().size(14.0).color(text));
                             } else if let Some(icon) = icon {
                                 ui.add(
                                     egui::Image::new(icon)

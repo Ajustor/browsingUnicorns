@@ -24,6 +24,7 @@ mod shield;
 mod shortcuts;
 mod side_tabs;
 mod site_info;
+mod spinner;
 mod split_view;
 mod sync;
 mod sync_panel;

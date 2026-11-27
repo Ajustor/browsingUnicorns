@@ -134,7 +134,7 @@ pub fn show(
                     commands.push(Command::Open(site, application::Target::NewTab));
                 }
                 if runner.installing {
-                    ui.spinner();
+                    ui.add(super::spinner::Spinner::new());
                 }
             });
             super::extensions::status(ui, runner.status.as_ref());

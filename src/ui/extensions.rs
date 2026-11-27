@@ -297,7 +297,7 @@ impl ExtensionsPanel {
                 });
                 if let Some(what) = &runner.installing {
                     ui.horizontal(|ui| {
-                        ui.spinner();
+                        ui.add(super::spinner::Spinner::new());
                         ui.add(egui::Label::new(i18n::extensions::installing(what)).truncate());
                     });
                 }
