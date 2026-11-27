@@ -92,8 +92,7 @@ class MainActivity : ComponentActivity() {
                 askPermissions.launch(missing.toTypedArray())
             }
         }
-        controller = BrowserController(this, browser, views, AppUpdates(this, lifecycleScope), lifecycleScope)
-        downloads.onMessage = { controller.message = it }
+        controller = BrowserController(this, browser, views, downloads, AppUpdates(this, lifecycleScope), lifecycleScope)
         if (core.fresh) controller.act { restoreSession() }
         // A recreated activity gets its first intent again: already opened.
         if (savedInstanceState == null) openFromIntent(intent)

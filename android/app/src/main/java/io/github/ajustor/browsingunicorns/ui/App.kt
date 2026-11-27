@@ -48,7 +48,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -95,6 +97,15 @@ fun App(c: BrowserController) {
             snackbar.showSnackbar(it)
             c.message = null
         }
+    }
+    // A download saved: its name, and a button to open it.
+    val saved = stringResource(R.string.download_saved, c.downloadDone?.name.orEmpty())
+    val open = stringResource(R.string.download_open)
+    LaunchedEffect(c.downloadDone) {
+        val done = c.downloadDone ?: return@LaunchedEffect
+        val result = snackbar.showSnackbar(saved, actionLabel = open, duration = SnackbarDuration.Long)
+        if (result == SnackbarResult.ActionPerformed) c.openDownload(done)
+        if (c.downloadDone === done) c.downloadDone = null
     }
     // The bars reach under the status and navigation bars: each screen pads
     // itself (BrowserScreen's top block and bottom bar, the headers).

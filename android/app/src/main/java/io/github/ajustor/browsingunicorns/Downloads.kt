@@ -2,8 +2,12 @@ package io.github.ajustor.browsingunicorns
 
 import android.Manifest
 import android.app.DownloadManager
+import android.content.ActivityNotFoundException
+import android.content.BroadcastReceiver
 import android.content.ContentValues
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.media.MediaScannerConnection
 import android.net.Uri
@@ -27,6 +31,9 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import org.json.JSONObject
 
+/** A download saved in the Downloads folder, that the user may open. */
+class DownloadDone(val name: String, val uri: Uri?, val mimeType: String?)
+
 /**
  * The pages' downloads, into the shared Downloads folder: http(s) through
  * Android's DownloadManager (its notification, cookies and referrer kept),
@@ -34,8 +41,17 @@ import org.json.JSONObject
  * [context] follows the activity shown (BrowserCore).
  */
 class Downloads(private val context: Context) {
-    /** Short messages for the user (started, saved, failed). */
+    /** Short messages for the user (started, failed). */
     var onMessage: (String) -> Unit = {}
+
+    /** A download finished, saved (on the main thread). */
+    var onDone: (DownloadDone) -> Unit = {}
+
+    /** The DownloadManager downloads started here and not finished yet. */
+    private val running = ConcurrentHashMap.newKeySet<Long>()
+
+    /** Hears DownloadManager's downloads finish, while some of [running] run. */
+    private var receiver: BroadcastReceiver? = null
 
     private val main = Handler(Looper.getMainLooper())
 
@@ -69,7 +85,7 @@ class Downloads(private val context: Context) {
                     sink.out.write(Base64.decode(chunk, Base64.DEFAULT))
                     if (last) {
                         pending.remove(token)
-                        tell(context.getString(R.string.download_saved, sink.finish()))
+                        sink.finish()
                     }
                 } catch (e: Exception) {
                     pending.remove(token)
@@ -103,9 +119,7 @@ class Downloads(private val context: Context) {
                             sink.abort()
                             throw e
                         }
-                    }
-                        .onSuccess { tell(context.getString(R.string.download_saved, it)) }
-                        .onFailure { fail(name, it) }
+                    }.onFailure { fail(name, it) }
                 }.start()
                 "blob" -> fromBlob(view, url, name, mimeType)
                 else -> onMessage(context.getString(R.string.download_unsupported, url))
@@ -137,7 +151,8 @@ class Downloads(private val context: Context) {
                 setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
                 setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name)
             }
-            context.getSystemService(DownloadManager::class.java).enqueue(request)
+            running += context.getSystemService(DownloadManager::class.java).enqueue(request)
+            listen()
             onMessage(context.getString(R.string.downloading, name))
         } catch (e: Exception) {
             fail(name, e)
@@ -195,8 +210,8 @@ class Downloads(private val context: Context) {
     private interface Sink {
         val out: OutputStream
 
-        /** Closes it, now complete; returns the name it got. */
-        fun finish(): String
+        /** Closes it, now complete, and tells (onDone). */
+        fun finish()
 
         /** Closes and deletes it. */
         fun abort()
@@ -223,10 +238,10 @@ class Downloads(private val context: Context) {
             return object : Sink {
                 override val out = out.buffered()
 
-                override fun finish(): String {
+                override fun finish() {
                     this.out.close()
                     resolver.update(uri, ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }, null, null)
-                    return name
+                    done(DownloadDone(name, uri, type))
                 }
 
                 override fun abort() {
@@ -241,10 +256,12 @@ class Downloads(private val context: Context) {
         return object : Sink {
             override val out = file.outputStream().buffered()
 
-            override fun finish(): String {
+            override fun finish() {
                 out.close()
-                MediaScannerConnection.scanFile(context, arrayOf(file.absolutePath), arrayOf(type), null)
-                return file.name
+                // Opened through the media store's address (a file:// one can't be shared).
+                MediaScannerConnection.scanFile(context, arrayOf(file.absolutePath), arrayOf(type)) { _, uri ->
+                    done(DownloadDone(file.name, uri, type))
+                }
             }
 
             override fun abort() {
@@ -266,6 +283,75 @@ class Downloads(private val context: Context) {
     }
 
     private fun tell(text: String) = main.post { onMessage(text) }
+
+    private fun done(download: DownloadDone) = main.post { onDone(download) }
+
+    /** Listens for DownloadManager's downloads finishing (a system broadcast: exported). */
+    private fun listen() {
+        if (receiver != null) return
+        receiver = object : BroadcastReceiver() {
+            override fun onReceive(c: Context, intent: Intent) {
+                val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
+                if (!running.remove(id)) return
+                finished(id)
+                if (running.isEmpty()) close()
+            }
+        }.also {
+            ContextCompat.registerReceiver(
+                context.applicationContext,
+                it,
+                IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
+                ContextCompat.RECEIVER_EXPORTED,
+            )
+        }
+    }
+
+    /** DownloadManager's download [id] ended: saved, it is offered to open (a failure has its notification). */
+    private fun finished(id: Long) {
+        val manager = context.getSystemService(DownloadManager::class.java)
+        val (status, title) = runCatching {
+            manager.query(DownloadManager.Query().setFilterById(id))?.use { c ->
+                if (!c.moveToFirst()) return@use null
+                c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)) to
+                    c.getString(c.getColumnIndexOrThrow(DownloadManager.COLUMN_TITLE)).orEmpty()
+            }
+        }.getOrNull() ?: return
+        if (status != DownloadManager.STATUS_SUCCESSFUL) return
+        val uri = runCatching { manager.getUriForDownloadedFile(id) }.getOrNull()
+        val type = runCatching { manager.getMimeTypeForDownloadedFile(id) }.getOrNull()
+        onDone(DownloadDone(title, uri, type))
+    }
+
+    /** Stops listening for DownloadManager (the browser ends, or nothing runs). */
+    fun close() {
+        receiver?.let { runCatching { context.applicationContext.unregisterReceiver(it) } }
+        receiver = null
+    }
+
+    /**
+     * Opens [download] in the app that shows its type; without one, the
+     * system's list of downloads.
+     */
+    fun open(download: DownloadDone) {
+        val uri = download.uri
+        if (uri != null) {
+            val type = download.mimeType?.takeIf { it.isNotBlank() } ?: context.contentResolver.getType(uri)
+            val view = Intent(Intent.ACTION_VIEW)
+                .setDataAndType(uri, type)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            try {
+                return context.startActivity(view)
+            } catch (_: ActivityNotFoundException) {
+            } catch (e: SecurityException) {
+                Log.w(TAG, "opening ${download.name} refused", e)
+            }
+        }
+        try {
+            context.startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS))
+        } catch (_: ActivityNotFoundException) {
+            onMessage(context.getString(R.string.download_no_viewer, download.name))
+        }
+    }
 
     private fun fail(name: String, e: Throwable) {
         Log.w(TAG, "download of $name failed", e)

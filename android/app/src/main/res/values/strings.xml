@@ -97,6 +97,9 @@
     <string name="download_unsupported">Can’t download %1$s</string>
     <string name="downloading">Downloading %1$s…</string>
     <string name="download_no_room">no room in Downloads</string>
+    <!-- A finished download's bar: its action opens the file. -->
+    <string name="download_open">Open</string>
+    <string name="download_no_viewer">No app can open %1$s</string>
 
     <!-- The HTTP client's errors (sync, extension and list downloads), shown
          inside the core's messages. -->

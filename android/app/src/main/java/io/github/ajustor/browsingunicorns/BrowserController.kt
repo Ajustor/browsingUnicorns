@@ -35,6 +35,7 @@ class BrowserController(
     private val context: Context,
     val browser: MobileBrowser,
     val views: WebViews,
+    private val downloads: Downloads,
     val updates: AppUpdates,
     private val scope: CoroutineScope,
 ) {
@@ -63,6 +64,12 @@ class BrowserController(
     var progress by mutableIntStateOf(100)
         private set
     var message by mutableStateOf<String?>(null)
+
+    /** A download just saved, offered to open. */
+    var downloadDone by mutableStateOf<DownloadDone?>(null)
+
+    /** Opens [download] (the bar's action). */
+    fun openDownload(download: DownloadDone) = downloads.open(download)
     var syncing by mutableStateOf(false)
         private set
     var extensions by mutableStateOf<List<ExtensionInfo>>(emptyList())
@@ -172,6 +179,8 @@ class BrowserController(
             leaveFullscreen = leave
         }
         updates.onMessage = { message = it }
+        downloads.onMessage = { message = it }
+        downloads.onDone = { downloadDone = it }
         refreshExtensions()
     }
 

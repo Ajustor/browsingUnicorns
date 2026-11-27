@@ -60,6 +60,7 @@ class BrowserCore : ViewModel() {
         parts = null
         runCatching { p.browser.persist() }
         p.views.destroy()
+        p.downloads.close()
         p.context.baseContext = p.context.applicationContext
         p.browser.destroy()
     }

@@ -89,6 +89,8 @@
     <string name="download_unsupported">Impossible de télécharger %1$s</string>
     <string name="downloading">Téléchargement de %1$s…</string>
     <string name="download_no_room">plus de place dans Téléchargements</string>
+    <string name="download_open">Ouvrir</string>
+    <string name="download_no_viewer">Aucune application ne peut ouvrir %1$s</string>
 
     <!-- Erreurs du client HTTP -->
     <string name="http_unreachable">injoignable : %1$s</string>
