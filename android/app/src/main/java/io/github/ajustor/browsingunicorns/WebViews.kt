@@ -8,6 +8,8 @@ import android.net.Uri
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
+import android.os.Handler
+import android.os.Looper
 import android.os.Message
 import android.util.Log
 import android.view.MotionEvent
@@ -29,6 +31,7 @@ import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.FileInputStream
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.ui.graphics.ImageBitmap
@@ -53,6 +56,27 @@ import uniffi.mobile.WebViewHost
 class WebViews(private val context: Context, private val downloads: Downloads) : WebViewHost {
     val container = FrameLayout(context)
     private val views = HashMap<ULong, WebView>()
+
+    /** Work for the main thread posted by [onMain] and not run yet. */
+    private val queued = AtomicInteger()
+
+    /** The main thread's queue (not the container's: it waits while detached). */
+    private val main = Handler(Looper.getMainLooper())
+
+    /**
+     * Runs [work] on the main thread, where WebViews and [views] are touched:
+     * now when already there with nothing queued before it, else posted (in
+     * order). Rust calls the [WebViewHost] methods from whatever thread
+     * called into it, the pages' bridge threads among them.
+     */
+    private fun onMain(work: () -> Unit) {
+        if (Looper.myLooper() == Looper.getMainLooper() && queued.get() == 0) return work()
+        queued.incrementAndGet()
+        main.post {
+            queued.decrementAndGet()
+            work()
+        }
+    }
 
     /** Each tab's page, readable from the WebView's IO thread (blocking rules). */
     private val pages = ConcurrentHashMap<ULong, String>()
@@ -276,7 +300,7 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
     }
 
     override fun postToPage(target: PageTarget, script: String) {
-        container.post {
+        onMain {
             val view = when (target) {
                 is PageTarget.Tab -> views[target.tab]
                 is PageTarget.Background -> backgrounds[target.extension]
@@ -290,7 +314,7 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
     private val backgroundVersions = HashMap<String, String>()
 
     override fun setBackgrounds(pages: List<BackgroundPage>) {
-        container.post {
+        onMain {
             val wanted = pages.associate { it.extension to it.url }
             val versions = pages.associate { it.extension to it.version }
             for (id in backgrounds.keys.filter { it !in wanted || backgroundVersions[it] != versions[it] }) {
@@ -314,7 +338,7 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
     }
 
     override fun showPanel(url: String?) {
-        container.post {
+        onMain {
             panel?.destroy()
             panel = url?.let { extensionView(PageTarget.Panel).apply { loadUrl(it) } }
             onPanel(panel)
@@ -341,8 +365,7 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
     }
 
     override fun setPageScripts(scripts: List<String>) {
-        // Called from any thread: WebViews are touched on the main one.
-        container.post {
+        onMain {
             pageScripts = scripts
             for ((tab, view) in views) if (tab !in privateTabs) inject(tab, view)
         }
@@ -504,7 +527,7 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
 
     fun active(): WebView? = views.values.firstOrNull { it.visibility == View.VISIBLE }
 
-    override fun openView(tab: ULong, url: String, private: Boolean) {
+    override fun openView(tab: ULong, url: String, private: Boolean) = onMain {
         val view = create(tab, private)
         views[tab] = view
         // No extension or user script in private tabs.
@@ -518,7 +541,7 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
         view.loadUrl(url)
     }
 
-    override fun closeView(tab: ULong) {
+    override fun closeView(tab: ULong) = onMain {
         pages.remove(tab)
         injected.remove(tab)
         scriptlets.remove(tab)
@@ -530,37 +553,37 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
             it.destroy()
         }
         // The last private tab: its cookies and storage go (once the view is gone).
-        if (privateTabs.remove(tab) && privateTabs.isEmpty()) container.post { deletePrivateProfile() }
+        if (privateTabs.remove(tab) && privateTabs.isEmpty()) main.post { deletePrivateProfile() }
     }
 
-    override fun show(tab: ULong?) {
+    override fun show(tab: ULong?) = onMain {
         captureActive()
         for ((id, view) in views) {
             view.visibility = if (id == tab) View.VISIBLE else View.GONE
         }
     }
 
-    override fun navigate(tab: ULong, url: String) {
-        val view = views[tab] ?: return
+    override fun navigate(tab: ULong, url: String) = onMain {
+        val view = views[tab] ?: return@onMain
         prepareScriptlets(tab, view, url)
         view.loadUrl(url)
     }
 
     // History steps bypass shouldOverrideUrlLoading: the scriptlets first.
-    override fun goBack(tab: ULong) {
-        val view = views[tab] ?: return
+    override fun goBack(tab: ULong) = onMain {
+        val view = views[tab] ?: return@onMain
         prepareHistory(tab, view, -1)
         view.goBack()
     }
 
-    override fun goForward(tab: ULong) {
-        val view = views[tab] ?: return
+    override fun goForward(tab: ULong) = onMain {
+        val view = views[tab] ?: return@onMain
         prepareHistory(tab, view, 1)
         view.goForward()
     }
 
-    override fun reload(tab: ULong) {
-        val view = views[tab] ?: return
+    override fun reload(tab: ULong) = onMain {
+        val view = views[tab] ?: return@onMain
         // After a blocker change the scriptlets were cleared: back for this page.
         view.url?.let { prepareScriptlets(tab, view, it) }
         view.reload()

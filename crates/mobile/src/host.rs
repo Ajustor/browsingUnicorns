@@ -1,5 +1,6 @@
 //! What the Android app implements in Kotlin: its WebViews and its HTTP
-//! client. Rust calls them from the thread that called into Rust.
+//! client. Rust calls them from the thread that called into Rust (see
+//! [`WebViewHost`] for how the WebViews cope).
 
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
@@ -64,6 +65,15 @@ pub struct BackgroundPage {
 }
 
 /// One Android WebView per tab, only the shown one visible.
+///
+/// Threads: Rust calls every method from whatever thread called into it:
+/// the UI thread, a page's JavaScript bridge thread (a page script opening
+/// or closing a tab), a background thread (sync). WebViews live on the main
+/// thread, so each method that touches them hands its work over to it (run
+/// at once when already there and nothing is queued, else posted in order)
+/// and returns without waiting: Rust can't count on the view existing yet
+/// when the call returns. [`Self::cookies`] and [`Self::set_cookies`] run on
+/// the calling thread.
 #[uniffi::export(with_foreign)]
 pub trait WebViewHost: Send + Sync {
     /// `private`: the view keeps its cookies and storage apart (and drops
@@ -77,13 +87,11 @@ pub trait WebViewHost: Send + Sync {
     fn go_forward(&self, tab: u64);
     fn reload(&self, tab: u64);
     /// The scripts to inject at document start into every page of every
-    /// WebView from now on (they replace the previous ones). May be called
-    /// from any thread.
+    /// WebView from now on (they replace the previous ones).
     fn set_page_scripts(&self, scripts: Vec<String>);
-    /// Runs `script` in `target`'s page. May be called from any thread.
+    /// Runs `script` in `target`'s page.
     fn post_to_page(&self, target: PageTarget, script: String);
-    /// The background pages to keep running (the others are closed). May
-    /// be called from any thread.
+    /// The background pages to keep running (the others are closed).
     fn set_backgrounds(&self, pages: Vec<BackgroundPage>);
     /// Shows an extension popup (`None`: closes it).
     fn show_panel(&self, url: Option<String>);
