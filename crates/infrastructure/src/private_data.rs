@@ -23,7 +23,19 @@ impl PrivateDataDir {
 
     fn create_in(parent: &Path) -> io::Result<Self> {
         let path = parent.join(format!("{PREFIX}{}-{:016x}", std::process::id(), random()));
-        std::fs::create_dir_all(&path)?;
+        // Private to the user (`0700` on Unix: the system's temporary folder
+        // is shared), and new: one already there (made by someone else) is
+        // not used.
+        crate::files::create_dir_all(parent)?;
+        #[cfg(unix)]
+        let builder = {
+            let mut builder = std::fs::DirBuilder::new();
+            std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+            builder
+        };
+        #[cfg(not(unix))]
+        let builder = std::fs::DirBuilder::new();
+        builder.create(&path)?;
         Ok(Self { path })
     }
 
@@ -146,6 +158,16 @@ mod tests {
         std::fs::write(path.join("cookies"), "secret").unwrap();
         drop(data);
         assert!(!path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_folder_is_the_users_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let data = PrivateDataDir::create_in(temp.path()).unwrap();
+        let mode = std::fs::metadata(data.path()).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o700);
     }
 
     #[test]
