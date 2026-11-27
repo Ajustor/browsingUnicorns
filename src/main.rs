@@ -102,11 +102,16 @@ pub struct Args {
 }
 
 impl Args {
-    fn parse(mut args: impl Iterator<Item = String>) -> Self {
+    fn parse(args: impl Iterator<Item = String>) -> Self {
+        let mut args = args.peekable();
         let mut parsed = Self::default();
         while let Some(arg) = args.next() {
             if arg == "--profile" {
-                parsed.profile = args.next();
+                // Without a value (the next option, or nothing): none.
+                parsed.profile = args.next_if(|value| !value.starts_with("--"));
+                if parsed.profile.is_none() {
+                    log::warn!("--profile without a profile: ignored");
+                }
             } else if let Some(id) = arg.strip_prefix("--profile=") {
                 parsed.profile = Some(id.to_owned());
             } else if arg == "--private" {
@@ -115,6 +120,9 @@ impl Args {
                 parsed.tab_window = true;
             } else if let Some(g) = arg.strip_prefix("--geometry=") {
                 parsed.geometry = parse_geometry(g);
+            } else if arg.starts_with("--") {
+                // An option of another version, or mistyped: not a search.
+                log::warn!("unknown option {arg}: ignored");
             } else if parsed.start_page.is_none() {
                 parsed.start_page = Some(arg);
             }
@@ -177,5 +185,18 @@ mod tests {
         assert!(args.private);
         assert_eq!(args.profile.as_deref(), Some("work"));
         assert_eq!(args.start_page.as_deref(), Some("example.com"));
+    }
+
+    #[test]
+    fn unknown_options_are_not_searched() {
+        assert_eq!(parse(&["--foo"]), Args::default());
+        assert_eq!(
+            parse(&["--foo", "a.com"]).start_page.as_deref(),
+            Some("a.com")
+        );
+        let args = parse(&["--profile", "--private"]);
+        assert_eq!(args.profile, None);
+        assert!(args.private);
+        assert_eq!(parse(&["--profile"]), Args::default());
     }
 }
