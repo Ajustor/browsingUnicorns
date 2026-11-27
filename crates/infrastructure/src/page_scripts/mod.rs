@@ -13,7 +13,7 @@ use std::path::Path;
 use domain::{Extensions, UrlPattern, UserScripts};
 use serde_json::json;
 
-use crate::extension_server::Origins;
+use crate::extension_server::{Origins, safe_relative};
 use crate::extensions::catalog::ExtensionCatalog;
 use crate::extensions::extension_dir;
 use crate::extensions::state::ExtensionState;
@@ -143,10 +143,9 @@ pub fn extension_page_runtime(secret: &str, owner: &str, bridge: Bridge, config:
 fn read_files(root: &Path, files: &[String], separator: &str) -> Option<String> {
     let mut out = String::new();
     for f in files {
-        let relative = f.trim_start_matches('/');
-        if relative.split(['/', '\\']).any(|part| part == "..") {
-            return None;
-        }
+        // Inside the extension's folder only: no `..`, no absolute path
+        // (`C:/…`, `\\server\share`), which `join` would take instead.
+        let relative = safe_relative(f)?;
         out.push_str(&fs::read_to_string(root.join(relative)).ok()?);
         out.push_str(separator);
     }
@@ -375,6 +374,30 @@ mod tests {
         });
         assert_eq!(with_blocker.len(), 2);
         assert!(with_blocker[0].contains("\nblockerCosmetic();\n"));
+    }
+
+    #[test]
+    fn content_scripts_stay_inside_their_extension() {
+        let root = tempfile::tempdir().unwrap();
+        let ext = root.path().join("ext");
+        fs::create_dir_all(ext.join("js")).unwrap();
+        fs::write(ext.join("js/c.js"), "inside").unwrap();
+        let outside = root.path().join("secret.txt");
+        fs::write(&outside, "secret").unwrap();
+        let read = |f: &str| read_files(&ext, &[f.to_owned()], "");
+        assert_eq!(read("js/c.js").as_deref(), Some("inside"));
+        assert_eq!(read("/js/c.js").as_deref(), Some("inside"));
+        let absolute = outside.to_string_lossy().into_owned();
+        for f in [
+            absolute.as_str(),
+            &absolute.replace('\\', "/"),
+            "../secret.txt",
+            "js/../../secret.txt",
+            "C:/Windows/win.ini",
+            r"\\server\share\x.js",
+        ] {
+            assert_eq!(read(f), None, "{f}");
+        }
     }
 
     #[test]
