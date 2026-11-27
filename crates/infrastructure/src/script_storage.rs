@@ -465,7 +465,7 @@ mod tests {
         let mut s = ScriptStorage::new(dir.path(), "tok".into());
         let file = dir.path().join("us-a.local.json");
         for i in 0..20 {
-            let set = json!({"t": "tok", "id": i, "owner": "us:a", "op": "set", "items": {"n": i}});
+            let set = json!({"t": owner_token("tok", "us:a"), "id": i, "owner": "us:a", "op": "set", "items": {"n": i}});
             send(&mut s, set);
         }
         s.flush();
@@ -474,7 +474,7 @@ mod tests {
             json!({"n": 19})
         );
         // A forgotten owner's waiting write does not bring its file back.
-        let set = json!({"t": "tok", "id": 99, "owner": "us:a", "op": "set", "items": {"n": 0}});
+        let set = json!({"t": owner_token("tok", "us:a"), "id": 99, "owner": "us:a", "op": "set", "items": {"n": 0}});
         send(&mut s, set);
         s.forget("us:a");
         drop(s);
