@@ -1,0 +1,11 @@
+# Keeps the actions pinned by commit SHA in .github/workflows up to date
+# (the `# vX.Y.Z` comment is updated with the SHA).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']
