@@ -4,16 +4,15 @@ use std::collections::HashSet;
 
 use domain::{BrowsingHistory, Timestamp, Visit, WebAddress};
 
-use super::Browser;
+use super::{Browser, Stores};
 use crate::BrowserError;
 use crate::ports::WebEngine;
 
 impl<E: WebEngine> Browser<E> {
     pub fn clear_history(&mut self) -> Result<(), BrowserError> {
         self.history.clear();
-        self.profile.history.save(&self.history)?;
-        self.history_dirty = false;
-        Ok(())
+        self.mark_dirty(Stores::HISTORY);
+        self.save_dirty(Stores::HISTORY)
     }
 
     pub fn is_active_bookmarked(&self) -> bool {
@@ -34,15 +33,13 @@ impl<E: WebEngine> Browser<E> {
         };
         let title = tab.title().to_owned();
         let saved = self.bookmarks.toggle(address, title, self.now());
-        self.unsynced = true;
-        self.profile.bookmarks.save(&self.bookmarks)?;
+        self.bookmarks_changed()?;
         Ok(saved)
     }
 
     pub fn remove_bookmark(&mut self, address: &WebAddress) -> Result<(), BrowserError> {
         if self.bookmarks.remove(address, self.now()) {
-            self.unsynced = true;
-            self.profile.bookmarks.save(&self.bookmarks)?;
+            self.bookmarks_changed()?;
         }
         Ok(())
     }
@@ -68,8 +65,7 @@ impl<E: WebEngine> Browser<E> {
             }
         }
         if added > 0 {
-            self.unsynced = true;
-            self.profile.bookmarks.save(&self.bookmarks)?;
+            self.bookmarks_changed()?;
         }
         Ok(added)
     }
@@ -94,7 +90,8 @@ impl<E: WebEngine> Browser<E> {
             })
             .collect();
         if self.history.merge(&new) {
-            self.profile.history.save(&self.history)?;
+            self.mark_dirty(Stores::HISTORY);
+            self.save_dirty(Stores::HISTORY)?;
         }
         Ok(new.len())
     }
@@ -106,10 +103,16 @@ impl<E: WebEngine> Browser<E> {
         folder: &str,
     ) -> Result<(), BrowserError> {
         if self.bookmarks.move_to(address, folder, self.now()) {
-            self.unsynced = true;
-            self.profile.bookmarks.save(&self.bookmarks)?;
+            self.bookmarks_changed()?;
         }
         Ok(())
+    }
+
+    /// Saves the bookmarks changed, for the other devices too.
+    fn bookmarks_changed(&mut self) -> Result<(), BrowserError> {
+        self.unsynced = true;
+        self.mark_dirty(Stores::BOOKMARKS);
+        self.save_dirty(Stores::BOOKMARKS)
     }
 }
 

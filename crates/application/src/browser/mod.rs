@@ -31,6 +31,38 @@ pub enum Target {
     NewTab,
 }
 
+/// Stores of the profile, as a set of bits: those with changes to save.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct Stores(u8);
+
+impl Stores {
+    const NONE: Self = Self(0);
+    const HISTORY: Self = Self(1);
+    const BOOKMARKS: Self = Self(1 << 1);
+    const SETTINGS: Self = Self(1 << 2);
+    const CREDENTIALS: Self = Self(1 << 3);
+    const SEEN_COOKIES: Self = Self(1 << 4);
+    const ALL: Self = Self(0b1_1111);
+    const EACH: [Self; 5] = [
+        Self::HISTORY,
+        Self::BOOKMARKS,
+        Self::SETTINGS,
+        Self::CREDENTIALS,
+        Self::SEEN_COOKIES,
+    ];
+
+    fn contains(self, other: Self) -> bool {
+        self.0 & other.0 == other.0
+    }
+}
+
+impl std::ops::BitOr for Stores {
+    type Output = Self;
+    fn bitor(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+}
+
 /// The browser window's use cases.
 pub struct Browser<E: WebEngine> {
     session: Session,
@@ -38,7 +70,10 @@ pub struct Browser<E: WebEngine> {
     engine: E,
     profile: Profile,
     history: BrowsingHistory,
-    history_dirty: bool,
+    /// The stores changed since they were last saved (or whose save
+    /// failed): saved by [`Self::save_dirty`], at the latest on
+    /// [`Self::persist`].
+    dirty: Stores,
     bookmarks: Bookmarks,
     saved_session: SessionSnapshot,
     /// The session's revision when `saved_session` was last written (or
@@ -72,7 +107,7 @@ impl<E: WebEngine> Browser<E> {
             engine,
             profile,
             history: BrowsingHistory::default(),
-            history_dirty: false,
+            dirty: Stores::NONE,
             bookmarks: Bookmarks::default(),
             saved_session: SessionSnapshot::default(),
             // An empty session: its snapshot is the default one.
@@ -166,15 +201,19 @@ impl<E: WebEngine> Browser<E> {
     /// Whether [`Self::persist`] may have something to write. Cheap enough
     /// for every frame: the session is compared by revision, not snapshot.
     pub fn has_unsaved_changes(&self) -> bool {
-        self.history_dirty || self.saved_revision != Some(self.session.revision())
+        self.dirty != Stores::NONE || self.saved_revision != Some(self.session.revision())
     }
 
-    /// Saves what changed since the last call: history and open tabs.
+    /// Saves what changed since the last call: history, open tabs, and
+    /// whatever failed to save before. Each is tried; the first error is
+    /// returned, what failed is tried again next time.
     pub fn persist(&mut self) -> Result<(), BrowserError> {
-        if self.history_dirty {
-            self.profile.history.save(&self.history)?;
-            self.history_dirty = false;
-        }
+        let stores = self.save_dirty(Stores::ALL);
+        self.persist_session()?;
+        stores
+    }
+
+    fn persist_session(&mut self) -> Result<(), BrowserError> {
         let revision = self.session.revision();
         if self.saved_revision != Some(revision) {
             // A revision may change with no change to save: written only
@@ -187,6 +226,37 @@ impl<E: WebEngine> Browser<E> {
             self.saved_revision = Some(revision);
         }
         Ok(())
+    }
+
+    /// Notes that `stores` changed, to save.
+    fn mark_dirty(&mut self, stores: Stores) {
+        self.dirty = self.dirty | stores;
+    }
+
+    /// Saves those of `which` that changed. Each is tried: one failing does
+    /// not keep the others from being saved, and stays to save (the next
+    /// [`Self::persist`] tries again). Returns the first error, logs the
+    /// others.
+    fn save_dirty(&mut self, which: Stores) -> Result<(), BrowserError> {
+        let mut first = None;
+        for store in Stores::EACH {
+            if !which.contains(store) || !self.dirty.contains(store) {
+                continue;
+            }
+            let saved = match store {
+                Stores::HISTORY => self.profile.history.save(&self.history),
+                Stores::BOOKMARKS => self.profile.bookmarks.save(&self.bookmarks),
+                Stores::SETTINGS => self.profile.settings.save(&self.settings),
+                Stores::CREDENTIALS => self.profile.credentials.save(&self.credentials),
+                _ => self.profile.seen_cookies.save(&self.seen_cookies),
+            };
+            match saved {
+                Ok(()) => self.dirty = Stores(self.dirty.0 & !store.0),
+                Err(e) if first.is_none() => first = Some(e),
+                Err(e) => log::warn!("{e}"),
+            }
+        }
+        first.map_or(Ok(()), |e| Err(e.into()))
     }
 
     pub fn session(&self) -> &Session {
@@ -214,8 +284,8 @@ impl<E: WebEngine> Browser<E> {
         settings.updated_at = self.now();
         self.settings = settings;
         self.unsynced = true;
-        self.profile.settings.save(&self.settings)?;
-        Ok(())
+        self.mark_dirty(Stores::SETTINGS);
+        self.save_dirty(Stores::SETTINGS)
     }
 
     /// Replaces this device's own settings (not synced).
@@ -225,9 +295,9 @@ impl<E: WebEngine> Browser<E> {
     ) -> Result<(), BrowserError> {
         if self.settings.device != device {
             self.settings.device = device;
-            self.profile.settings.save(&self.settings)?;
+            self.mark_dirty(Stores::SETTINGS);
         }
-        Ok(())
+        self.save_dirty(Stores::SETTINGS)
     }
 
     /// Loads `address` in the active tab or a new one.
@@ -278,7 +348,7 @@ impl<E: WebEngine> Browser<E> {
                     {
                         // The title may have come before the end of the load.
                         self.history.retitle(&address, &title);
-                        self.history_dirty = true;
+                        self.dirty = self.dirty | Stores::HISTORY;
                         self.unsynced = true;
                     }
                 }
@@ -290,7 +360,7 @@ impl<E: WebEngine> Browser<E> {
                         && let Some(address) = t.address()
                         && self.history.retitle(address, t.title())
                     {
-                        self.history_dirty = true;
+                        self.dirty = self.dirty | Stores::HISTORY;
                     }
                 }
             }
@@ -300,7 +370,8 @@ impl<E: WebEngine> Browser<E> {
             // Kept for the site's next pages; this device's, not synced.
             EngineEvent::ZoomChanged { host, percent } => {
                 if self.settings.device.set_zoom(&host, percent) {
-                    self.profile.settings.save(&self.settings)?;
+                    self.mark_dirty(Stores::SETTINGS);
+                    self.save_dirty(Stores::SETTINGS)?;
                 }
             }
             // Answered by the presentation (page scripts' bridge).

@@ -1,5 +1,6 @@
 //! Fakes and helpers shared by the browser's tests.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 pub(crate) use domain::{
@@ -96,7 +97,7 @@ impl WebEngine for FakeEngine {
 }
 
 /// A repository whose content the test can read and preset.
-pub(crate) struct MemoryRepository<T>(Arc<Mutex<Option<T>>>);
+pub(crate) struct MemoryRepository<T>(pub(crate) Arc<Mutex<Option<T>>>);
 
 impl<T: Clone + Default + Send> Repository<T> for MemoryRepository<T> {
     fn load(&self) -> Result<T, RepositoryError> {
@@ -105,6 +106,21 @@ impl<T: Clone + Default + Send> Repository<T> for MemoryRepository<T> {
     fn save(&self, value: &T) -> Result<(), RepositoryError> {
         *self.0.lock().unwrap() = Some(value.clone());
         Ok(())
+    }
+}
+
+/// Fails to save while its flag is set.
+pub(crate) struct FlakyRepository<R>(pub(crate) R, pub(crate) Arc<AtomicBool>);
+
+impl<T, R: Repository<T>> Repository<T> for FlakyRepository<R> {
+    fn load(&self) -> Result<T, RepositoryError> {
+        self.0.load()
+    }
+    fn save(&self, value: &T) -> Result<(), RepositoryError> {
+        if self.1.load(Ordering::SeqCst) {
+            return Err(RepositoryError("disk full".into()));
+        }
+        self.0.save(value)
     }
 }
 

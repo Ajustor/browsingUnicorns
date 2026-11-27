@@ -2,7 +2,7 @@
 
 use domain::{Credentials, Offer, TabId, Timestamp, WebAddress};
 
-use super::Browser;
+use super::{Browser, Stores};
 use crate::BrowserError;
 use crate::ports::WebEngine;
 
@@ -157,8 +157,8 @@ impl<E: WebEngine> Browser<E> {
 
     fn save_credentials(&mut self) -> Result<(), BrowserError> {
         self.unsynced = true;
-        self.profile.credentials.save(&self.credentials)?;
-        Ok(())
+        self.mark_dirty(Stores::CREDENTIALS);
+        self.save_dirty(Stores::CREDENTIALS)
     }
 
     /// Fills `tab`'s sign-in form with the latest sign-in saved for the

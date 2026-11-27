@@ -2,7 +2,7 @@
 
 use domain::{DeviceId, DeviceRecord, RemoteTab, SiteCookie, cookies_to_import, cookies_to_share};
 
-use super::Browser;
+use super::{Browser, Stores};
 use crate::BrowserError;
 use crate::ports::WebEngine;
 use crate::sync::RemoteDevice;
@@ -70,19 +70,20 @@ impl<E: WebEngine> Browser<E> {
             .seen_cookies
             .add(shared.iter().map(SiteCookie::fingerprint))
         {
-            // Best effort: at worst, a cookie deleted here comes back once.
-            let _ = self.profile.seen_cookies.save(&self.seen_cookies);
+            // Saved on the next persist: at worst, a cookie deleted here
+            // comes back once.
+            self.mark_dirty(Stores::SEEN_COOKIES);
         }
         shared
     }
 
     /// Sets the other devices' cookies that this one never had.
-    fn import_cookies(&mut self, records: &[DeviceRecord]) -> Result<(), BrowserError> {
+    fn import_cookies(&mut self, records: &[DeviceRecord]) {
         if !self.settings.device.sync_cookies || records.iter().all(|r| r.cookies.is_empty()) {
-            return Ok(());
+            return;
         }
         let Some(local) = self.engine.site_cookies() else {
-            return Ok(());
+            return;
         };
         let mut newest_first: Vec<_> = records.iter().collect();
         newest_first.sort_by_key(|r| std::cmp::Reverse(r.updated_at));
@@ -93,26 +94,31 @@ impl<E: WebEngine> Browser<E> {
             self.now(),
         );
         if import.is_empty() {
-            return Ok(());
+            return;
         }
         self.engine.set_site_cookies(&import);
         self.seen_cookies
             .add(import.iter().map(SiteCookie::fingerprint));
-        self.profile.seen_cookies.save(&self.seen_cookies)?;
-        Ok(())
+        self.mark_dirty(Stores::SEEN_COOKIES);
     }
 
     /// Merges the other devices' records into this one's data and saves
-    /// what changed.
+    /// what changed (the history on the next persist). What fails to save
+    /// stays to save: the next persist tries again.
     pub fn apply_remote(&mut self, records: &[DeviceRecord]) -> Result<(), BrowserError> {
-        let mut bookmarks_changed = false;
-        let mut settings_changed = false;
-        let mut credentials_changed = false;
         for r in records {
-            bookmarks_changed |= self.bookmarks.merge(&r.bookmarks);
-            self.history_dirty |= self.history.merge(&r.history);
-            settings_changed |= self.settings.merge(&r.settings);
-            credentials_changed |= self.credentials.merge(&r.credentials);
+            if self.bookmarks.merge(&r.bookmarks) {
+                self.mark_dirty(Stores::BOOKMARKS);
+            }
+            if self.history.merge(&r.history) {
+                self.mark_dirty(Stores::HISTORY);
+            }
+            if self.settings.merge(&r.settings) {
+                self.mark_dirty(Stores::SETTINGS);
+            }
+            if self.credentials.merge(&r.credentials) {
+                self.mark_dirty(Stores::CREDENTIALS);
+            }
         }
         self.remote_devices = records
             .iter()
@@ -124,16 +130,10 @@ impl<E: WebEngine> Browser<E> {
             })
             .collect();
         self.remote_devices.sort_by(|a, b| a.name.cmp(&b.name));
-        if bookmarks_changed {
-            self.profile.bookmarks.save(&self.bookmarks)?;
-        }
-        if settings_changed {
-            self.profile.settings.save(&self.settings)?;
-        }
-        if credentials_changed {
-            self.profile.credentials.save(&self.credentials)?;
-        }
-        self.import_cookies(records)
+        self.import_cookies(records);
+        self.save_dirty(
+            Stores::BOOKMARKS | Stores::SETTINGS | Stores::CREDENTIALS | Stores::SEEN_COOKIES,
+        )
     }
 }
 
@@ -186,6 +186,39 @@ mod tests {
         assert_eq!(store.bookmarks.lock().unwrap().as_ref().unwrap().len(), 1);
         assert!(store.settings.lock().unwrap().is_some());
         assert!(b.has_unsaved_changes());
+    }
+
+    #[test]
+    fn a_store_failing_to_save_keeps_the_others_saved_and_is_retried() {
+        let store = Store::default();
+        let fail = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let mut profile = store.profile();
+        profile.bookmarks = Box::new(FlakyRepository(
+            MemoryRepository(store.bookmarks.clone()),
+            fail.clone(),
+        ));
+        let mut b = Browser::new(FakeEngine::default(), Settings::default(), profile);
+        let mut phone = browser();
+        let id = phone.open_tab(None).unwrap();
+        finish(&mut phone, id, "https://phone.com/");
+        phone.toggle_bookmark().unwrap();
+        phone
+            .update_settings(Settings {
+                home_page: addr("https://home.com/"),
+                ..Settings::default()
+            })
+            .unwrap();
+        let record = phone.sync_record(device("phone"), "Phone");
+
+        assert!(b.apply_remote(std::slice::from_ref(&record)).is_err());
+        assert!(store.settings.lock().unwrap().is_some(), "saved anyway");
+        assert!(store.bookmarks.lock().unwrap().is_none());
+        assert!(b.has_unsaved_changes());
+        assert!(b.persist().is_err(), "still failing");
+        fail.store(false, std::sync::atomic::Ordering::SeqCst);
+        b.persist().unwrap();
+        assert_eq!(store.bookmarks.lock().unwrap().as_ref().unwrap().len(), 1);
+        assert!(!b.has_unsaved_changes());
     }
 
     fn cookie(domain: &str, value: &str) -> SiteCookie {
