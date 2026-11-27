@@ -333,6 +333,7 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
                 // Attached (scripts and timers run) but out of sight.
                 view.visibility = View.INVISIBLE
                 container.addView(view, FrameLayout.LayoutParams(1, 1))
+                if (offScreen) view.onPause() else resumeTimers(view)
                 backgrounds[id] = view
                 view.loadUrl(url)
             }
@@ -543,6 +544,42 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
         main.post { deletePrivateProfile() }
     }
 
+    /** The app is off screen: the pages are paused. */
+    private var offScreen = false
+
+    /** The JavaScript timers of every WebView are paused (one switch for all). */
+    private var timersPaused = false
+
+    /**
+     * The app left the screen: every page pauses, and the JavaScript timers
+     * of all of them (the extensions' background pages too) stop, for the
+     * battery.
+     */
+    fun pause() {
+        offScreen = true
+        val all = views.values + backgrounds.values + listOfNotNull(panel)
+        all.forEach { it.onPause() }
+        all.firstOrNull()?.let {
+            it.pauseTimers()
+            timersPaused = true
+        }
+    }
+
+    /** Back on screen: the timers, the shown page and the hidden ones' work resume. */
+    fun resume() {
+        offScreen = false
+        resumeTimers()
+        (backgrounds.values + listOfNotNull(panel, active())).forEach { it.onResume() }
+    }
+
+    /** Restarts the timers if they were paused, through [view] or any WebView. */
+    private fun resumeTimers(view: WebView? = null) {
+        if (!timersPaused) return
+        val any = view ?: (views.values + backgrounds.values + listOfNotNull(panel)).firstOrNull() ?: return
+        any.resumeTimers()
+        timersPaused = false
+    }
+
     /** Empties the cache the pages share. */
     fun clearCache() {
         views.values.firstOrNull()?.clearCache(true)
@@ -556,6 +593,9 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
         // No extension or user script in private tabs.
         if (private) privateTabs += tab else inject(tab, view)
         view.visibility = View.GONE
+        // Its work waits until it is shown.
+        view.onPause()
+        if (!offScreen) resumeTimers(view)
         container.addView(
             view,
             FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT),
@@ -582,7 +622,11 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
     override fun show(tab: ULong?) = onMain {
         captureActive()
         for ((id, view) in views) {
-            view.visibility = if (id == tab) View.VISIBLE else View.GONE
+            val shown = id == tab
+            if (shown == (view.visibility == View.VISIBLE)) continue
+            view.visibility = if (shown) View.VISIBLE else View.GONE
+            // A hidden tab's animations and work pause until it shows again.
+            if (shown && !offScreen) view.onResume() else if (!shown) view.onPause()
         }
     }
 

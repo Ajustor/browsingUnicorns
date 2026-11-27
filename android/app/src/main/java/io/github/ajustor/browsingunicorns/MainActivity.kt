@@ -184,5 +184,13 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         super.onStop()
         runCatching { controller.browser.persist() }
+        // Off screen: the pages stop working (battery). Not in onPause: a
+        // permission dialog or the other half of a split screen pauses too.
+        controller.views.pause()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (::controller.isInitialized) controller.views.resume()
     }
 }
