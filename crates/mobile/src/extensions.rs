@@ -9,7 +9,7 @@ use domain::{ExtensionId, Request, ResourceType, UserScriptId, Verdict};
 use infrastructure::extensions::extension_dir;
 
 use infrastructure::extension_hub::BrowserHub;
-use infrastructure::extension_server::Origins;
+use infrastructure::extension_server::{Origins, Requester};
 
 use crate::{MobileBrowser, MobileError, PageTarget};
 
@@ -28,6 +28,9 @@ pub struct ExtensionInfo {
 pub struct ExtensionResource {
     pub mime_type: String,
     pub data: Vec<u8>,
+    /// Answer with `Access-Control-Allow-Origin: *` (a web accessible
+    /// resource another origin asked for).
+    pub cors: bool,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -244,12 +247,29 @@ impl MobileBrowser {
     }
 
     /// A file of an extension (`https://<id>.bu-ext.invalid/…`), for the
-    /// WebViews' `shouldInterceptRequest`; `None` for any other address.
-    pub fn extension_resource(&self, url: String) -> Option<ExtensionResource> {
-        self.server.serve(&url).map(|r| ExtensionResource {
-            mime_type: r.mime.split(';').next().unwrap_or(r.mime).to_owned(),
-            data: r.body,
-        })
+    /// WebViews' `shouldInterceptRequest`; `None` for any other address,
+    /// or a file `origin`, `referer`, `fetch_site` (the request's `Origin`,
+    /// `Referer`, `Sec-Fetch-Site` headers, when the WebView gives them)
+    /// tell is for another origin the manifest does not let have it.
+    pub fn extension_resource(
+        &self,
+        url: String,
+        origin: Option<String>,
+        referer: Option<String>,
+        fetch_site: Option<String>,
+    ) -> Option<ExtensionResource> {
+        let requester = Requester {
+            origin,
+            referer,
+            fetch_site,
+        };
+        self.server
+            .serve_to(&url, &requester)
+            .map(|r| ExtensionResource {
+                mime_type: r.mime.split(';').next().unwrap_or(r.mime).to_owned(),
+                data: r.body,
+                cors: r.cors,
+            })
     }
 
     /// The address of an extension's popup, to show in a panel.

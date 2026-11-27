@@ -18,7 +18,7 @@ use wry::{NewWindowResponse, PageLoadEvent, Rect, WebContext, WebView, WebViewBu
 
 use crate::ParentWindow;
 use crate::blocker::BlockerHandle;
-use crate::extension_server::{ExtensionServer, Origins, SCHEME};
+use crate::extension_server::{ExtensionServer, Origins, Requester, SCHEME};
 use crate::extensions::catalog::ExtensionCatalog;
 use crate::page_injection::{self, Handles};
 use crate::page_scripts::{Bridge, Sources, page_scripts};
@@ -366,13 +366,36 @@ fn base_builder<'a>(
     match server {
         Some(server) if register => {
             let server = server.clone();
+            // Every view has it (an extension's page may open in a tab, or
+            // in a frame of a site): the server tells who may have what by
+            // the request's headers. WebView2 hands them all to wry
+            // (`WebResourceRequested`), WebKit those of its `NSURLRequest`
+            // / `WebKitURISchemeRequest`; one it leaves out counts as the
+            // browser's own request.
             builder.with_custom_protocol(SCHEME.into(), move |_id, request| {
                 let url = request.uri().to_string();
-                match server.serve(&url) {
-                    Some(resource) => Response::builder()
-                        .header("Content-Type", resource.mime)
-                        .header("Access-Control-Allow-Origin", "*")
-                        .body(Cow::Owned(resource.body)),
+                let header = |name: &str| {
+                    request
+                        .headers()
+                        .get(name)
+                        .and_then(|v| v.to_str().ok())
+                        .map(str::to_owned)
+                };
+                let requester = Requester {
+                    origin: header("origin"),
+                    referer: header("referer"),
+                    fetch_site: header("sec-fetch-site"),
+                };
+                match server.serve_to(&url, &requester) {
+                    Some(resource) => {
+                        let response = Response::builder().header("Content-Type", resource.mime);
+                        if resource.cors {
+                            response.header("Access-Control-Allow-Origin", "*")
+                        } else {
+                            response
+                        }
+                        .body(Cow::Owned(resource.body))
+                    }
                     None => Response::builder()
                         .status(404)
                         .body(Cow::Borrowed(&b"not found"[..])),

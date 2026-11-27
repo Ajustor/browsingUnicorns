@@ -251,18 +251,26 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
 
     override fun setCookies(cookies: List<CookieInfo>) = siteCookies.set(cookies)
 
-    /** An extension's file, when [url] is one (`https://<id>.bu-ext.invalid/…`). */
-    private fun extensionFile(url: String): WebResourceResponse? {
-        val host = android.net.Uri.parse(url).host ?: return null
+    /**
+     * An extension's file, when [request] asks for one (`https://<id>.bu-ext.invalid/…`).
+     * Rust tells by the request's headers whether its page may have it (another
+     * site only gets the manifest's web accessible resources).
+     */
+    private fun extensionFile(request: WebResourceRequest): WebResourceResponse? {
+        val url = request.url.toString()
+        val host = request.url.host ?: return null
         if (!host.endsWith(".bu-ext.invalid")) return null
-        val file = runCatching { browser.extensionResource(url) }.getOrNull()
+        val headers = request.requestHeaders.orEmpty().mapKeys { it.key.lowercase() }
+        val file = runCatching {
+            browser.extensionResource(url, headers["origin"], headers["referer"], headers["sec-fetch-site"])
+        }.getOrNull()
             ?: return WebResourceResponse("text/plain", "utf-8", 404, "Not found", emptyMap(), ByteArrayInputStream(ByteArray(0)))
         return WebResourceResponse(
             file.mimeType,
             "utf-8",
             200,
             "OK",
-            mapOf("Access-Control-Allow-Origin" to "*"),
+            if (file.cors) mapOf("Access-Control-Allow-Origin" to "*") else emptyMap(),
             ByteArrayInputStream(file.data),
         )
     }
@@ -321,7 +329,7 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
         addJavascriptInterface(Bridge(target), "BUBridge")
         webViewClient = object : WebViewClient() {
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
-                extensionFile(request.url.toString())
+                extensionFile(request)
 
             // Its renderer died: without this, the whole app would go with it.
             override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
@@ -624,7 +632,7 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
 
             // The extensions' network rules, then the built-in ad blocker.
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
-                extensionFile(request.url.toString())?.let { return it }
+                extensionFile(request)?.let { return it }
                 val headers = request.requestHeaders
                 val verdict = runCatching {
                     browser.intercept(

@@ -429,12 +429,17 @@ fn extensions_block_requests() {
     assert_eq!(name, "Blocker 1");
     // Its files, for the WebViews.
     let file = b
-        .extension_resource(format!("https://{id}.bu-ext.invalid/war/noop.js"))
+        .extension_resource(
+            format!("https://{id}.bu-ext.invalid/war/noop.js"),
+            None,
+            None,
+            None,
+        )
         .unwrap();
     assert_eq!(file.mime_type, "text/javascript");
     assert_eq!(file.data, b"(function(){})();");
     assert!(
-        b.extension_resource("https://example.com/".into())
+        b.extension_resource("https://example.com/".into(), None, None, None)
             .is_none()
     );
     assert_eq!(b.extensions().len(), 1);

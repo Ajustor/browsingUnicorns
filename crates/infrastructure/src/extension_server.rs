@@ -10,6 +10,15 @@
 //! The extension pages' HTML gets the runtime (`chrome.*`) first. The runtime
 //! holds the bridge token, so it is only served with a one-time nonce that
 //! only the HTML the server just served carries: a web page cannot load it.
+//!
+//! As in Chrome, other origins (web pages, other extensions) only get the
+//! files the manifest lists in `web_accessible_resources`, and never the
+//! runtime nor the background page; no HTML is ever readable by them (no
+//! CORS header on it), so the nonces it carries stay with the extension.
+//! Who asks is told by the request's `Origin`, `Referer` and
+//! `Sec-Fetch-Site` headers ([`Requester`]); a request with none of them
+//! (the browser loading an extension page in a tab, the popup, the
+//! background page) is served as the extension's own.
 
 use std::collections::HashMap;
 use std::fs;
@@ -17,8 +26,8 @@ use std::path::{Component, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
-use domain::{ExtensionId, Extensions};
-use serde_json::json;
+use domain::{ExtensionId, Extensions, UrlPattern};
+use serde_json::{Map, Value, json};
 
 use crate::extensions::catalog::{ExtensionCatalog, ParsedExtension};
 use crate::extensions::{extension_dir, manifest};
@@ -89,6 +98,132 @@ impl Origins {
 pub struct Resource {
     pub mime: &'static str,
     pub body: Vec<u8>,
+    /// Readable by any origin (`Access-Control-Allow-Origin: *`): a web
+    /// accessible resource asked by another origin, never HTML.
+    pub cors: bool,
+}
+
+/// Who asks for an extension's file: the request's headers, as the web
+/// view hands them (any may be missing).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Requester {
+    /// `Origin`.
+    pub origin: Option<String>,
+    /// `Referer`.
+    pub referer: Option<String>,
+    /// `Sec-Fetch-Site`.
+    pub fetch_site: Option<String>,
+}
+
+/// Where a request comes from, as far as its headers tell.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Initiator {
+    /// The extension's own pages.
+    Own,
+    /// Nothing says: the browser itself (a tab, the popup, the background
+    /// page it loads), or a page of the extension hiding its referrer.
+    Unknown,
+    /// Another origin (its `scheme://host[:port]`, when known).
+    Foreign(Option<String>),
+}
+
+/// `scheme://host[:port]` of `url`.
+fn origin_of(url: &str) -> Option<String> {
+    let (scheme, rest) = url.split_once("://")?;
+    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    (!scheme.is_empty() && end > 0).then(|| format!("{scheme}://{}", &rest[..end]))
+}
+
+impl Requester {
+    fn initiator(&self, origins: Origins, id: &ExtensionId) -> Initiator {
+        let own = |origin: &str| {
+            origins
+                .parse(&format!("{origin}/"))
+                .is_some_and(|(of, _)| &of == id)
+        };
+        let classify = |origin: String| {
+            if own(&origin) {
+                Initiator::Own
+            } else {
+                Initiator::Foreign(Some(origin))
+            }
+        };
+        // "null": an opaque origin (a sandboxed frame...); the referrer
+        // may still tell.
+        if let Some(origin) = self
+            .origin
+            .as_deref()
+            .map(str::trim)
+            .filter(|o| !o.is_empty() && *o != "null")
+        {
+            return classify(origin.to_owned());
+        }
+        if let Some(origin) = self.referer.as_deref().and_then(origin_of) {
+            return classify(origin);
+        }
+        match self.fetch_site.as_deref().map(str::trim) {
+            Some("same-origin") => Initiator::Own,
+            Some("cross-site" | "same-site") => Initiator::Foreign(None),
+            _ => Initiator::Unknown,
+        }
+    }
+}
+
+/// Whether the manifest lets `initiator` (another origin, when known)
+/// load `path` (no leading slash, decoded): `web_accessible_resources`,
+/// MV2's list of globs or MV3's objects (`resources` for the pages of
+/// `matches`, or of the extensions of `extension_ids`).
+fn web_accessible(
+    manifest: &Map<String, Value>,
+    path: &str,
+    initiator: Option<&str>,
+    origins: Origins,
+) -> bool {
+    let Some(entries) = manifest
+        .get("web_accessible_resources")
+        .and_then(Value::as_array)
+    else {
+        return false;
+    };
+    let strings = |value: Option<&Value>| -> Vec<String> {
+        value
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect()
+    };
+    let listed = |glob: &str| {
+        UrlPattern::Glob(glob.trim().trim_start_matches('/').to_owned())
+            .matches(path)
+            .unwrap_or(false)
+    };
+    let initiator_extension = initiator
+        .and_then(|o| origins.parse(&format!("{o}/")))
+        .map(|(id, _)| id);
+    entries.iter().any(|entry| match entry {
+        Value::String(glob) => listed(glob),
+        Value::Object(o) => {
+            if !strings(o.get("resources")).iter().any(|g| listed(g)) {
+                return false;
+            }
+            let by_page = strings(o.get("matches")).iter().any(|m| match initiator {
+                Some(origin) => UrlPattern::parse_match(m)
+                    .and_then(|p| p.matches(&format!("{origin}/")))
+                    .unwrap_or(false),
+                None => matches!(m.trim(), "<all_urls>" | "*://*/*"),
+            });
+            let by_extension = strings(o.get("extension_ids")).iter().any(|e| {
+                e == "*"
+                    || initiator_extension
+                        .as_ref()
+                        .is_some_and(|id| id.as_str() == e)
+            });
+            by_page || by_extension
+        }
+        _ => false,
+    })
 }
 
 pub fn mime_type(path: &str) -> &'static str {
@@ -301,26 +436,57 @@ impl ExtensionServer {
         reason
     }
 
-    /// The response to `url` (any extension origin form); `None`: 404.
+    /// The response to `url` (any extension origin form) for a request
+    /// without headers: the browser's own, as the extension's pages get it.
     pub fn serve(&self, url: &str) -> Option<Resource> {
+        self.serve_to(url, &Requester::default())
+    }
+
+    /// The response to `url` (any extension origin form) for `requester`;
+    /// `None`: 404 (missing, or not for this requester).
+    pub fn serve_to(&self, url: &str, requester: &Requester) -> Option<Resource> {
         let (id, path) = self.origins.parse(url)?;
         if !self.enabled(&id) {
             return None;
         }
-        let dir = extension_dir(&self.dir, &id);
         let bare = path.split(['?', '#']).next().unwrap_or(&path);
+        let foreign = match requester.initiator(self.origins, &id) {
+            Initiator::Own | Initiator::Unknown => false,
+            Initiator::Foreign(origin) => {
+                // The runtime and the background page are the extension's
+                // alone; the rest only when the manifest says.
+                let decoded = percent_decode(bare.trim_start_matches('/'));
+                if bare == RUNTIME_PATH
+                    || bare.rsplit('/').next() == Some(BACKGROUND_PAGE)
+                    || !self.catalog.get(&id).is_some_and(|p| {
+                        web_accessible(p.manifest(), &decoded, origin.as_deref(), self.origins)
+                    })
+                {
+                    return None;
+                }
+                true
+            }
+        };
+        let mut resource = self.resource(&id, &path, bare)?;
+        resource.cors = foreign && !resource.mime.starts_with("text/html");
+        Some(resource)
+    }
+
+    fn resource(&self, id: &ExtensionId, path: &str, bare: &str) -> Option<Resource> {
+        let dir = extension_dir(&self.dir, id);
         if bare == RUNTIME_PATH {
-            let context = self.take_nonce(query_param(&path, "n")?)?;
-            let parsed = self.catalog.get(&id);
+            let context = self.take_nonce(query_param(path, "n")?)?;
+            let parsed = self.catalog.get(id);
             return Some(Resource {
                 mime: mime_type(".js"),
-                body: self.runtime(&id, parsed.as_deref(), context).into_bytes(),
+                body: self.runtime(id, parsed.as_deref(), context).into_bytes(),
+                cors: false,
             });
         }
         if bare.rsplit('/').next() == Some(BACKGROUND_PAGE)
             && let Some(background) = self
                 .catalog
-                .get(&id)
+                .get(id)
                 .and_then(|p| p.background())
                 .filter(|b| background_path(b) == bare)
         {
@@ -352,9 +518,10 @@ impl ExtensionServer {
             return Some(Resource {
                 mime: mime_type(".html"),
                 body: page.into_bytes(),
+                cors: false,
             });
         }
-        let file = dir.join(safe_relative(&path)?);
+        let file = dir.join(safe_relative(path)?);
         let body = fs::read(&file).ok()?;
         let mime = mime_type(bare);
         if mime.starts_with("text/html") {
@@ -362,9 +529,14 @@ impl ExtensionServer {
             return Some(Resource {
                 mime,
                 body: inject(&html, &self.runtime_tag(Context::Page)).into_bytes(),
+                cors: false,
             });
         }
-        Some(Resource { mime, body })
+        Some(Resource {
+            mime,
+            body,
+            cors: false,
+        })
     }
 
     fn runtime(
@@ -575,6 +747,136 @@ mod tests {
             s.serve(&format!("bu-ext://{ID}/{BACKGROUND_PAGE}"))
                 .is_none()
         );
+    }
+
+    fn from_origin(origin: &str) -> Requester {
+        Requester {
+            origin: Some(origin.into()),
+            ..Requester::default()
+        }
+    }
+
+    fn from_page(url: &str) -> Requester {
+        Requester {
+            referer: Some(url.into()),
+            ..Requester::default()
+        }
+    }
+
+    #[test]
+    fn other_origins_get_the_web_accessible_resources_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = server(dir.path(), true);
+        let ext = extension_dir(&dir.path().join("ext"), &id());
+        fs::create_dir_all(ext.join("img")).unwrap();
+        fs::write(ext.join("img/a.png"), b"png").unwrap();
+        fs::write(ext.join("ui/menu.html"), "<html><head></head></html>").unwrap();
+        fs::write(
+            ext.join("manifest.json"),
+            r#"{"name":"T","version":"1","manifest_version":3,
+                "background":{"service_worker":"sw.js"},
+                "web_accessible_resources":[
+                  {"resources":["img/*.png"],"matches":["https://*.bank.test/*"]},
+                  {"resources":["ui/menu.html"],"matches":["<all_urls>"]}]}"#,
+        )
+        .unwrap();
+        let url = |p: &str| format!("bu-ext://{ID}{p}");
+        let page = "https://www.bank.test";
+        let evil = "https://evil.test";
+
+        // The attack: a web page reads the background page, takes its
+        // nonce, then the runtime and its token.
+        let bg = format!("/{BACKGROUND_PAGE}");
+        assert!(s.serve_to(&url(&bg), &from_origin(evil)).is_none());
+        assert!(
+            s.serve_to(&url(&bg), &from_page("https://evil.test/x"))
+                .is_none()
+        );
+        let own_bg = String::from_utf8(s.serve(&url(&bg)).unwrap().body).unwrap();
+        let runtime = url(&format!("/__bu/runtime.js?n={}", nonce_of(&own_bg)));
+        assert!(s.serve_to(&runtime, &from_origin(evil)).is_none());
+        // The nonce is still unused: the extension's own page gets it.
+        let own = from_page(&format!("bu-ext://{ID}/{BACKGROUND_PAGE}"));
+        assert!(!s.serve_to(&runtime, &own).unwrap().cors);
+
+        // Not listed: nothing to tell the extension is there.
+        assert!(s.serve_to(&url("/sw.js"), &from_origin(evil)).is_none());
+        assert!(
+            s.serve_to(&url("/ui/popup.html"), &from_origin(evil))
+                .is_none()
+        );
+        let cross_site = Requester {
+            fetch_site: Some("cross-site".into()),
+            ..Requester::default()
+        };
+        assert!(s.serve_to(&url("/sw.js"), &cross_site).is_none());
+        // Listed for some sites only.
+        assert!(s.serve_to(&url("/img/a.png"), &from_origin(evil)).is_none());
+        let png = s.serve_to(&url("/img/a.png"), &from_origin(page)).unwrap();
+        assert_eq!((png.body.as_slice(), png.cors), (&b"png"[..], true));
+        assert!(
+            s.serve_to(
+                &url("/img/a.png"),
+                &from_page("https://www.bank.test/login")
+            )
+            .is_some()
+        );
+        // A page for every site, framed (Bitwarden's inline menu), but
+        // never readable: its runtime's nonce stays in the frame.
+        let menu = s
+            .serve_to(&url("/ui/menu.html"), &from_origin(evil))
+            .unwrap();
+        assert!(!menu.cors);
+        assert!(
+            String::from_utf8(menu.body)
+                .unwrap()
+                .contains("runtime.js?n=")
+        );
+
+        // The extension's own pages, and the browser's requests, get all.
+        assert!(
+            s.serve_to(&url("/sw.js"), &from_origin(&format!("bu-ext://{ID}")))
+                .is_some()
+        );
+        assert!(s.serve_to(&url("/sw.js"), &own).is_some());
+        let same_origin = Requester {
+            origin: Some("null".into()),
+            fetch_site: Some("same-origin".into()),
+            ..Requester::default()
+        };
+        assert!(s.serve_to(&url("/sw.js"), &same_origin).is_some());
+        assert!(!s.serve(&url("/sw.js")).unwrap().cors);
+    }
+
+    #[test]
+    fn manifest_v2_lists_globs_for_everyone() {
+        let manifest: Value =
+            serde_json::from_str(r#"{"web_accessible_resources": ["/fonts/*", "inject.js"]}"#)
+                .unwrap();
+        let m = manifest.as_object().unwrap();
+        let o = Origins::WindowsHttps;
+        assert!(web_accessible(
+            m,
+            "fonts/a/b.woff2",
+            Some("https://x.test"),
+            o
+        ));
+        assert!(web_accessible(m, "inject.js", None, o));
+        assert!(!web_accessible(
+            m,
+            "background.js",
+            Some("https://x.test"),
+            o
+        ));
+        // MV3: other extensions, by id.
+        let manifest: Value = serde_json::from_str(&format!(
+            r#"{{"web_accessible_resources": [{{"resources": ["*"], "extension_ids": ["{ID}"]}}]}}"#
+        ))
+        .unwrap();
+        let m = manifest.as_object().unwrap();
+        assert!(web_accessible(m, "a.js", Some(&o.origin(&id())), o));
+        assert!(!web_accessible(m, "a.js", Some("https://x.test"), o));
+        assert!(!web_accessible(m, "a.js", None, o));
     }
 
     #[test]
