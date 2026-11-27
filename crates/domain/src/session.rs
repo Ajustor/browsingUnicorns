@@ -437,10 +437,12 @@ impl Session {
             self.set_pinned(id, true);
         }
         for saved in &snapshot.groups {
-            let members: Vec<TabId> = saved
-                .tabs
-                .clone()
-                .filter_map(|i| ids.get(i).copied())
+            // Read from disk: a range past the tabs (`0..usize::MAX`) would
+            // not end.
+            let end = saved.tabs.end.min(ids.len());
+            let members: Vec<TabId> = ids[saved.tabs.start.min(end)..end]
+                .iter()
+                .copied()
                 .filter(|&id| self.tab(id).is_some_and(|t| !t.pinned))
                 .collect();
             let Some((&first, rest)) = members.split_first() else {
@@ -459,8 +461,10 @@ impl Session {
             }
         }
         for saved in &snapshot.splits {
-            if let (Some(&first), Some(&second)) = (ids.get(saved.first), ids.get(saved.first + 1))
-                && self.split(first, second)
+            if let (Some(&first), Some(&second)) = (
+                ids.get(saved.first),
+                saved.first.checked_add(1).and_then(|i| ids.get(i)),
+            ) && self.split(first, second)
             {
                 self.set_split_ratio(first, saved.ratio);
             }
@@ -772,6 +776,36 @@ mod tests {
         assert!(s.close_tab(a));
         assert_eq!(s.active_id(), Some(b));
         assert!(!s.close_tab(a));
+    }
+
+    #[test]
+    fn a_layout_read_from_disk_out_of_range_is_bounded() {
+        let mut s = Session::new();
+        let ids = vec![s.open_tab(), s.open_tab()];
+        let snapshot = SessionSnapshot {
+            groups: vec![
+                SavedGroup {
+                    name: "G".into(),
+                    color: GroupColor::Blue,
+                    collapsed: false,
+                    tabs: 0..usize::MAX,
+                },
+                SavedGroup {
+                    name: "H".into(),
+                    color: GroupColor::Red,
+                    collapsed: false,
+                    tabs: usize::MAX - 1..usize::MAX,
+                },
+            ],
+            splits: vec![SavedSplit {
+                first: usize::MAX,
+                ratio: 500,
+            }],
+            ..SessionSnapshot::default()
+        };
+        s.restore_layout(&ids, &snapshot);
+        assert_eq!(s.groups().len(), 1);
+        assert_eq!(s.group_tabs(s.groups()[0].id()), ids);
     }
 
     #[test]

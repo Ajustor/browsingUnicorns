@@ -242,11 +242,15 @@ impl NetworkRule {
     }
 }
 
-/// `host` is `domain` or one of its subdomains.
+/// `host` is `domain` or one of its subdomains. Compared as bytes: a host
+/// may hold non-ASCII text, where a string slice could fall inside a
+/// character.
 pub fn is_subdomain(host: &str, domain: &str) -> bool {
-    host.len() >= domain.len()
-        && host[host.len() - domain.len()..].eq_ignore_ascii_case(domain)
-        && (host.len() == domain.len() || host.as_bytes()[host.len() - domain.len() - 1] == b'.')
+    let (host, domain) = (host.as_bytes(), domain.as_bytes());
+    let Some(start) = host.len().checked_sub(domain.len()) else {
+        return false;
+    };
+    host[start..].eq_ignore_ascii_case(domain) && (start == 0 || host[start - 1] == b'.')
 }
 
 /// Second levels that country domains sell under (`co.uk`, `com.br`,
@@ -757,6 +761,12 @@ mod tests {
         assert_eq!(r.host, "Sub.Example.co.uk");
         assert!(is_subdomain("a.b.example.com", "example.com"));
         assert!(!is_subdomain("badexample.com", "example.com"));
+        assert!(
+            !is_subdomain("é.com", "x.com"),
+            "no panic inside a character"
+        );
+        assert!(is_subdomain("a.EXAMPLE.com", "example.COM"));
+        assert!(!is_subdomain("com", "example.com"));
         assert_eq!(site("a.b.example.com"), "example.com");
         assert_eq!(site("www.bbc.co.uk"), "bbc.co.uk");
         assert_eq!(site("a.example.com.br"), "example.com.br");
