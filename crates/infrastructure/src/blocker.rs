@@ -355,6 +355,8 @@ pub struct BlockerHandle {
     /// Counts the engines set, to notice a new one.
     generation: Arc<AtomicU64>,
     policy: Arc<RwLock<BlockerPolicy>>,
+    /// Counts the policies set, to notice a new one without copying it.
+    policy_generation: Arc<AtomicU64>,
 }
 
 impl BlockerHandle {
@@ -384,6 +386,22 @@ impl BlockerHandle {
 
     pub fn set_policy(&self, policy: BlockerPolicy) {
         *self.policy.write().unwrap_or_else(|p| p.into_inner()) = policy;
+        self.policy_generation.fetch_add(1, Ordering::AcqRel);
+    }
+
+    /// Whether the policy is the one of these settings, looked at in place
+    /// (no copy: called each frame).
+    pub fn policy_is(&self, enabled: bool, allowlist: &[String]) -> bool {
+        let policy = self.policy.read().unwrap_or_else(|p| p.into_inner());
+        policy.enabled == enabled && policy.allowlist == allowlist
+    }
+
+    /// Whether the policy applies to the page at `page_url`.
+    fn applies_to(&self, page_url: &str) -> bool {
+        self.policy
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .applies_to(page_url)
     }
 
     /// Whether `url`, loaded by `page_url` as `kind`, is blocked: the policy
@@ -392,18 +410,14 @@ impl BlockerHandle {
         let Some(blocker) = self.get() else {
             return false;
         };
-        self.policy
-            .read()
-            .unwrap_or_else(|p| p.into_inner())
-            .applies_to(page_url)
-            && blocker.should_block(url, page_url, kind)
+        self.applies_to(page_url) && blocker.should_block(url, page_url, kind)
     }
 
     /// The style sheet hiding `url`'s ad slots; empty when the policy does
     /// not apply or no list is loaded.
     pub fn cosmetic_css(&self, url: &str) -> String {
         match self.get() {
-            Some(blocker) if self.policy().applies_to(url) => blocker.cosmetic_css(url),
+            Some(blocker) if self.applies_to(url) => blocker.cosmetic_css(url),
             _ => String::new(),
         }
     }
@@ -412,7 +426,7 @@ impl BlockerHandle {
     /// apply or no list is loaded.
     pub fn scriptlets(&self, url: &str) -> String {
         match self.get() {
-            Some(blocker) if self.policy().applies_to(url) => blocker.scriptlets(url),
+            Some(blocker) if self.applies_to(url) => blocker.scriptlets(url),
             _ => String::new(),
         }
     }
@@ -422,14 +436,18 @@ impl BlockerHandle {
 /// content rules are then made again).
 #[derive(Default)]
 pub struct BlockerChanges {
-    seen: Option<(u64, BlockerPolicy)>,
+    /// The engine's and the policy's generations last seen.
+    seen: Option<(u64, u64)>,
 }
 
 impl BlockerChanges {
     /// Whether `handle` changed since the last call (true the first time).
     pub fn changed(&mut self, handle: &BlockerHandle) -> bool {
-        let now = (handle.generation(), handle.policy());
-        if self.seen.as_ref() == Some(&now) {
+        let now = (
+            handle.generation(),
+            handle.policy_generation.load(Ordering::Acquire),
+        );
+        if self.seen == Some(now) {
             return false;
         }
         self.seen = Some(now);
@@ -950,6 +968,19 @@ b.test##.other-ad
         });
         assert!(changes.changed(&handle));
         assert!(!changes.changed(&handle));
+    }
+
+    #[test]
+    fn the_policy_is_compared_in_place() {
+        let handle = BlockerHandle::default();
+        assert!(handle.policy_is(true, &[]));
+        assert!(!handle.policy_is(false, &[]));
+        handle.set_policy(BlockerPolicy {
+            enabled: true,
+            allowlist: vec!["a.test".into()],
+        });
+        assert!(handle.policy_is(true, &["a.test".to_string()]));
+        assert!(!handle.policy_is(true, &[]));
     }
 
     /// A scriptlet: sets `window.said` to its first argument.

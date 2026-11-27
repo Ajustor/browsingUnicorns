@@ -91,8 +91,10 @@ impl BlockerRunner {
 
     /// Hands the settings' changes to the hooks.
     pub fn follow_settings(&self, settings: &Settings) {
-        let policy = self.handle.policy();
-        if policy.enabled != settings.blocker || policy.allowlist != settings.blocker_allowlist {
+        if !self
+            .handle
+            .policy_is(settings.blocker, &settings.blocker_allowlist)
+        {
             self.handle
                 .set_policy(BlockerPolicy::from_settings(settings));
         }
