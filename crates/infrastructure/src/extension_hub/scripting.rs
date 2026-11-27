@@ -8,8 +8,8 @@ use domain::ExtensionId;
 use serde_json::{Map, Value, json};
 
 use super::{Answer, Call, Hub, HubHost, Pending, tab_id, unsupported};
+use crate::extensions::extension_dir;
 use crate::extensions::state::ExtensionState;
-use crate::extensions::{extension_dir, manifest};
 use crate::page_scripts::{self, Bridge};
 use crate::script_storage::new_token;
 
@@ -122,14 +122,16 @@ impl Hub {
 
     /// What [`page_scripts::injected_script`] needs to know of `ext`.
     fn injected_config(&self, ext: &ExtensionId) -> String {
-        let dir = extension_dir(&self.extensions_dir, ext);
-        let (name, version) = manifest::read(&dir)
+        let parsed = self.catalog.get(ext);
+        let (name, version) = parsed
+            .as_ref()
+            .and_then(|p| p.info().ok())
             .map(|m| (m.name, m.version))
             .unwrap_or_default();
         json!({
             "owner": format!("ext:{ext}"),
             "origin": self.origins().origin(ext),
-            "messages": manifest::messages(&dir),
+            "messages": parsed.as_ref().map_or_else(|| json!({}), |p| json!(p.messages())),
             "manifest": {"name": name, "version": version},
         })
         .to_string()

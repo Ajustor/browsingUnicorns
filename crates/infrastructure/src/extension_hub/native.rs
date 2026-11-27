@@ -4,7 +4,7 @@ use application::ports::PageSource;
 use serde_json::{Value, json};
 
 use super::{Answer, Call, Hub, HubHost, unsupported};
-use crate::extensions::{extension_dir, manifest};
+
 use crate::native_messaging::{self, FromHost};
 
 impl Hub {
@@ -20,10 +20,10 @@ impl Hub {
                 // As in Chrome: extension pages only, and only with the
                 // permission.
                 if ctx == "content"
-                    || !manifest::has_permission(
-                        &extension_dir(&self.extensions_dir, ext),
-                        "nativeMessaging",
-                    )
+                    || !self
+                        .catalog
+                        .get(ext)
+                        .is_some_and(|p| p.has_permission("nativeMessaging"))
                 {
                     return Some(Err(native_messaging::NOT_FOUND.into()));
                 }

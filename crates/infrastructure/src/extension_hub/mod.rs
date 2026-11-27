@@ -33,6 +33,7 @@ use serde_json::{Map, Value, json};
 use crate::blocker::BlockerHandle;
 use crate::extension_fetch::Fetcher;
 use crate::extension_server::Origins;
+use crate::extensions::catalog::ExtensionCatalog;
 use crate::extensions::state::ExtensionState;
 use crate::native_messaging::NativeMessaging;
 use crate::page_scripts::{BLOCKER_OWNER, Bridge};
@@ -170,6 +171,8 @@ pub struct Hub {
     token: String,
     bridge: Bridge,
     extensions_dir: PathBuf,
+    /// The installed extensions' manifests, parsed.
+    catalog: Arc<ExtensionCatalog>,
     state_dir: PathBuf,
     next_rid: u64,
     pending: HashMap<u64, Pending>,
@@ -216,8 +219,6 @@ pub struct Hub {
     /// Messages for a background page not ready yet (the browser just
     /// started): Chrome wakes the worker up, here they wait for it.
     queued: HashMap<String, Vec<Queued>>,
-    /// Whether each extension has a background page, by owner.
-    has_background: HashMap<String, bool>,
 }
 
 /// A `runtime.sendMessage` waiting for its extension's background page.
@@ -271,11 +272,13 @@ impl Hub {
         let state_dir = state_dir.into();
         ExtensionState::end_sessions(&state_dir);
         let (fetched_tx, fetched_rx) = mpsc::channel();
+        let extensions_dir = extensions_dir.into();
         Self {
             token: storage.token().to_owned(),
             storage,
             bridge,
-            extensions_dir: extensions_dir.into(),
+            catalog: ExtensionCatalog::for_dir(&extensions_dir),
+            extensions_dir,
             state_dir,
             next_rid: 1,
             pending: HashMap::new(),
@@ -301,7 +304,6 @@ impl Hub {
             next_window: MAIN_WINDOW + 1,
             ready: HashSet::new(),
             queued: HashMap::new(),
-            has_background: HashMap::new(),
         }
     }
 
@@ -355,7 +357,6 @@ impl Hub {
         self.backgrounds.remove(owner);
         self.ready.remove(owner);
         self.queued.remove(owner);
-        self.has_background.remove(owner);
         self.close_native_ports(|_, o| o == owner);
         self.ports.retain(|_, p| p.owner != owner);
     }
@@ -365,7 +366,6 @@ impl Hub {
         let owner = format!("ext:{id}");
         self.backgrounds.remove(&owner);
         self.ready.remove(&owner);
-        self.has_background.remove(&owner);
         let page = PageSource::Background(id.clone());
         self.close_native_ports(|p, _| *p == page);
         self.closed_pages.push(page);

@@ -6,7 +6,7 @@ use std::path::Path;
 
 use domain::{DomainType, NetworkRule, ResourceType, RuleAction, UrlFilter};
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 #[derive(Deserialize)]
 struct Ruleset {
@@ -18,8 +18,8 @@ struct Ruleset {
 }
 
 /// The ids of the manifest's rulesets enabled by default.
-pub fn default_rulesets(dir: &Path) -> Vec<String> {
-    rulesets(dir)
+pub fn default_rulesets(manifest: &Map<String, Value>) -> Vec<String> {
+    rulesets(manifest)
         .into_iter()
         .filter(|r| r.enabled)
         .map(|r| r.id)
@@ -27,19 +27,15 @@ pub fn default_rulesets(dir: &Path) -> Vec<String> {
 }
 
 /// The ids of all the manifest's rulesets.
-pub fn all_rulesets(dir: &Path) -> Vec<String> {
-    rulesets(dir).into_iter().map(|r| r.id).collect()
+pub fn all_rulesets(manifest: &Map<String, Value>) -> Vec<String> {
+    rulesets(manifest).into_iter().map(|r| r.id).collect()
 }
 
-fn rulesets(dir: &Path) -> Vec<Ruleset> {
-    fs::read_to_string(dir.join("manifest.json"))
-        .ok()
-        .and_then(|t| serde_json::from_str::<Value>(t.trim_start_matches('\u{feff}')).ok())
-        .and_then(|m| {
-            m.pointer("/declarative_net_request/rule_resources")
-                .cloned()
-        })
-        .and_then(|r| serde_json::from_value(r).ok())
+fn rulesets(manifest: &Map<String, Value>) -> Vec<Ruleset> {
+    manifest
+        .get("declarative_net_request")
+        .and_then(|d| d.get("rule_resources"))
+        .and_then(|r| Vec::<Ruleset>::deserialize(r).ok())
         .unwrap_or_default()
 }
 
@@ -164,13 +160,10 @@ pub fn read_rules(
     dir: &Path,
     enabled: Option<&[String]>,
 ) -> Result<(Vec<NetworkRule>, usize), String> {
-    let text =
-        fs::read_to_string(dir.join("manifest.json")).map_err(|e| format!("manifest.json: {e}"))?;
-    let _: Value = serde_json::from_str(text.trim_start_matches('\u{feff}'))
-        .map_err(|e| format!("manifest.json: {e}"))?;
+    let manifest = super::manifest::load(dir)?;
     let mut rules = Vec::new();
     let mut skipped = 0;
-    for set in rulesets(dir).into_iter().filter(|r| match enabled {
+    for set in rulesets(&manifest).into_iter().filter(|r| match enabled {
         Some(ids) => ids.contains(&r.id),
         None => r.enabled,
     }) {
@@ -217,8 +210,9 @@ mod tests {
         )
         .unwrap();
         let (rules, skipped) = read_rules(dir.path(), None).unwrap();
-        assert_eq!(default_rulesets(dir.path()), vec!["a"]);
-        assert_eq!(all_rulesets(dir.path()), vec!["a", "b"]);
+        let manifest = super::super::manifest::load(dir.path()).unwrap();
+        assert_eq!(default_rulesets(&manifest), vec!["a"]);
+        assert_eq!(all_rulesets(&manifest), vec!["a", "b"]);
         assert_eq!(skipped, 2);
         assert_eq!(rules.len(), 2);
         assert_eq!(rules[0].priority, 2);

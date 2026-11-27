@@ -5,7 +5,6 @@ use serde_json::json;
 
 use super::{Answer, Call, Hub, HubHost, unsupported};
 use crate::extension_fetch::{self, FetchRequest};
-use crate::extensions::extension_dir;
 
 impl Hub {
     pub(super) fn fetch_call(&mut self, call: &Call<'_>) -> Answer {
@@ -22,7 +21,10 @@ impl Hub {
                 let url = field("url").as_str().unwrap_or("").to_owned();
                 let fetcher = self.fetcher.clone().filter(|_| {
                     ctx != "content"
-                        && extension_fetch::allowed(&extension_dir(&self.extensions_dir, ext), &url)
+                        && self
+                            .catalog
+                            .get(ext)
+                            .is_some_and(|p| extension_fetch::allowed(p.manifest(), &url))
                 });
                 let Some(fetcher) = fetcher else {
                     return Some(Err("not permitted".into()));
@@ -96,6 +98,7 @@ mod tests {
 
     use super::super::tests::{Host, ext, hub, msg};
     use super::*;
+    use crate::extensions::extension_dir;
 
     #[test]
     fn extension_pages_fetch_their_hosts_without_cors() {

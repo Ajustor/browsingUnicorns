@@ -11,7 +11,6 @@ use super::{
     Answer, Call, Hub, HubHost, MAX_QUEUED, NEVER_READY, NO_RECEIVER, Pending, Queued, UNTAKEN,
     tab_id, unsupported,
 };
-use crate::extensions::{extension_dir, manifest};
 
 impl Hub {
     pub(super) fn runtime_call(&mut self, call: &Call<'_>, host: &mut dyn HubHost) -> Answer {
@@ -73,7 +72,7 @@ impl Hub {
                 let ext = ext?;
                 if !matches!(from, PageSource::Background(_))
                     && !self.ready.contains(owner)
-                    && self.expects_background(owner, ext)
+                    && self.expects_background(ext)
                 {
                     let sender = self.sender(from, ext, host);
                     let queue = self.queued.entry(owner.to_owned()).or_default();
@@ -245,13 +244,11 @@ impl Hub {
         sender
     }
 
-    /// Whether `owner` has a background page (the manifest says, once).
-    fn expects_background(&mut self, owner: &str, ext: &ExtensionId) -> bool {
-        let dir = &self.extensions_dir;
-        *self
-            .has_background
-            .entry(owner.to_owned())
-            .or_insert_with(|| manifest::background(&extension_dir(dir, ext)).is_some())
+    /// Whether `ext` has a background page (its manifest says).
+    fn expects_background(&self, ext: &ExtensionId) -> bool {
+        self.catalog
+            .get(ext)
+            .is_some_and(|p| p.background().is_some())
     }
 
     /// Where a `runtime.sendMessage` from `from` goes: the background page,

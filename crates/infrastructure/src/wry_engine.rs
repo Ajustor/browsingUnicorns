@@ -19,6 +19,7 @@ use wry::{NewWindowResponse, PageLoadEvent, Rect, WebContext, WebView, WebViewBu
 use crate::ParentWindow;
 use crate::blocker::BlockerHandle;
 use crate::extension_server::{ExtensionServer, Origins, SCHEME};
+use crate::extensions::catalog::ExtensionCatalog;
 use crate::page_injection::{self, Handles};
 use crate::page_scripts::{Bridge, Sources, page_scripts};
 
@@ -1481,8 +1482,10 @@ impl WebEngine for WryEngine {
             });
         }
         self.extensions = extensions.clone();
-        if let Some(server) = &self.server {
-            server.set_extensions(extensions);
+        match &self.server {
+            Some(server) => server.set_extensions(extensions),
+            // The hub reads the manifests all the same.
+            None => ExtensionCatalog::for_dir(&self.files.extensions_dir).installed_changed(),
         }
         if self.extension_support() == ExtensionSupport::Partial {
             self.rebuild_page_scripts();

@@ -6,7 +6,6 @@ use serde_json::{Map, Value, json};
 
 use super::{Answer, Call, Hub, HubHost, unsupported};
 use crate::extensions::state::ExtensionState;
-use crate::extensions::{dnr, extension_dir};
 
 impl Hub {
     pub(super) fn dnr_call(&mut self, call: &Call<'_>, host: &mut dyn HubHost) -> Answer {
@@ -29,12 +28,14 @@ impl Hub {
         raw: &Map<String, Value>,
         host: &mut dyn HubHost,
     ) -> Result<Value, String> {
-        let dir = extension_dir(&self.extensions_dir, ext);
+        let parsed = self.catalog.get(ext);
         let mut state = ExtensionState::load(&self.state_dir, ext);
-        let enabled = state
-            .enabled_rulesets
-            .clone()
-            .unwrap_or_else(|| dnr::default_rulesets(&dir));
+        let enabled = state.enabled_rulesets.clone().unwrap_or_else(|| {
+            parsed
+                .as_ref()
+                .map(|p| p.default_rulesets())
+                .unwrap_or_default()
+        });
         let session = raw.get("kind").and_then(Value::as_str) == Some("session");
         match op {
             "dnr.getEnabledRulesets" => return Ok(json!(enabled)),
@@ -74,7 +75,10 @@ impl Hub {
                         })
                         .unwrap_or_default()
                 };
-                let all = dnr::all_rulesets(&dir);
+                let all = parsed
+                    .as_ref()
+                    .map(|p| p.all_rulesets())
+                    .unwrap_or_default();
                 let mut now = enabled;
                 now.retain(|r| !list("disableRulesetIds").contains(r));
                 for r in list("enableRulesetIds") {

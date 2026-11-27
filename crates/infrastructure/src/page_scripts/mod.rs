@@ -11,11 +11,12 @@ use std::fs;
 use std::path::Path;
 
 use domain::{Extensions, UrlPattern, UserScripts};
-use serde_json::{Value, json};
+use serde_json::json;
 
 use crate::extension_server::Origins;
+use crate::extensions::catalog::ExtensionCatalog;
+use crate::extensions::extension_dir;
 use crate::extensions::state::ExtensionState;
-use crate::extensions::{extension_dir, manifest};
 use crate::script_storage::new_token;
 use crate::user_scripts::read_code;
 
@@ -159,22 +160,31 @@ pub fn page_scripts(sources: &Sources<'_>) -> Vec<String> {
     if sources.focus {
         out.push(focus::script());
     }
-    for e in sources
+    let enabled: Vec<_> = sources
         .extensions
         .map(|list| list.items())
         .unwrap_or_default()
         .iter()
         .filter(|e| e.enabled)
-    {
+        .collect();
+    // Only asked for when there are extensions.
+    let catalog = (!enabled.is_empty()).then(|| ExtensionCatalog::for_dir(sources.extensions_dir));
+    for e in enabled {
         let dir = extension_dir(sources.extensions_dir, &e.id);
-        let mut entries = manifest::content_scripts(&dir);
+        let parsed = catalog.as_ref().and_then(|c| c.get(&e.id));
+        let mut entries = parsed
+            .as_ref()
+            .map(|p| p.content_scripts())
+            .unwrap_or_default();
         if let Some(state_dir) = sources.state_dir {
             entries.extend(ExtensionState::load(state_dir, &e.id).registered_scripts());
         }
         if entries.is_empty() {
             continue;
         }
-        let messages = Value::Object(manifest::messages(&dir));
+        let messages = parsed
+            .as_ref()
+            .map_or_else(|| json!({}), |p| json!(p.messages()));
         for cs in entries {
             let (Some(js), Some(css_text)) = (
                 read_files(&dir, &cs.js, "\n;\n"),

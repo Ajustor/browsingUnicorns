@@ -15,7 +15,9 @@ pub struct ManifestInfo {
     pub options: Option<String>,
 }
 
-fn load(dir: &Path) -> Result<Map<String, Value>, String> {
+/// The manifest of the extension in `dir`, parsed. Installed extensions:
+/// see [`super::catalog::ExtensionCatalog`], which parses it once.
+pub fn load(dir: &Path) -> Result<Map<String, Value>, String> {
     let text =
         fs::read_to_string(dir.join("manifest.json")).map_err(|e| format!("manifest.json: {e}"))?;
     match serde_json::from_str(text.trim_start_matches('\u{feff}')) {
@@ -34,38 +36,45 @@ fn text<'a>(map: &'a Map<String, Value>, path: &[&str]) -> Option<&'a str> {
     map.get(*last)?.as_str().filter(|s| !s.is_empty())
 }
 
-/// Replaces `__MSG_name__` with its text in the default locale.
-fn localize(dir: &Path, manifest: &Map<String, Value>, value: &str) -> String {
+/// Replaces `__MSG_name__` with its text in `messages` (the default
+/// locale's, from [`messages`]).
+fn localize(messages: &Map<String, Value>, value: &str) -> String {
     let Some(key) = value
         .strip_prefix("__MSG_")
         .and_then(|v| v.strip_suffix("__"))
     else {
         return value.to_owned();
     };
-    let locale = text(manifest, &["default_locale"]).unwrap_or("en");
-    let messages = fs::read_to_string(dir.join("_locales").join(locale).join("messages.json"))
-        .ok()
-        .and_then(|t| {
-            serde_json::from_str::<Map<String, Value>>(t.trim_start_matches('\u{feff}')).ok()
-        });
     messages
-        .and_then(|m| {
-            m.iter()
-                .find(|(k, _)| k.eq_ignore_ascii_case(key))
-                .and_then(|(_, v)| v.get("message")?.as_str().map(str::to_owned))
-        })
+        .get(&key.to_lowercase())
+        .and_then(|v| v.get("message")?.as_str().map(str::to_owned))
         .unwrap_or_else(|| key.to_owned())
 }
 
 pub fn read(dir: &Path) -> Result<ManifestInfo, String> {
     let m = load(dir)?;
+    let localized = [&["name"][..], &["description"]]
+        .iter()
+        .filter_map(|path| text(&m, path))
+        .any(|t| t.starts_with("__MSG_"));
+    let messages = if localized {
+        messages(dir, &m)
+    } else {
+        Map::new()
+    };
+    info(&m, &messages)
+}
+
+/// What the browser shows of the manifest `m`, localized with `messages`
+/// (from [`messages`]).
+pub fn info(m: &Map<String, Value>, messages: &Map<String, Value>) -> Result<ManifestInfo, String> {
     let name =
-        text(&m, &["name"]).ok_or_else(i18n::errors::infrastructure::manifest_without_name)?;
+        text(m, &["name"]).ok_or_else(i18n::errors::infrastructure::manifest_without_name)?;
     Ok(ManifestInfo {
-        name: localize(dir, &m, name),
-        version: text(&m, &["version"]).unwrap_or("").to_owned(),
-        description: text(&m, &["description"])
-            .map(|d| localize(dir, &m, d))
+        name: localize(messages, name),
+        version: text(m, &["version"]).unwrap_or("").to_owned(),
+        description: text(m, &["description"])
+            .map(|d| localize(messages, d))
             .unwrap_or_default(),
         popup: [
             &["action", "default_popup"][..],
@@ -73,10 +82,10 @@ pub fn read(dir: &Path) -> Result<ManifestInfo, String> {
             &["page_action", "default_popup"],
         ]
         .iter()
-        .find_map(|p| text(&m, p))
+        .find_map(|p| text(m, p))
         .map(str::to_owned),
-        options: text(&m, &["options_ui", "page"])
-            .or_else(|| text(&m, &["options_page"]))
+        options: text(m, &["options_ui", "page"])
+            .or_else(|| text(m, &["options_page"]))
             .map(str::to_owned),
     })
 }
@@ -105,10 +114,7 @@ fn strings(value: Option<&Value>) -> Vec<String> {
 }
 
 /// The manifest's content scripts (those declared statically).
-pub fn content_scripts(dir: &Path) -> Vec<ContentScript> {
-    let Ok(m) = load(dir) else {
-        return Vec::new();
-    };
+pub fn content_scripts(m: &Map<String, Value>) -> Vec<ContentScript> {
     let Some(entries) = m.get("content_scripts").and_then(Value::as_array) else {
         return Vec::new();
     };
@@ -187,8 +193,7 @@ pub struct Background {
     pub module: bool,
 }
 
-pub fn background(dir: &Path) -> Option<Background> {
-    let m = load(dir).ok()?;
+pub fn background(m: &Map<String, Value>) -> Option<Background> {
     let bg = m.get("background")?.as_object()?;
     let mut scripts = strings(bg.get("scripts"));
     if let Some(worker) = bg.get("service_worker").and_then(Value::as_str) {
@@ -202,13 +207,10 @@ pub fn background(dir: &Path) -> Option<Background> {
     })
 }
 
-/// The default locale's `messages.json`, keys in lower case
-/// (`chrome.i18n.getMessage`).
-pub fn messages(dir: &Path) -> Map<String, Value> {
-    let locale = load(dir)
-        .ok()
-        .and_then(|m| text(&m, &["default_locale"]).map(str::to_owned))
-        .unwrap_or_else(|| "en".into());
+/// The default locale's `messages.json` of the extension in `dir` (whose
+/// manifest is `m`), keys in lower case (`chrome.i18n.getMessage`).
+pub fn messages(dir: &Path, m: &Map<String, Value>) -> Map<String, Value> {
+    let locale = text(m, &["default_locale"]).unwrap_or("en");
     fs::read_to_string(dir.join("_locales").join(locale).join("messages.json"))
         .ok()
         .and_then(|t| {
@@ -220,10 +222,7 @@ pub fn messages(dir: &Path) -> Map<String, Value> {
 
 /// Whether the manifest asks for `permission` (`permissions` or
 /// `optional_permissions`, which this browser grants as asked).
-pub fn has_permission(dir: &Path, permission: &str) -> bool {
-    let Ok(m) = load(dir) else {
-        return false;
-    };
+pub fn has_permission(m: &Map<String, Value>, permission: &str) -> bool {
     ["permissions", "optional_permissions"].iter().any(|key| {
         m.get(*key)
             .and_then(Value::as_array)
@@ -337,13 +336,14 @@ mod tests {
             r#"{"Hello":{"message":"Hi $1"}}"#,
         )
         .unwrap();
-        let scripts = content_scripts(dir.path());
+        let m = load(dir.path()).unwrap();
+        let scripts = content_scripts(&m);
         assert_eq!(scripts.len(), 1, "unsupported schemes are left out");
         assert_eq!(scripts[0].js, vec!["a.js", "b.js"]);
         assert_eq!(scripts[0].run_at, domain::RunAt::DocumentStart);
         assert!(scripts[0].all_frames);
         assert_eq!(scripts[0].excludes.len(), 1);
-        assert_eq!(messages(dir.path())["hello"]["message"], "Hi $1");
+        assert_eq!(messages(dir.path(), &m)["hello"]["message"], "Hi $1");
     }
 
     #[test]

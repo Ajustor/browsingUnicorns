@@ -5,6 +5,7 @@
 //! Where the web view has no extension engine (Android, WebKit), the
 //! browser applies the extensions' network rules itself: [`rule_set`].
 
+pub mod catalog;
 mod crx;
 pub mod dnr;
 pub mod manifest;

@@ -13,13 +13,14 @@
 
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Component, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use domain::{ExtensionId, Extensions};
-use serde_json::{Value, json};
+use serde_json::json;
 
+use crate::extensions::catalog::{ExtensionCatalog, ParsedExtension};
 use crate::extensions::{extension_dir, manifest};
 use crate::page_scripts::{Bridge, extension_page_runtime};
 use crate::script_storage::new_token;
@@ -133,6 +134,8 @@ pub struct ExtensionServer {
     origins: Origins,
     bridge: Bridge,
     extensions: RwLock<Extensions>,
+    /// Their manifests, parsed.
+    catalog: Arc<ExtensionCatalog>,
     /// One-time nonces of the runtime, with their context.
     nonces: Mutex<HashMap<String, (Context, Instant)>>,
     /// Last version each extension's background saw: onInstalled.
@@ -204,8 +207,10 @@ impl ExtensionServer {
         origins: Origins,
         bridge: Bridge,
     ) -> Arc<Self> {
+        let dir = extensions_dir.into();
         Arc::new(Self {
-            dir: extensions_dir.into(),
+            catalog: ExtensionCatalog::for_dir(&dir),
+            dir,
             token,
             origins,
             bridge,
@@ -219,8 +224,11 @@ impl ExtensionServer {
         self.origins
     }
 
+    /// The installed extensions changed: their manifests are parsed again
+    /// when next needed, by everyone sharing the [`ExtensionCatalog`].
     pub fn set_extensions(&self, extensions: &Extensions) {
         *self.extensions.write().unwrap_or_else(|p| p.into_inner()) = extensions.clone();
+        self.catalog.installed_changed();
     }
 
     /// The origins of the enabled extensions.
@@ -269,8 +277,8 @@ impl ExtensionServer {
 
     /// The address of the background page of `id`, if it has one.
     pub fn background_url(&self, id: &ExtensionId) -> Option<String> {
-        let dir = extension_dir(&self.dir, id);
-        manifest::background(&dir).map(|b| self.origins.url(id, &background_path(&b)))
+        let background = self.catalog.get(id)?.background()?;
+        Some(self.origins.url(id, &background_path(&background)))
     }
 
     /// "install", "update" or nothing, once per version.
@@ -303,14 +311,18 @@ impl ExtensionServer {
         let bare = path.split(['?', '#']).next().unwrap_or(&path);
         if bare == RUNTIME_PATH {
             let context = self.take_nonce(query_param(&path, "n")?)?;
+            let parsed = self.catalog.get(&id);
             return Some(Resource {
                 mime: mime_type(".js"),
-                body: self.runtime(&id, &dir, context).into_bytes(),
+                body: self.runtime(&id, parsed.as_deref(), context).into_bytes(),
             });
         }
         if bare.rsplit('/').next() == Some(BACKGROUND_PAGE)
-            && let Some(background) =
-                manifest::background(&dir).filter(|b| background_path(b) == bare)
+            && let Some(background) = self
+                .catalog
+                .get(&id)
+                .and_then(|p| p.background())
+                .filter(|b| background_path(b) == bare)
         {
             let scripts: String = background
                 .scripts
@@ -355,7 +367,12 @@ impl ExtensionServer {
         Some(Resource { mime, body })
     }
 
-    fn runtime(&self, id: &ExtensionId, dir: &Path, context: Context) -> String {
+    fn runtime(
+        &self,
+        id: &ExtensionId,
+        parsed: Option<&ParsedExtension>,
+        context: Context,
+    ) -> String {
         let (name, version) = self
             .extensions
             .read()
@@ -367,15 +384,15 @@ impl ExtensionServer {
             Context::Background => self.install_reason(id, &version),
             Context::Page => None,
         };
-        let manifest: Value = fs::read_to_string(dir.join("manifest.json"))
-            .ok()
-            .and_then(|t| serde_json::from_str(t.trim_start_matches('\u{feff}')).ok())
-            .unwrap_or_else(|| json!({"name": name, "version": version}));
+        let (manifest, messages) = match parsed {
+            Some(p) => (json!(p.manifest()), json!(p.messages())),
+            None => (json!({"name": name, "version": version}), json!({})),
+        };
         let config = json!({
             "owner": format!("ext:{id}"),
             "context": match context { Context::Background => "background", Context::Page => "page" },
             "origin": self.origins.origin(id),
-            "messages": Value::Object(manifest::messages(dir)),
+            "messages": messages,
             "manifest": manifest,
             "installReason": install,
         });
@@ -400,6 +417,8 @@ fn inject(html: &str, tag: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use domain::Extension;
 
     use super::*;

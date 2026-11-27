@@ -3,11 +3,10 @@
 //! requests itself (the page hands them over through its bridge) and gives
 //! the page the answer.
 
-use std::path::Path;
 use std::sync::Arc;
 
 use domain::UrlPattern;
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 /// A request an extension page asked for.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,16 +47,10 @@ const FORBIDDEN: &[&str] = &[
     "upgrade",
 ];
 
-/// Whether the extension in `dir` may reach `url` without CORS: its host
-/// permissions (`host_permissions`, or the URL patterns of `permissions` in
-/// manifest v2) cover it.
-pub fn allowed(dir: &Path, url: &str) -> bool {
-    let Ok(text) = std::fs::read_to_string(dir.join("manifest.json")) else {
-        return false;
-    };
-    let Ok(manifest) = serde_json::from_str::<Value>(text.trim_start_matches('\u{feff}')) else {
-        return false;
-    };
+/// Whether the extension whose manifest is `manifest` may reach `url`
+/// without CORS: its host permissions (`host_permissions`, or the URL
+/// patterns of `permissions` in manifest v2) cover it.
+pub fn allowed(manifest: &Map<String, Value>, url: &str) -> bool {
     [
         "host_permissions",
         "optional_host_permissions",
@@ -141,32 +134,27 @@ pub fn ureq_fetcher() -> Fetcher {
 mod tests {
     use super::*;
 
-    fn extension(manifest: &str) -> tempfile::TempDir {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("manifest.json"), manifest).unwrap();
-        dir
+    fn manifest(json: &str) -> Map<String, Value> {
+        serde_json::from_str(json).unwrap()
     }
 
     #[test]
     fn host_permissions_decide() {
-        let ext = extension(r#"{"host_permissions": ["https://*.bitwarden.com/*"]}"#);
-        assert!(allowed(
-            ext.path(),
-            "https://api.bitwarden.com/accounts/prelogin"
-        ));
-        assert!(!allowed(ext.path(), "https://evil.example/"));
-        assert!(!allowed(ext.path(), "http://api.bitwarden.com/"));
+        let ext = manifest(r#"{"host_permissions": ["https://*.bitwarden.com/*"]}"#);
+        assert!(allowed(&ext, "https://api.bitwarden.com/accounts/prelogin"));
+        assert!(!allowed(&ext, "https://evil.example/"));
+        assert!(!allowed(&ext, "http://api.bitwarden.com/"));
 
-        let all = extension(r#"{"host_permissions": ["https://*/*", "http://*/*"]}"#);
-        assert!(allowed(all.path(), "https://anything.test/x"));
+        let all = manifest(r#"{"host_permissions": ["https://*/*", "http://*/*"]}"#);
+        assert!(allowed(&all, "https://anything.test/x"));
 
         // Manifest v2: URL patterns among the permissions.
-        let v2 = extension(r#"{"permissions": ["storage", "<all_urls>"]}"#);
-        assert!(allowed(v2.path(), "https://a.test/"));
+        let v2 = manifest(r#"{"permissions": ["storage", "<all_urls>"]}"#);
+        assert!(allowed(&v2, "https://a.test/"));
 
-        let none = extension(r#"{"permissions": ["storage"]}"#);
-        assert!(!allowed(none.path(), "https://a.test/"));
-        assert!(!allowed(Path::new("/no/such/extension"), "https://a.test/"));
+        let none = manifest(r#"{"permissions": ["storage"]}"#);
+        assert!(!allowed(&none, "https://a.test/"));
+        assert!(!allowed(&Map::new(), "https://a.test/"));
     }
 
     #[test]
