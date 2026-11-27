@@ -28,6 +28,11 @@ android {
             "SYNC_RELAY",
             "\"${project.findProperty("syncRelay") ?: ""}\"",
         )
+        // The Rust library is built for these two only: JNA's own for the
+        // others would let a 32-bit phone install an app that can't start.
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
     }
 
     // One APK per processor (half the download: a phone gets only its own
