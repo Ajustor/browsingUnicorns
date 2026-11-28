@@ -369,9 +369,12 @@ private fun AddressBar(c: BrowserController) {
             onDismiss = { siteInfo = false },
         )
     }
-    // Typing here: the page keeps off the focus until it is touched.
+    // Typing here: the page keeps off the focus until it is touched. Only
+    // then: clearing Compose's focus on every touch of the page left it out
+    // of step with the page's, and the keys sent as key events (the soft
+    // keyboard's Enter in a textarea) never reached the page.
     DisposableEffect(c.views) {
-        c.views.onPageTouched = { focus.clearFocus() }
+        c.views.onPageTouched = { if (c.views.addressBarFocused) focus.clearFocus() }
         onDispose {
             c.views.onPageTouched = {}
             c.views.addressBarFocused = false
