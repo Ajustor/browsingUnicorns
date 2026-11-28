@@ -4,6 +4,39 @@ Toutes les évolutions notables de browsingUnicorns. Format :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions
 [SemVer](https://semver.org/lang/fr/).
 
+## [0.34.0] - 2026-11-28
+
+### Ajouté
+
+- Android : appui long sur un lien ou une image : ouvrir dans un nouvel
+  onglet (ou un onglet privé), copier ou partager le lien, ouvrir, copier
+  ou télécharger l'image.
+- Android : rechercher dans la page, partager la page, copier son adresse
+  (menu).
+- Android : « Version ordinateur », onglet par onglet.
+- Android : « Pages sombres » (réglages) : les sites sans thème sombre sont
+  assombris.
+- Android : la musique et le son d'une page continuent quand l'application
+  passe en arrière-plan, avec une notification pour mettre en pause ; un
+  onglet qui joue n'est plus mis en veille.
+
+### Corrigé
+
+- Android : la touche Entrée du clavier fait de nouveau un retour à la
+  ligne dans les zones de texte des pages.
+- Android : les connexions par fenêtre (« Se connecter avec Google »,
+  Apple...) aboutissent : la fenêtre s'ouvre par-dessus la page, qui garde
+  le lien avec elle, et se ferme d'elle-même à la fin.
+
+### Performances
+
+- Android : les filtres cosmétiques du bloqueur arrivent avec ses
+  scriptlets, site par site, au lieu d'un script de 45 Ko analysé dans
+  chaque cadre de chaque page ; les onglets privés en profitent aussi.
+- Android : la vignette d'un onglet est copiée par le GPU, en arrière-plan,
+  au lieu d'un nouveau rendu logiciel de la page à chaque changement
+  d'onglet.
+
 ## [0.33.0] - 2026-11-27
 
 ### Ajouté
