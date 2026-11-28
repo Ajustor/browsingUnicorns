@@ -7,12 +7,12 @@ import android.content.Intent
 import android.net.Uri
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.Canvas
 import android.os.Handler
 import android.os.Looper
 import android.os.Message
 import android.util.Log
 import android.view.MotionEvent
+import android.view.PixelCopy
 import android.view.View
 import android.view.ViewGroup
 import android.Manifest
@@ -132,24 +132,41 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
         return host.takeIf { h -> h.isNotEmpty() && !h.startsWith('.') && h.all { it.isLetterOrDigit() || it == '.' || it == '-' } }
     }
 
-    /** Captures [tab]'s page at a third of its size; nothing if it can't. */
+    /**
+     * Captures [tab]'s page as on screen, at a quarter of its size; nothing
+     * if it isn't on screen. Copied from the window's last frame by the GPU,
+     * in the background: drawing the WebView into a bitmap would render the
+     * page again in software, on the main thread (tens of ms per switch).
+     */
     private fun capture(tab: ULong) {
         val view = views[tab] ?: return
-        if (view.width <= 0 || view.height <= 0) return
+        if (view.width < 4 || view.height < 4 || !view.isAttachedToWindow || !view.isShown) return
+        val window = activityOf(view.context)?.window ?: return
+        val at = IntArray(2)
+        view.getLocationInWindow(at)
+        val rect = android.graphics.Rect(at[0], at[1], at[0] + view.width, at[1] + view.height)
         runCatching {
-            val bitmap = Bitmap.createBitmap(view.width / 3, view.height / 3, Bitmap.Config.RGB_565)
-            val canvas = Canvas(bitmap)
-            canvas.scale(1f / 3f, 1f / 3f)
-            // What is on screen, not the page's top.
-            canvas.translate(-view.scrollX.toFloat(), -view.scrollY.toFloat())
-            view.draw(canvas)
-            thumbnails[tab] = bitmap.asImageBitmap()
+            val bitmap = Bitmap.createBitmap(view.width / 4, view.height / 4, Bitmap.Config.ARGB_8888)
+            PixelCopy.request(window, rect, bitmap, { result ->
+                // The tab may have closed meanwhile.
+                if (result == PixelCopy.SUCCESS && views.containsKey(tab)) thumbnails[tab] = bitmap.asImageBitmap()
+            }, main)
         }
     }
 
     /** Captures the visible tab (before showing the tabs grid). */
     fun captureActive() {
         views.entries.firstOrNull { it.value.visibility == View.VISIBLE }?.let { capture(it.key) }
+    /** The activity under [context] (the WebViews' context wraps it). */
+    private fun activityOf(context: Context): android.app.Activity? {
+        var c: Context? = context
+        while (c is android.content.ContextWrapper) {
+            if (c is android.app.Activity) return c
+            c = c.baseContext
+        }
+        return null
+    }
+
     }
 
     /** The scripts injected into every page (extensions' content scripts, user scripts). */
