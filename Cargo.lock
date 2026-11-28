@@ -2994,6 +2994,7 @@ dependencies = [
  "i18n",
  "infrastructure",
  "ring",
+ "serde_json",
  "sha2",
  "tempfile",
  "uniffi",

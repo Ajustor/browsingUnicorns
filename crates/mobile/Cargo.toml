@@ -24,6 +24,7 @@ application.workspace = true
 i18n.workspace = true
 # Without the desktop web view and HTTP client: the app brings its own.
 infrastructure.workspace = true
+serde_json = "1"
 uniffi = "0.32"
 
 [dev-dependencies]

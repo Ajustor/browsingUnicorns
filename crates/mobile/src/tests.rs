@@ -520,19 +520,29 @@ fn user_scripts_run_in_pages_with_their_storage() {
           // @grant GM_setValue\n// ==/UserScript==\nGM_setValue('n', 1);"
             .to_vec(),
     );
+    let other = "https://greasyfork.test/other.user.js";
+    http.0.lock().unwrap().insert(
+        other.into(),
+        b"// ==UserScript==
+// @name Other
+// @match https://*/*
+// ==/UserScript==
+;"
+        .to_vec(),
+    );
     let (b, host) = browser(&dir, "phone", &http);
-    // The ad blocker's cosmetic filters and the password manager's script.
-    assert_eq!(host.1.lock().unwrap().len(), 2);
+    // The password manager's script (the ad blocker's filters come by site).
+    assert_eq!(host.1.lock().unwrap().len(), 1);
 
     assert!(b.install_user_script("not a url".into()).is_err());
     assert_eq!(b.install_user_script(url.into()).unwrap(), "Counter 2");
     let scripts = host.1.lock().unwrap().clone();
-    assert_eq!(scripts.len(), 3);
-    assert!(scripts[2].contains("GM_setValue('n', 1);"));
-    assert!(scripts[2].contains("const BRIDGE = \"android\";"));
+    assert_eq!(scripts.len(), 2);
+    assert!(scripts[1].contains("GM_setValue('n', 1);"));
+    assert!(scripts[1].contains("const BRIDGE = \"android\";"));
 
     // The page script's storage goes through `page_message`, with its own
-    // token (the ad blocker's, in the same page, is not it).
+    // token (another script's, in the same page, is not it).
     let token_of = |script: &str| {
         script
             .split("const TOKEN = \"")
@@ -541,14 +551,10 @@ fn user_scripts_run_in_pages_with_their_storage() {
             .unwrap()
             .to_owned()
     };
-    let blocker_token = token_of(&scripts[0]);
-    let token = scripts[2]
-        .split("const TOKEN = \"")
-        .nth(1)
-        .and_then(|rest| rest.split('"').next())
-        .unwrap()
-        .to_owned();
+    let token = token_of(&scripts[1]);
     let id = b.user_scripts()[0].id.clone();
+    b.install_user_script(other.into()).unwrap();
+    let other_token = token_of(&host.1.lock().unwrap()[2]);
     let tab = PageTarget::Tab { tab: 1 };
     let set = format!(r#"{{"t":"{token}","id":1,"owner":"us:{id}","op":"set","items":{{"n":1}}}}"#);
     b.page_message(tab.clone(), set);
@@ -563,7 +569,7 @@ fn user_scripts_run_in_pages_with_their_storage() {
     );
     b.page_message(
         tab,
-        format!(r#"{{"t":"{blocker_token}","id":4,"owner":"us:{id}","op":"get"}}"#),
+        format!(r#"{{"t":"{other_token}","id":4,"owner":"us:{id}","op":"get"}}"#),
     );
     assert_eq!(
         host.2.lock().unwrap().len(),
@@ -574,7 +580,7 @@ fn user_scripts_run_in_pages_with_their_storage() {
     b.set_user_script_enabled(id.clone(), false).unwrap();
     assert_eq!(host.1.lock().unwrap().len(), 2);
     b.remove_user_script(id).unwrap();
-    assert!(b.user_scripts().is_empty());
+    assert_eq!(b.user_scripts().len(), 1);
 }
 
 const LIST: &str = "[Adblock Plus 2.0]\n||ads.test^\nnews.test##.ad\n";
@@ -684,22 +690,16 @@ fn the_ad_blocker_blocks_and_counts() {
     );
     assert_eq!(b.blocker_info(tab).blocked, 0);
 
-    // The page script asks the site's cosmetic filters.
+    // The site's cosmetic filters come with its scriptlets, by site: no
+    // page script (the runtime in every frame) for them.
     let scripts = host.1.lock().unwrap().clone();
-    let token = scripts[0]
-        .split("const TOKEN = \"")
-        .nth(1)
-        .and_then(|s| s.split('"').next())
-        .unwrap()
-        .to_owned();
-    assert!(scripts[0].contains("blockerCosmetic();"));
-    b.page_message(
-        PageTarget::Tab { tab },
-        format!(
-            r#"{{"t":"{token}","ch":"c","id":1,"owner":"blocker","ctx":"content","op":"blocker.cosmetic","url":"https://news.test/"}}"#
-        ),
+    assert!(scripts.iter().all(|s| !s.contains("blockerCosmetic")));
+    let site = b.scriptlets("https://news.test/".into());
+    assert!(
+        site.contains(r#"location.hostname === "news.test""#),
+        "{site}"
     );
-    assert!(host.last_reply().contains(".ad{display:none!important}"));
+    assert!(site.contains(".ad{display:none!important}"), "{site}");
 
     b.set_blocker_for_site("www.news.test".into(), false)
         .unwrap();
@@ -795,7 +795,7 @@ fn sign_ins_are_offered_saved_filled_and_the_setting_drops_the_script() {
     assert!(b.general_settings().save_passwords);
     b.set_save_passwords(false).unwrap();
     assert!(!b.general_settings().save_passwords);
-    assert_eq!(host.1.lock().unwrap().len(), 1, "the blocker's script only");
+    assert!(host.1.lock().unwrap().is_empty(), "no script left");
     b.remove_credential("https://a.com".into(), "me".into())
         .unwrap();
     assert!(b.saved_credentials().is_empty());

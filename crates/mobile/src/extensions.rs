@@ -364,19 +364,44 @@ impl MobileBrowser {
         }
     }
 
-    /// The ad blocker's scriptlets for a page about to load at `url`, run
-    /// on its host only; empty when there are none (blocker off, site
-    /// allowlisted, no list yet). Registered by the app at document start.
+    /// The ad blocker's work in a page about to load at `url`: the style
+    /// sheet hiding its site's ad slots, then its scriptlets, run on its host
+    /// only; empty when there is none (blocker off, site allowlisted, no list
+    /// yet). Registered by the app at document start, once per site: the
+    /// lists' cosmetic filters go by site, not by page. Here rather than in
+    /// a page script, which would take the whole runtime into every frame.
     pub fn scriptlets(&self, url: String) -> String {
         let Some(host) = infrastructure::site_scripts::web_host(&url) else {
             return String::new();
         };
-        let script = self.blocker.scriptlets(&url);
+        let css = self.blocker.cosmetic_css(&url);
+        let mut script = if css.is_empty() {
+            String::new()
+        } else {
+            cosmetic_style(&css)
+        };
+        script.push_str(&self.blocker.scriptlets(&url));
         if script.is_empty() {
             return String::new();
         }
         infrastructure::site_scripts::guarded(&host, &script)
     }
+}
+
+/// A script adding `css` to the document, as soon as it has a root.
+fn cosmetic_style(css: &str) -> String {
+    let css = serde_json::to_string(css).expect("a string");
+    format!(
+        "(() => {{
+const style = document.createElement(\"style\");
+style.textContent = {css};
+const add = () => (document.head || document.documentElement).appendChild(style);
+if (document.documentElement) add();
+else new MutationObserver((_, o) => {{ if (document.documentElement) {{ o.disconnect(); add(); }} }})
+  .observe(document, {{ childList: true }});
+}})();
+"
+    )
 }
 
 #[cfg(test)]

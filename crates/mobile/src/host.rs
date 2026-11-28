@@ -145,7 +145,8 @@ impl HostEngine {
             bridge: Bridge::Android,
             origins: infrastructure::extension_server::Origins::Android,
             state_dir: Some(&self.state_dir),
-            blocker: true,
+            // Its style sheet comes with its scriptlets, by site (scriptlets()).
+            blocker: false,
             credentials: self.credentials,
             focus: false,
         });
