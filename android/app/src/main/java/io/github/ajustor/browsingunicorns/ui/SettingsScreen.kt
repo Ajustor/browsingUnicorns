@@ -84,6 +84,16 @@ fun SettingsScreen(c: BrowserController) {
                 }
             }
 
+            if (c.views.darkPagesSupported) {
+                Section(stringResource(R.string.pages))
+                Check(stringResource(R.string.dark_pages), c.darkPages) { c.changeDarkPages(it) }
+                Text(
+                    stringResource(R.string.dark_pages_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(start = 8.dp, bottom = 8.dp),
+                )
+            }
+
             Section(stringResource(R.string.passwords))
             Check(stringResource(R.string.save_passwords), settings.savePasswords) {
                 c.act { setSavePasswords(it) }

@@ -684,15 +684,16 @@ impl MobileBrowser {
     }
 
     /// Puts the tabs not seen for `idle_seconds` to sleep (their WebView
-    /// destroyed; 0: all but the one shown, Android short of memory).
-    /// Returns how many went to sleep.
-    pub fn sleep_idle_tabs(&self, idle_seconds: u64) -> u32 {
+    /// destroyed; 0: all but the one shown, Android short of memory), but
+    /// those of `keep` (playing music...). Returns how many went to sleep.
+    pub fn sleep_idle_tabs(&self, idle_seconds: u64, keep: Vec<u64>) -> u32 {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs());
+        let keep: Vec<TabId> = keep.into_iter().map(TabId::new).collect();
         self.lock()
             .browser
-            .discard_idle(now, idle_seconds, &[])
+            .discard_idle(now, idle_seconds, &keep)
             .len() as u32
     }
 

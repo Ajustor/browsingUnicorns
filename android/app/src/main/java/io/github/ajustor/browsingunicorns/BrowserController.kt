@@ -147,6 +147,115 @@ class BrowserController(
         message = context.getString(R.string.browsing_data_cleared)
     }
 
+    // --- Long press, sharing ---------------------------------------------------
+
+    /** A link or an image held down in the page: its menu shows. */
+    var longPress by mutableStateOf<LongPressTarget?>(null)
+
+    /** Opens [url] in a new tab behind the one shown, or in a private tab (shown). */
+    fun openInNewTab(from: ULong, url: String, private: Boolean) {
+        if (private) {
+            act { openTab(url, true) }
+        } else {
+            act { onNewWindow(from, url) }
+            message = context.getString(R.string.opened_in_new_tab)
+        }
+    }
+
+    fun saveImage(target: LongPressTarget) {
+        target.image?.let { views.saveImage(target.tab, it) }
+    }
+
+    /** Puts [text] on the clipboard. */
+    fun copy(text: String) {
+        val clipboard = context.getSystemService(android.content.ClipboardManager::class.java) ?: return
+        clipboard.setPrimaryClip(android.content.ClipData.newPlainText(text, text))
+        // Android 13+ says it itself.
+        if (android.os.Build.VERSION.SDK_INT < 33) message = context.getString(R.string.copied)
+    }
+
+    /** Android's share sheet for [text]. */
+    fun share(text: String, subject: String? = null) {
+        val send = android.content.Intent(android.content.Intent.ACTION_SEND)
+            .setType("text/plain")
+            .putExtra(android.content.Intent.EXTRA_TEXT, text)
+        subject?.takeIf { it.isNotBlank() }?.let { send.putExtra(android.content.Intent.EXTRA_SUBJECT, it) }
+        val chooser = android.content.Intent.createChooser(send, null)
+            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { context.startActivity(chooser) }
+    }
+
+    /** Shares the shown page's address. */
+    fun sharePage() {
+        val url = state.activeUrl ?: return
+        share(url, state.tabs.firstOrNull { it.id == state.active }?.title)
+    }
+
+    // --- A site's window (a sign-in) -----------------------------------------
+
+    /** The window a page opened, over the browser, and the address it shows. */
+    var popupWindow by mutableStateOf<android.webkit.WebView?>(null)
+        private set
+    var popupWindowUrl by mutableStateOf<String?>(null)
+        private set
+
+    fun closePopupWindow() = views.closePopupWindow()
+
+    /** Back in the site's window: its previous page, else it closes. */
+    fun popupWindowBack() {
+        val popup = popupWindow ?: return
+        if (popup.canGoBack()) popup.goBack() else closePopupWindow()
+    }
+
+    // --- Find in page ----------------------------------------------------------
+
+    /** Find in page is open (its bar in place of the address bar). */
+    var finding by mutableStateOf(false)
+        private set
+
+    /** The match shown (from 0) and how many there are. */
+    var findActive by mutableIntStateOf(0)
+        private set
+    var findCount by mutableIntStateOf(0)
+        private set
+
+    fun openFind() {
+        findActive = 0
+        findCount = 0
+        expandBars()
+        finding = true
+    }
+
+    fun closeFind() {
+        if (!finding) return
+        finding = false
+        views.clearFind()
+    }
+
+    fun find(text: String) = views.find(text)
+
+    fun findNext(forward: Boolean) = views.findNext(forward)
+
+    // --- Computer version, dark pages -----------------------------------------
+
+    /** The shown tab asks for the sites' computer version. */
+    var desktop by mutableStateOf(false)
+        private set
+
+    fun toggleDesktop() {
+        val tab = state.active ?: return
+        views.setDesktop(tab, !views.isDesktop(tab))
+        desktop = views.isDesktop(tab)
+    }
+
+    var darkPages by mutableStateOf(views.darkPages)
+        private set
+
+    fun changeDarkPages(dark: Boolean) {
+        views.darkPages = dark
+        darkPages = dark
+    }
+
     /** The extension popup shown, and its title. */
     var popup by mutableStateOf<android.webkit.WebView?>(null)
         private set
@@ -172,6 +281,21 @@ class BrowserController(
         views.onNavigation = ::expandBars
         views.onPull = { pull = it }
         views.onPullRefresh = { refresh() }
+        views.onLongPress = { longPress = it }
+        views.onPopupWindow = {
+            popupWindow = it
+            popupWindowUrl = it?.url
+        }
+        views.onPlaying = { tabs ->
+            val app = context.applicationContext
+            if (tabs.isEmpty()) MediaService.stop(app) else MediaService.start(app, views.playingTitle())
+        }
+        popupWindow = views.popupWindow
+        popupWindowUrl = popupWindow?.url
+        views.onFindResult = { active, count ->
+            findActive = active
+            findCount = count
+        }
         // A recreated activity: what the browser already showed.
         popup = views.panel
         views.fullscreen?.let { (view, leave) ->
@@ -204,7 +328,13 @@ class BrowserController(
     fun refresh() {
         val before = state.active
         state = browser.state()
-        if (state.active != before) expandBars()
+        if (state.active != before) {
+            expandBars()
+            // Find in page was the other tab's.
+            closeFind()
+            longPress = null
+        }
+        desktop = state.active?.let { views.isDesktop(it) } == true
         credentialOffer = browser.pendingCredential()
         refreshBlocker()
     }
@@ -448,7 +578,7 @@ class BrowserController(
 
     /** Puts the tabs unseen `idleSeconds` to sleep (0: all but the one shown). */
     fun sleepIdleTabs(idleSeconds: Long) {
-        if (browser.sleepIdleTabs(idleSeconds.toULong()) > 0u) refresh()
+        if (browser.sleepIdleTabs(idleSeconds.toULong(), views.playingTabs.toList()) > 0u) refresh()
     }
 
     suspend fun syncLoop() {

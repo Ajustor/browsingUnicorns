@@ -231,4 +231,31 @@
     <string name="site_ask_location">your location</string>
     <string name="site_allow">Allow</string>
     <string name="site_deny">Deny</string>
+    <!-- The page's menu. -->
+    <string name="find_in_page">Find in page</string>
+    <string name="find_previous">Previous match</string>
+    <string name="find_next">Next match</string>
+    <string name="find_close">Close find in page</string>
+    <string name="share_page">Share</string>
+    <string name="copy_page_address">Copy address</string>
+    <string name="copied">Copied</string>
+    <string name="desktop_site">Desktop site</string>
+    <!-- A link or an image held down in a page. -->
+    <string name="open_in_new_tab">Open in new tab</string>
+    <string name="open_in_private_tab">Open in private tab</string>
+    <string name="copy_link">Copy link</string>
+    <string name="share_link">Share link</string>
+    <string name="open_image">Open image in new tab</string>
+    <string name="copy_image_address">Copy image address</string>
+    <string name="save_image">Download image</string>
+    <!-- Settings: how pages show. -->
+    <string name="pages">Pages</string>
+    <string name="dark_pages">Dark pages</string>
+    <string name="dark_pages_hint">Sites without a dark theme of their own are darkened.</string>
+    <!-- A tab playing with the app off screen: its notification. -->
+    <string name="media_channel">Media playing</string>
+    <string name="media_playing">Playing in the background</string>
+    <string name="media_pause">Pause</string>
+    <!-- A site's window (a sign-in). -->
+    <string name="close_window">Close the window</string>
 </resources>

@@ -31,7 +31,13 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import io.github.ajustor.browsingunicorns.LongPressTarget
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
@@ -126,6 +132,7 @@ fun App(c: BrowserController) {
                 Screen.Settings -> SettingsScreen(c)
             }
             c.popup?.let { ExtensionPopup(c, it) }
+            c.popupWindow?.let { androidx.compose.runtime.key(it) { PopupWindowDialog(c, it) } }
             c.fullscreen?.let { FullscreenView(it) }
         }
     }
@@ -138,8 +145,13 @@ private fun BrowserScreen(c: BrowserController) {
         // Reading (the page scrolled down): the address bar shrinks to the
         // site's name, the bottom bar hides; scrolling up brings them back.
         Box(Modifier.fillMaxWidth().background(top).statusBarsPadding().animateContentSize(tween(150))) {
-            if (c.barsCollapsed) CollapsedAddressBar(c) else AddressBar(c)
+            when {
+                c.finding -> FindBar(c)
+                c.barsCollapsed -> CollapsedAddressBar(c)
+                else -> AddressBar(c)
+            }
         }
+        c.longPress?.let { LongPressMenu(c, it) }
         if (c.progress < 100) {
             Box(Modifier.fillMaxWidth().height(3.dp).background(Unicorn.Night)) {
                 Box(
@@ -554,6 +566,29 @@ private fun BottomBar(c: BrowserController) {
                             c.act { reopenClosedTab() }
                         })
                     }
+                    val pageUrl = c.state.activeUrl
+                    if (pageUrl != null) {
+                        DropdownMenuItem(text = { Text(stringResource(R.string.find_in_page)) }, onClick = {
+                            menu = false
+                            c.openFind()
+                        })
+                        DropdownMenuItem(text = { Text(stringResource(R.string.share_page)) }, onClick = {
+                            menu = false
+                            c.sharePage()
+                        })
+                        DropdownMenuItem(text = { Text(stringResource(R.string.copy_page_address)) }, onClick = {
+                            menu = false
+                            c.copy(pageUrl)
+                        })
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.desktop_site)) },
+                            trailingIcon = { Checkbox(checked = c.desktop, onCheckedChange = null) },
+                            onClick = {
+                                menu = false
+                                c.toggleDesktop()
+                            },
+                        )
+                    }
                     DropdownMenuItem(text = { Text(stringResource(R.string.history)) }, onClick = {
                         menu = false
                         c.screen = Screen.History
@@ -607,6 +642,167 @@ private fun BottomBar(c: BrowserController) {
                         },
                     )
                 }
+            }
+        }
+    }
+}
+
+/** Find in page, in place of the address bar: the text, where the match is, previous, next. */
+@Composable
+private fun FindBar(c: BrowserController) {
+    var text by remember { mutableStateOf("") }
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focus.requestFocus() }
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TextField(
+            value = text,
+            onValueChange = {
+                text = it
+                c.find(it)
+            },
+            modifier = Modifier.weight(1f).focusRequester(focus)
+                .border(1.dp, Unicorn.Outline, RoundedCornerShape(24.dp)),
+            singleLine = true,
+            placeholder = { Text(stringResource(R.string.find_in_page)) },
+            trailingIcon = {
+                if (text.isNotEmpty()) {
+                    Text(
+                        if (c.findCount == 0) "0/0" else "${c.findActive + 1}/${c.findCount}",
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(end = 12.dp),
+                    )
+                }
+            },
+            shape = RoundedCornerShape(24.dp),
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = Unicorn.NightDeep,
+                unfocusedContainerColor = Unicorn.NightDeep,
+                focusedTextColor = Unicorn.OnNight,
+                unfocusedTextColor = Unicorn.OnNight,
+                cursorColor = Unicorn.Cyan,
+                focusedTrailingIconColor = Unicorn.OnNight,
+                unfocusedTrailingIconColor = Unicorn.OnNight,
+                focusedPlaceholderColor = Unicorn.OnNight.copy(alpha = 0.6f),
+                unfocusedPlaceholderColor = Unicorn.OnNight.copy(alpha = 0.6f),
+                focusedIndicatorColor = Color.Transparent,
+                unfocusedIndicatorColor = Color.Transparent,
+            ),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(onSearch = { c.findNext(true) }),
+        )
+        IconButton(onClick = { c.findNext(false) }, enabled = c.findCount > 0) {
+            Icon(Icons.Filled.KeyboardArrowUp, contentDescription = stringResource(R.string.find_previous), tint = Unicorn.OnNight)
+        }
+        IconButton(onClick = { c.findNext(true) }, enabled = c.findCount > 0) {
+            Icon(Icons.Filled.KeyboardArrowDown, contentDescription = stringResource(R.string.find_next), tint = Unicorn.OnNight)
+        }
+        IconButton(onClick = { c.closeFind() }) {
+            Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.find_close), tint = Unicorn.OnNight)
+        }
+    }
+}
+
+/** A link or an image held down: open it elsewhere, copy, share, save. */
+@Composable
+private fun LongPressMenu(c: BrowserController, target: LongPressTarget) {
+    val dismiss = { c.longPress = null }
+    val private = c.activePrivate
+    androidx.compose.ui.window.Dialog(onDismissRequest = dismiss) {
+        Surface(shape = RoundedCornerShape(16.dp), tonalElevation = 6.dp) {
+            Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                Text(
+                    (target.link ?: target.image).orEmpty().let { if (it.startsWith("data:")) it.take(40) + "…" else it },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                )
+                @Composable
+                fun item(label: Int, action: () -> Unit) {
+                    Text(
+                        stringResource(label),
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.fillMaxWidth().clickable {
+                            dismiss()
+                            action()
+                        }.padding(horizontal = 20.dp, vertical = 12.dp),
+                    )
+                }
+                target.link?.let { link ->
+                    // A private tab's links stay private.
+                    if (!private) item(R.string.open_in_new_tab) { c.openInNewTab(target.tab, link, false) }
+                    if (c.views.privateSupported) {
+                        item(R.string.open_in_private_tab) { c.openInNewTab(target.tab, link, true) }
+                    }
+                    item(R.string.copy_link) { c.copy(link) }
+                    item(R.string.share_link) { c.share(link) }
+                }
+                target.image?.let { image ->
+                    if (!image.startsWith("data:")) {
+                        item(R.string.open_image) { c.openInNewTab(target.tab, image, private) }
+                        item(R.string.copy_image_address) { c.copy(image) }
+                    }
+                    item(R.string.save_image) { c.saveImage(target) }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The window a page opened (a sign-in with Google, Apple...), over the
+ * browser: its site, and a button to close it. Back goes back in it, then
+ * closes it.
+ */
+@Composable
+private fun PopupWindowDialog(c: BrowserController, view: android.webkit.WebView) {
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = { c.popupWindowBack() },
+        properties = androidx.compose.ui.window.DialogProperties(
+            usePlatformDefaultWidth = false,
+            dismissOnClickOutside = false,
+        ),
+    ) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            tonalElevation = 6.dp,
+            modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 24.dp).imePadding(),
+        ) {
+            Column(Modifier.fillMaxSize()) {
+                Row(
+                    Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    val url = c.popupWindowUrl.orEmpty()
+                    if (url.startsWith("https://")) {
+                        Icon(
+                            Icons.Filled.Lock,
+                            contentDescription = stringResource(R.string.site_secure),
+                            modifier = Modifier.size(14.dp),
+                        )
+                    }
+                    Text(
+                        android.net.Uri.parse(url).host ?: url,
+                        style = MaterialTheme.typography.titleSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f).padding(start = 6.dp),
+                    )
+                    IconButton(onClick = { c.closePopupWindow() }) {
+                        Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.close_window))
+                    }
+                }
+                AndroidView(
+                    factory = {
+                        (view.parent as? ViewGroup)?.removeView(view)
+                        view
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
         }
     }

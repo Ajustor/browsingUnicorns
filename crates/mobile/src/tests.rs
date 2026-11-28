@@ -829,8 +829,10 @@ fn a_crashed_page_waits_and_idle_tabs_sleep() {
             .contains(&format!("open {second} https://b.com/"))
     );
 
+    // A tab playing stays awake.
+    assert_eq!(b.sleep_idle_tabs(0, vec![first]), 0);
     // Short of memory: every tab but the one shown sleeps at once.
-    assert_eq!(b.sleep_idle_tabs(0), 1);
+    assert_eq!(b.sleep_idle_tabs(0, vec![]), 1);
     let state = b.state();
     assert!(state.tabs.iter().find(|t| t.id == first).unwrap().asleep);
     assert!(!state.tabs.iter().find(|t| t.id == second).unwrap().asleep);

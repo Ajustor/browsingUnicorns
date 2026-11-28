@@ -23,6 +23,7 @@ import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebViewClient
@@ -38,6 +39,8 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.webkit.ProfileStore
 import androidx.webkit.ScriptHandler
+import androidx.webkit.UserAgentMetadata
+import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import uniffi.mobile.BackgroundPage
@@ -154,9 +157,6 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
         }
     }
 
-    /** Captures the visible tab (before showing the tabs grid). */
-    fun captureActive() {
-        views.entries.firstOrNull { it.value.visibility == View.VISIBLE }?.let { capture(it.key) }
     /** The activity under [context] (the WebViews' context wraps it). */
     private fun activityOf(context: Context): android.app.Activity? {
         var c: Context? = context
@@ -167,6 +167,9 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
         return null
     }
 
+    /** Captures the visible tab (before showing the tabs grid). */
+    fun captureActive() {
+        views.entries.firstOrNull { it.value.visibility == View.VISIBLE }?.let { capture(it.key) }
     }
 
     /** The scripts injected into every page (extensions' content scripts, user scripts). */
@@ -239,6 +242,7 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
         }
 
     init {
+        MediaService.onPause = { main.post { pauseMedia() } }
         WebView.setWebContentsDebuggingEnabled(webDebugging)
         // What private tabs left: the process ended without closing them.
         deletePrivateProfile()
@@ -450,6 +454,114 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
     /** Called when the page is touched: the address bar gives the focus back. */
     var onPageTouched: () -> Unit = {}
 
+    /** A link or an image of the shown page held down: what to do with it. */
+    var onLongPress: (LongPressTarget) -> Unit = {}
+
+    /** The shown page's find in page: the match shown (from 0) among [count]. */
+    var onFindResult: (active: Int, count: Int) -> Unit = { _, _ -> }
+
+    /**
+     * Whether [view], held down, shows a link or an image: then the app's
+     * menu, rather than the page's text selection.
+     */
+    private fun longPress(tab: ULong, view: WebView): Boolean {
+        if (view.visibility != View.VISIBLE) return false
+        val hit = view.hitTestResult
+        val extra = hit.extra?.takeIf { it.isNotEmpty() } ?: return false
+        when (hit.type) {
+            WebView.HitTestResult.SRC_ANCHOR_TYPE -> onLongPress(LongPressTarget(tab, extra, null))
+            WebView.HitTestResult.IMAGE_TYPE -> onLongPress(LongPressTarget(tab, null, extra))
+            // An image in a link: the hit gives the image, the link is asked for.
+            WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE -> {
+                val reply = Handler(Looper.getMainLooper()) { message ->
+                    val link = message.data.getString("url")?.takeIf { it.isNotEmpty() }
+                    onLongPress(LongPressTarget(tab, link, extra))
+                    true
+                }
+                view.requestFocusNodeHref(reply.obtainMessage())
+            }
+            else -> return false
+        }
+        return true
+    }
+
+    /** Downloads the image at [url], shown in [tab]'s page. */
+    fun saveImage(tab: ULong, url: String) {
+        val view = views[tab] ?: return
+        val type = android.webkit.MimeTypeMap.getFileExtensionFromUrl(url)
+            .takeIf { it.isNotEmpty() }
+            ?.let { android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(it.lowercase()) }
+        downloads.start(view, url, view.settings.userAgentString, null, type, pages[tab])
+    }
+
+    /** Finds [text] in the shown page (empty: the matches go). */
+    fun find(text: String) {
+        val view = active() ?: return
+        if (text.isEmpty()) {
+            view.clearMatches()
+            onFindResult(0, 0)
+        } else {
+            view.findAllAsync(text)
+        }
+    }
+
+    /** The next match (or the previous one) of the shown page. */
+    fun findNext(forward: Boolean) {
+        active()?.findNext(forward)
+    }
+
+    /** Find in page closed: the matches go. */
+    fun clearFind() {
+        views.values.forEach { it.clearMatches() }
+    }
+
+    /** The tabs asking for the sites' computer version. */
+    private val desktopTabs = HashSet<ULong>()
+
+    fun isDesktop(tab: ULong) = tab in desktopTabs
+
+    /** [tab] asks for the sites' computer version (or the phone's again), and reloads. */
+    fun setDesktop(tab: ULong, desktop: Boolean) {
+        if (desktop) desktopTabs += tab else desktopTabs -= tab
+        val view = views[tab] ?: return
+        applyDesktop(view, desktop)
+        view.reload()
+    }
+
+    /** The user agent and the layout of a computer's browser, or of the phone's. */
+    private fun applyDesktop(view: WebView, desktop: Boolean) {
+        val settings = view.settings
+        settings.userAgentString = if (desktop) desktopUserAgent(WebSettings.getDefaultUserAgent(context)) else null
+        // Laid out at a computer's width, shown whole.
+        settings.useWideViewPort = desktop
+        settings.loadWithOverviewMode = desktop
+        // The client hints say it too (Sec-CH-UA-Mobile).
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.USER_AGENT_METADATA)) {
+            runCatching {
+                val metadata = WebSettingsCompat.getUserAgentMetadata(settings)
+                WebSettingsCompat.setUserAgentMetadata(
+                    settings,
+                    UserAgentMetadata.Builder(metadata).setMobile(!desktop).build(),
+                )
+            }
+        }
+    }
+
+    /** Pages without a dark theme of their own are darkened. */
+    var darkPages: Boolean = prefs.getBoolean("dark_pages", false)
+        set(value) {
+            field = value
+            prefs.edit().putBoolean("dark_pages", value).apply()
+            views.values.forEach { applyDarkPages(it) }
+        }
+
+    /** Whether Android's WebView can darken pages. */
+    val darkPagesSupported = WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)
+
+    private fun applyDarkPages(view: WebView) {
+        if (darkPagesSupported) WebSettingsCompat.setAlgorithmicDarkeningAllowed(view.settings, darkPages)
+    }
+
     /** Called after each page event, to refresh the screen. */
     var onChange: () -> Unit = {}
 
@@ -595,6 +707,14 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
         container.removeAllViews()
         all.forEach { it.destroy() }
         privateTabs.clear()
+        desktopTabs.clear()
+        popupWindow?.destroy()
+        popupWindow = null
+        popupTab = null
+        if (playing.isNotEmpty()) {
+            playing.clear()
+            onPlaying(emptySet())
+        }
         main.post { deletePrivateProfile() }
     }
 
@@ -611,9 +731,18 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
      */
     fun pause() {
         offScreen = true
-        val all = views.values + backgrounds.values + listOfNotNull(panel)
-        all.forEach { it.onPause() }
-        all.firstOrNull()?.let {
+        // A tab playing (music, a podcast) keeps playing, its scripts with it.
+        val keep = playing.keys.mapNotNull { views[it] }.toSet()
+        (views.values + backgrounds.values + listOfNotNull(panel, popupWindow))
+            .filter { it !in keep }
+            .forEach { it.onPause() }
+        if (keep.isEmpty()) pauseTimersNow()
+    }
+
+    /** Pauses the JavaScript timers of every WebView (one switch for all). */
+    private fun pauseTimersNow() {
+        if (timersPaused) return
+        (views.values + backgrounds.values + listOfNotNull(panel)).firstOrNull()?.let {
             it.pauseTimers()
             timersPaused = true
         }
@@ -623,7 +752,7 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
     fun resume() {
         offScreen = false
         resumeTimers()
-        (backgrounds.values + listOfNotNull(panel, active())).forEach { it.onResume() }
+        (backgrounds.values + listOfNotNull(panel, popupWindow, active())).forEach { it.onResume() }
     }
 
     /** Restarts the timers if they were paused, through [view] or any WebView. */
@@ -665,6 +794,8 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
         pendingScriptlets.remove(tab)
         thumbnails.remove(tab)
         favicons.remove(tab)
+        if (popupTab == tab) closePopupWindow()
+        setPlaying(tab, null, false)
         views.remove(tab)?.let {
             container.removeView(it)
             it.destroy()
@@ -672,6 +803,151 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
         // The last private tab: its cookies and storage go (once the view is gone).
         if (privateTabs.remove(tab) && privateTabs.isEmpty()) main.post { deletePrivateProfile() }
     }
+
+    // --- A site's own window ----------------------------------------------------
+
+    /** The window a page opened (a sign-in), over the browser; null: none. */
+    var popupWindow: WebView? = null
+        private set
+
+    /** The tab whose page opened [popupWindow]. */
+    private var popupTab: ULong? = null
+
+    /** Called when [popupWindow] opens, loads another page, or closes (null). */
+    var onPopupWindow: (WebView?) -> Unit = {}
+
+    /** Gives the page of [tab] the window it asked for in [resultMsg]. */
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun openPopupWindow(tab: ULong, private: Boolean, userAgent: String?, resultMsg: Message) {
+        closePopupWindow()
+        val popup = WebView(context)
+        if (private) usePrivateProfile(popup)
+        popup.settings.javaScriptEnabled = true
+        popup.settings.domStorageEnabled = true
+        // Its page's user agent (computer version included): sign-ins check it.
+        popup.settings.userAgentString = userAgent
+        applyDarkPages(popup)
+        popup.webViewClient = object : WebViewClient() {
+            override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
+                if (popupWindow === view) onPopupWindow(view)
+            }
+
+            // An app's sign-in (intent:, its own scheme): to the app.
+            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                val scheme = request.url.scheme ?: return false
+                if (scheme in setOf("http", "https", "about", "data", "blob", "javascript")) return false
+                if (request.hasGesture() && request.isForMainFrame) openExternal(tab, request.url)
+                return true
+            }
+
+            override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+                if (popupWindow === view) closePopupWindow() else view.destroy()
+                return true
+            }
+        }
+        popup.webChromeClient = object : WebChromeClient() {
+            // window.close(), from it or from its opener.
+            override fun onCloseWindow(window: WebView) {
+                if (popupWindow === window) closePopupWindow()
+            }
+
+            override fun onReceivedTitle(view: WebView, title: String?) {
+                if (popupWindow === view) onPopupWindow(view)
+            }
+        }
+        popupWindow = popup
+        popupTab = tab
+        (resultMsg.obj as WebView.WebViewTransport).webView = popup
+        resultMsg.sendToTarget()
+        onPopupWindow(popup)
+    }
+
+    /** Closes the site's window (its close button, window.close(), its tab closed). */
+    fun closePopupWindow() {
+        val popup = popupWindow ?: return
+        popupWindow = null
+        popupTab = null
+        onPopupWindow(null)
+        (popup.parent as? ViewGroup)?.removeView(popup)
+        popup.destroy()
+    }
+
+    // --- Media playing --------------------------------------------------------
+
+    /**
+     * Reports, from every frame of the tabs, whether one of its audio or
+     * video elements plays. Elements not in the document (new Audio())
+     * are not seen.
+     */
+    private val mediaScript = """
+        (() => {
+          const media = window.BUMedia;
+          if (!media) return;
+          const frame = Math.random().toString(36).slice(2);
+          const playing = new Set();
+          const tell = () => { try { media.playing(frame, playing.size > 0); } catch (e) {} };
+          document.addEventListener("playing", (e) => { playing.add(e.target); tell(); }, true);
+          for (const type of ["pause", "ended", "emptied"]) {
+            document.addEventListener(type, (e) => { if (playing.delete(e.target)) tell(); }, true);
+          }
+          addEventListener("pagehide", () => { if (playing.size) { playing.clear(); tell(); } });
+          // The notification's pause: this frame's media, then its frames'.
+          addEventListener("message", (e) => {
+            if (e.data !== "bu-pause-media") return;
+            document.querySelectorAll("audio, video").forEach((m) => m.pause());
+            for (let i = 0; i < frames.length; i++) frames[i].postMessage("bu-pause-media", "*");
+          });
+        })();
+    """.trimIndent()
+
+    /** Each tab's frames playing media. */
+    private val playing = HashMap<ULong, MutableSet<String>>()
+
+    /** The tabs playing media, or not any more (the activity keeps the app running for them). */
+    var onPlaying: (Set<ULong>) -> Unit = {}
+
+    /** The tabs playing media now. */
+    val playingTabs: Set<ULong> get() = playing.keys
+
+    /** The page of a tab saying whether its frame [frame] plays. */
+    private inner class MediaBridge(private val tab: ULong) {
+        @JavascriptInterface
+        fun playing(frame: String, now: Boolean) {
+            main.post { if (views.containsKey(tab)) setPlaying(tab, frame, now) }
+        }
+    }
+
+    /** [frame] of [tab] plays or not; null: none of its frames any more. */
+    private fun setPlaying(tab: ULong, frame: String?, now: Boolean) {
+        val before = playing.keys.toSet()
+        if (frame == null) {
+            playing.remove(tab)
+        } else if (now) {
+            playing.getOrPut(tab) { HashSet() } += frame
+        } else {
+            playing[tab]?.let {
+                it -= frame
+                if (it.isEmpty()) playing.remove(tab)
+            }
+        }
+        if (playing.keys == before) return
+        // Off screen, a tab that stopped playing stops its work too.
+        if (offScreen && tab !in playing) {
+            views[tab]?.onPause()
+            if (playing.isEmpty()) pauseTimersNow()
+        }
+        onPlaying(playing.keys.toSet())
+    }
+
+    /** Pauses the media of every tab playing (the notification's button). */
+    fun pauseMedia() {
+        for (tab in playing.keys.toList()) {
+            views[tab]?.evaluateJavascript("postMessage('bu-pause-media', '*');", null)
+        }
+    }
+
+    /** The title of a tab playing media, for its notification. */
+    fun playingTitle(): String? = playing.keys.firstOrNull()?.let { views[it]?.title }
 
     override fun show(tab: ULong?) = onMain {
         captureActive()
@@ -785,6 +1061,12 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
         settings.setSupportMultipleWindows(true)
         settings.builtInZoomControls = true
         settings.displayZoomControls = false
+        if (tab in desktopTabs) applyDesktop(this, true)
+        applyDarkPages(this)
+        setOnLongClickListener { longPress(tab, this) }
+        setFindListener { active, count, _ -> if (visibility == View.VISIBLE) onFindResult(active, count) }
+        addJavascriptInterface(MediaBridge(tab), "BUMedia")
+        if (documentStart) WebViewCompat.addDocumentStartJavaScript(this, mediaScript, setOf("*"))
         addJavascriptInterface(Bridge(PageTarget.Tab(tab)), "BUBridge")
         addJavascriptInterface(downloads.Bridge(), "BUDownloads")
         setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
@@ -793,7 +1075,10 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
         webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
                 pages[tab] = url
+                // Another page: what played went with the last one.
+                setPlaying(tab, null, false)
                 // Older WebViews: the scripts run as early as the app can.
+                if (!documentStart) view.evaluateJavascript(mediaScript, null)
                 if (!documentStart && !private) pageScripts.forEach { view.evaluateJavascript(it, null) }
                 pendingScriptlets.remove(tab)?.let { view.evaluateJavascript(it, null) }
                 browser.onLoadStarted(tab, url)
@@ -953,6 +1238,14 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
                 resultMsg: Message,
             ): Boolean {
                 if (!isUserGesture) return false
+                // Not a link tapped (a button's window.open: a sign-in with
+                // Google, Apple...): a window over the page, which keeps its
+                // link to it (window.opener, postMessage, close()).
+                val hit = view.hitTestResult.type
+                if (hit != WebView.HitTestResult.SRC_ANCHOR_TYPE && hit != WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE) {
+                    openPopupWindow(tab, private, view.settings.userAgentString, resultMsg)
+                    return true
+                }
                 val catcher = WebView(context)
                 if (private) usePrivateProfile(catcher)
                 var gone = false
@@ -995,6 +1288,20 @@ class WebViews(private val context: Context, private val downloads: Downloads) :
         /** A new window that hasn't navigated after this long is dropped. */
         private const val CATCHER_TIMEOUT_MS = 10_000L
     }
+}
+
+/** What was held down in [tab]'s page: a link, an image, or an image in a link. */
+data class LongPressTarget(val tab: ULong, val link: String?, val image: String?)
+
+/**
+ * A computer's Chrome user agent, of the same version as [mobile] (the
+ * WebView's own): what sites give their computer version to.
+ */
+fun desktopUserAgent(mobile: String): String {
+    val chrome = Regex("Chrome/([\\d.]+)").find(mobile)?.groupValues?.get(1) ?: "130.0.0.0"
+    // Chrome's reduced user agent: the version's minor numbers are zeros.
+    val major = chrome.substringBefore('.')
+    return "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$major.0.0.0 Safari/537.36"
 }
 
 /** What a site may ask to use, and the Android permissions it takes. */

@@ -218,4 +218,31 @@
     <string name="site_ask_location">votre position</string>
     <string name="site_allow">Autoriser</string>
     <string name="site_deny">Refuser</string>
+    <!-- The page's menu. -->
+    <string name="find_in_page">Rechercher dans la page</string>
+    <string name="find_previous">Résultat précédent</string>
+    <string name="find_next">Résultat suivant</string>
+    <string name="find_close">Fermer la recherche</string>
+    <string name="share_page">Partager</string>
+    <string name="copy_page_address">Copier l’adresse</string>
+    <string name="copied">Copié</string>
+    <string name="desktop_site">Version ordinateur</string>
+    <!-- A link or an image held down in a page. -->
+    <string name="open_in_new_tab">Ouvrir dans un nouvel onglet</string>
+    <string name="open_in_private_tab">Ouvrir dans un onglet privé</string>
+    <string name="copy_link">Copier le lien</string>
+    <string name="share_link">Partager le lien</string>
+    <string name="open_image">Ouvrir l’image dans un nouvel onglet</string>
+    <string name="copy_image_address">Copier l’adresse de l’image</string>
+    <string name="save_image">Télécharger l’image</string>
+    <!-- Settings: how pages show. -->
+    <string name="pages">Pages</string>
+    <string name="dark_pages">Pages sombres</string>
+    <string name="dark_pages_hint">Les sites sans thème sombre sont assombris.</string>
+    <!-- A tab playing with the app off screen: its notification. -->
+    <string name="media_channel">Lecture en cours</string>
+    <string name="media_playing">Lecture en arrière-plan</string>
+    <string name="media_pause">Pause</string>
+    <!-- A site's window (a sign-in). -->
+    <string name="close_window">Fermer la fenêtre</string>
 </resources>
